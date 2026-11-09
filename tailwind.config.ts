@@ -1,0 +1,147 @@
+import type { Config } from "tailwindcss";
+
+export default {
+  darkMode: ["class"],
+  content: ["./pages/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}", "./app/**/*.{ts,tsx}", "./src/**/*.{ts,tsx}"],
+  prefix: "",
+  theme: {
+    container: {
+      center: true,
+      padding: "2rem",
+      screens: {
+        "2xl": "1400px",
+      },
+    },
+    extend: {
+      colors: {
+        slate: {
+          50: "rgb(var(--canvas-rgb) / <alpha-value>)",
+          100: "rgb(var(--surface-soft-rgb) / <alpha-value>)",
+          200: "rgb(var(--line-rgb) / <alpha-value>)",
+          300: "rgb(var(--line-strong-rgb) / <alpha-value>)",
+          400: "rgb(var(--muted-rgb) / <alpha-value>)",
+          500: "rgb(var(--text-muted-rgb) / <alpha-value>)",
+          600: "rgb(var(--text-muted-rgb) / <alpha-value>)",
+          700: "rgb(var(--text-rgb) / <alpha-value>)",
+          800: "rgb(var(--forest-rgb) / <alpha-value>)",
+          900: "rgb(var(--forest-rgb) / <alpha-value>)",
+          950: "rgb(var(--forest-rgb) / <alpha-value>)",
+        },
+        teal: {
+          50: "rgb(var(--surface-soft-rgb) / <alpha-value>)",
+          100: "rgb(var(--mint-bg-rgb) / <alpha-value>)",
+          200: "rgb(var(--mint-rgb) / <alpha-value>)",
+          300: "rgb(var(--mint-rgb) / <alpha-value>)",
+          400: "rgb(var(--primary-rgb) / <alpha-value>)",
+          500: "rgb(var(--primary-rgb) / <alpha-value>)",
+          600: "rgb(var(--primary-rgb) / <alpha-value>)",
+          700: "rgb(var(--primary-rgb) / <alpha-value>)",
+          800: "rgb(var(--forest-rgb) / <alpha-value>)",
+          900: "rgb(var(--forest-rgb) / <alpha-value>)",
+        },
+        emerald: {
+          50: "rgb(var(--surface-soft-rgb) / <alpha-value>)",
+          100: "rgb(var(--mint-bg-rgb) / <alpha-value>)",
+          200: "rgb(var(--mint-rgb) / <alpha-value>)",
+          300: "rgb(var(--mint-rgb) / <alpha-value>)",
+          400: "rgb(var(--mint-rgb) / <alpha-value>)",
+          500: "rgb(var(--mint-rgb) / <alpha-value>)",
+          600: "rgb(var(--primary-rgb) / <alpha-value>)",
+          700: "rgb(var(--primary-rgb) / <alpha-value>)",
+          800: "rgb(var(--forest-rgb) / <alpha-value>)",
+          900: "rgb(var(--forest-rgb) / <alpha-value>)",
+        },
+        amber: {
+          50: "rgb(var(--alert-bg-rgb) / <alpha-value>)",
+          100: "rgb(var(--alert-bg-rgb) / <alpha-value>)",
+          200: "rgb(var(--alert-rgb) / <alpha-value>)",
+          300: "rgb(var(--alert-rgb) / <alpha-value>)",
+          400: "rgb(var(--alert-rgb) / <alpha-value>)",
+          500: "rgb(var(--alert-rgb) / <alpha-value>)",
+          600: "rgb(var(--alert-rgb) / <alpha-value>)",
+          700: "rgb(var(--text-rgb) / <alpha-value>)",
+          800: "rgb(var(--text-rgb) / <alpha-value>)",
+          900: "rgb(var(--text-rgb) / <alpha-value>)",
+        },
+        red: {
+          50: "rgb(var(--reject-bg-rgb) / <alpha-value>)",
+          100: "rgb(var(--reject-bg-rgb) / <alpha-value>)",
+          200: "rgb(var(--reject-rgb) / <alpha-value>)",
+          300: "rgb(var(--reject-rgb) / <alpha-value>)",
+          400: "rgb(var(--reject-rgb) / <alpha-value>)",
+          500: "rgb(var(--reject-rgb) / <alpha-value>)",
+          600: "rgb(var(--reject-rgb) / <alpha-value>)",
+          700: "rgb(var(--reject-rgb) / <alpha-value>)",
+          800: "rgb(var(--reject-rgb) / <alpha-value>)",
+          900: "rgb(var(--reject-rgb) / <alpha-value>)",
+        },
+        border: "hsl(var(--border))",
+        input: "hsl(var(--input))",
+        ring: "hsl(var(--ring))",
+        background: "hsl(var(--background))",
+        foreground: "hsl(var(--foreground))",
+        primary: {
+          DEFAULT: "hsl(var(--primary))",
+          foreground: "hsl(var(--primary-foreground))",
+        },
+        secondary: {
+          DEFAULT: "hsl(var(--secondary))",
+          foreground: "hsl(var(--secondary-foreground))",
+        },
+        destructive: {
+          DEFAULT: "hsl(var(--destructive))",
+          foreground: "hsl(var(--destructive-foreground))",
+        },
+        muted: {
+          DEFAULT: "hsl(var(--muted))",
+          foreground: "hsl(var(--muted-foreground))",
+        },
+        accent: {
+          DEFAULT: "hsl(var(--accent))",
+          foreground: "hsl(var(--accent-foreground))",
+        },
+        popover: {
+          DEFAULT: "hsl(var(--popover))",
+          foreground: "hsl(var(--popover-foreground))",
+        },
+        card: {
+          DEFAULT: "hsl(var(--card))",
+          foreground: "hsl(var(--card-foreground))",
+        },
+        sidebar: {
+          DEFAULT: "hsl(var(--sidebar-background))",
+          foreground: "hsl(var(--sidebar-foreground))",
+          primary: "hsl(var(--sidebar-primary))",
+          "primary-foreground": "hsl(var(--sidebar-primary-foreground))",
+          accent: "hsl(var(--sidebar-accent))",
+          "accent-foreground": "hsl(var(--sidebar-accent-foreground))",
+          border: "hsl(var(--sidebar-border))",
+          ring: "hsl(var(--sidebar-ring))",
+        },
+      },
+      borderRadius: {
+        xl: "1rem",
+        lg: "var(--radius)",
+        md: "calc(var(--radius) - 2px)",
+        sm: "calc(var(--radius) - 4px)",
+      },
+      fontFamily: {
+        sans: ['Inter', 'sans-serif'],
+      },
+      keyframes: {
+        "fade-in-up": {
+          "0%": { opacity: "0", transform: "translateY(20px)" },
+          "100%": { opacity: "1", transform: "translateY(0)" },
+        },
+        "slide-in-right": {
+          "0%": { opacity: "0", transform: "translateX(20px)" },
+          "100%": { opacity: "1", transform: "translateX(0)" },
+        },
+      },
+      animation: {
+        "fade-in-up": "fade-in-up 0.6s ease-out forwards",
+        "slide-in-right": "slide-in-right 0.5s ease-out forwards",
+      },
+    },
+  },
+} satisfies Config;
