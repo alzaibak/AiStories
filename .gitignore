@@ -1,0 +1,30 @@
+# Dépendances, builds et fichiers locaux
+node_modules/
+dist/
+dist-ssr/
+*.local
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+backend/.env
+!backend/.env.example
+backend/node_modules/
+
+# Journaux
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# IDE
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
