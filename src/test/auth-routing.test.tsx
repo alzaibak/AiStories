@@ -2,158 +2,94 @@ import { act, type ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const authState = vi.hoisted(() => ({
-  value: {
-    user: null as null | { role: 'BUYER' | 'SELLER' | 'ADMIN' | 'SUPER_ADMIN' },
-    isLoading: false
-  }
-}));
-type TestRole = 'BUYER' | 'SELLER' | 'ADMIN' | 'SUPER_ADMIN';
-
-vi.mock('@/contexts/TenderAuthContext', async (importOriginal) => {
-  const original = await importOriginal<typeof import('@/contexts/TenderAuthContext')>();
+vi.mock('@/contexts/StoryAuthContext', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@/contexts/StoryAuthContext')>();
   return {
     ...original,
-    TenderAuthProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
-    useTenderAuth: () => authState.value
+    StoryAuthProvider: ({ children }: { children: ReactNode }) => <>{children}</>
   };
 });
 
-vi.mock('@/pages/tendering/WorkspacePage', () => ({
-  default: () => <div>workspace-view</div>
+vi.mock('@/pages/stories/StoryPlatform', () => ({
+  LandingPage: () => <div>home-view</div>,
+  StoriesPage: () => <div>stories-view</div>,
+  StoryDetailPage: () => <div>story-view</div>,
+  ReaderPage: () => <div>reader-view</div>,
+  BooksPage: () => <div>books-view</div>,
+  BookDetailPage: () => <div>book-view</div>,
+  ReaderAuthPage: ({ mode }: { mode: string }) => <div>auth-{mode}</div>,
+  AdminLoginPage: () => <div>admin-login-view</div>,
+  AdminStoreOrdersPage: () => <div>admin-orders-view</div>,
+  AdminSubscriptionsPage: () => <div>admin-subscriptions-view</div>,
+  AccountPage: () => <div>account-view</div>,
+  MembershipPage: () => <div>membership-view</div>,
+  CheckoutResultPage: () => <div>checkout-result-view</div>,
+  PolicyPage: ({ kind }: { kind: string }) => <div>policy-{kind}</div>
 }));
-vi.mock('@/pages/tendering/AuthPage', () => ({
-  default: ({ mode, role }: { mode: string; role?: string }) => <div>auth-{mode}-{role || 'none'}</div>
-}));
-vi.mock('@/pages/tendering/LandingPage', () => ({
-  default: () => <div>landing-view</div>
-}));
-vi.mock('@/pages/NotFound', () => ({
-  default: () => <div>not-found-view</div>,
-  StatusPage: () => <div>status-view</div>
-}));
+vi.mock('@/pages/NotFound', () => ({ default: () => <div>not-found-view</div> }));
 
 import App from '@/App';
 
 let root: Root | undefined;
 let container: HTMLDivElement | undefined;
 
-async function renderAt(path: string, role: TestRole | null) {
-  if (root) {
-    await act(async () => root?.unmount());
-  }
+async function renderAt(path: string) {
+  if (root) await act(async () => root?.unmount());
   container?.remove();
   window.history.replaceState({}, '', path);
-  authState.value = { user: role ? { role } : null, isLoading: false };
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
-  await act(async () => {
-    root?.render(<App />);
-  });
+  await act(async () => root?.render(<App />));
 }
 
 afterEach(async () => {
-  if (root) {
-    await act(async () => root?.unmount());
-  }
+  if (root) await act(async () => root?.unmount());
   container?.remove();
   root = undefined;
   container = undefined;
   window.history.replaceState({}, '', '/');
 });
 
-describe('redirection et cloisonnement des espaces', () => {
-  it('redirige un vendeur qui ouvre une route acheteur vers son tableau de bord', async () => {
-    await renderAt('/buyer/dashboard', 'SELLER');
-    expect(window.location.pathname).toBe('/seller/dashboard');
-    expect(container?.textContent).toContain('workspace-view');
+describe('routes de la plateforme de récits', () => {
+  it('monte la page d’accueil et les pages de découverte', async () => {
+    await renderAt('/ar');
+    expect(container?.textContent).toContain('home-view');
+    await renderAt('/fr/stories');
+    expect(container?.textContent).toContain('stories-view');
+    await renderAt('/en/stories/histoire-exemple');
+    expect(container?.textContent).toContain('story-view');
+    await renderAt('/ar/stories/histoire-exemple/read/1');
+    expect(container?.textContent).toContain('reader-view');
   });
 
-  it('redirige un acheteur qui ouvre une route vendeur vers son tableau de bord', async () => {
-    await renderAt('/seller/dashboard', 'BUYER');
-    expect(window.location.pathname).toBe('/buyer/dashboard');
-    expect(container?.textContent).toContain('workspace-view');
+  it('monte la boutique et ses fiches livres', async () => {
+    await renderAt('/fr/books');
+    expect(container?.textContent).toContain('books-view');
+    await renderAt('/en/books/livre-exemple');
+    expect(container?.textContent).toContain('book-view');
   });
 
-  it('envoie chaque rôle vers son tableau de bord après ouverture de /workspace', async () => {
-    await renderAt('/workspace', 'SELLER');
-    expect(window.location.pathname).toBe('/seller/dashboard');
-    expect(container?.textContent).toContain('workspace-view');
-  });
-
-  it('envoie également un acheteur vers son propre tableau de bord', async () => {
-    await renderAt('/workspace', 'BUYER');
-    expect(window.location.pathname).toBe('/buyer/dashboard');
-    expect(container?.textContent).toContain('workspace-view');
-  });
-
-  it('redirige un visiteur non connecté vers la connexion depuis une route protégée', async () => {
-    await renderAt('/buyer/dashboard', null);
-    expect(window.location.pathname).toBe('/login');
+  it('monte les formulaires lecteur, le compte et les politiques', async () => {
+    await renderAt('/ar/login');
     expect(container?.textContent).toContain('auth-login');
+    await renderAt('/fr/register');
+    expect(container?.textContent).toContain('auth-register');
+    await renderAt('/en/account');
+    expect(container?.textContent).toContain('account-view');
+    await renderAt('/ar/membership');
+    expect(container?.textContent).toContain('membership-view');
+    await renderAt('/fr/policy/sources');
+    expect(container?.textContent).toContain('policy-sources');
+    await renderAt('/en/policy/depiction');
+    expect(container?.textContent).toContain('policy-depiction');
   });
 
-  it('redirige les anciennes routes de connexion vers /login', async () => {
-    await renderAt('/seller/login', null);
-    expect(window.location.pathname).toBe('/login');
-    expect(container?.textContent).toContain('auth-login');
-  });
-
-  it('redirige une ancienne route d’inscription acheteur vers la nouvelle page', async () => {
-    await renderAt('/buyer/register', null);
-    expect(window.location.pathname).toBe('/register/buyer');
-    expect(container?.textContent).toContain('auth-register-BUYER');
-  });
-
-  it('redirige aussi une ancienne route d’inscription vendeur', async () => {
-    await renderAt('/seller/register', null);
-    expect(window.location.pathname).toBe('/register/seller');
-    expect(container?.textContent).toContain('auth-register-SELLER');
-  });
-
-  it('monte séparément les formulaires d’inscription acheteur et vendeur', async () => {
-    await renderAt('/register/buyer', null);
-    expect(container?.textContent).toContain('auth-register-BUYER');
-    await renderAt('/register/seller', null);
-    expect(container?.textContent).toContain('auth-register-SELLER');
-  });
-
-  it('permet au rôle correspondant d’ouvrir son espace vendeur ou acheteur', async () => {
-    await renderAt('/buyer/dashboard', 'BUYER');
-    expect(container?.textContent).toContain('workspace-view');
-    await renderAt('/seller/dashboard', 'SELLER');
-    expect(container?.textContent).toContain('workspace-view');
-  });
-
-  it('redirige un utilisateur client hors de l’espace administrateur', async () => {
-    await renderAt('/admin/dashboard', 'SELLER');
-    expect(window.location.pathname).toBe('/seller/dashboard');
-    expect(container?.textContent).toContain('workspace-view');
-  });
-
-  it('redirige ADMIN vers son espace s’il ouvre les invitations réservées au SUPER_ADMIN', async () => {
-    await renderAt('/admin/invitations', 'ADMIN');
-    expect(window.location.pathname).toBe('/admin/dashboard');
-    expect(container?.textContent).toContain('workspace-view');
-  });
-
-  it('réserve l’écran d’invitations au SUPER_ADMIN', async () => {
-    await renderAt('/admin/invitations', 'SUPER_ADMIN');
-    expect(container?.textContent).toContain('auth-admin-invite');
-  });
-
-  it('monte l’écran de connexion administrateur dédié', async () => {
-    await renderAt('/admin/login', null);
-    expect(container?.textContent).toContain('auth-admin-login-none');
-  });
-
-  it('monte l’accueil, la page 403 et la page introuvable', async () => {
-    await renderAt('/', null);
-    expect(container?.textContent).toContain('landing-view');
-    await renderAt('/403', null);
-    expect(container?.textContent).toContain('status-view');
-    await renderAt('/route-inconnue', null);
+  it('redirige l’ancien espace vers le compte et affiche une page introuvable autrement', async () => {
+    await renderAt('/workspace');
+    expect(window.location.pathname).toBe('/ar/account');
+    expect(container?.textContent).toContain('account-view');
+    await renderAt('/ar/route-inconnue');
     expect(container?.textContent).toContain('not-found-view');
   });
 });

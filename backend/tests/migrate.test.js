@@ -7,9 +7,9 @@ const {
 } = require('../migrations/001-create-tendering-schema');
 const { removeForeignKeysForColumn } = require('../migrations/003-remove-commerce-schema');
 
-test('ne resynchronise pas les tables présentes avant les migrations versionnées', async () => {
+test('ne resynchronise pas les tables de base déjà présentes', async () => {
   const syncCalls = [];
-  const models = ['users', 'categories', 'products', 'notifications'].map((tableName) => ({
+  const models = ['users', 'categories', 'products'].map((tableName) => ({
     getTableName: () => tableName,
     async sync() {
       syncCalls.push(tableName);
@@ -17,7 +17,7 @@ test('ne resynchronise pas les tables présentes avant les migrations versionné
   }));
   const queryInterface = {
     async showAllTables() {
-      return ['organizations', 'users', 'categories', 'products', 'notifications'];
+      return ['organizations', 'users', 'categories', 'products'];
     }
   };
 
@@ -26,9 +26,9 @@ test('ne resynchronise pas les tables présentes avant les migrations versionné
   assert.deepEqual(syncCalls, []);
 });
 
-test('crée uniquement les tables de base absentes dans l’ordre de dépendance donné', async () => {
+test('crée uniquement les tables de base d’histoires absentes', async () => {
   const syncCalls = [];
-  const models = ['users', 'categories', 'products', 'notifications'].map((tableName) => ({
+  const models = ['users', 'categories', 'products'].map((tableName) => ({
     getTableName: () => tableName,
     async sync() {
       syncCalls.push(tableName);
@@ -42,7 +42,7 @@ test('crée uniquement les tables de base absentes dans l’ordre de dépendance
 
   await syncMissingBaseTables(models, queryInterface);
 
-  assert.deepEqual(syncCalls, ['products', 'notifications']);
+  assert.deepEqual(syncCalls, ['products']);
 });
 
 test('enregistre une migration avec executedAt lorsque la table existante l’exige', async () => {

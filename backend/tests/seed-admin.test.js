@@ -109,7 +109,7 @@ test('ne modifie pas le compte si l’adresse de destination appartient à un au
       assert.fail('Le compte source ne doit pas être modifié en cas de collision');
     }
   };
-  const otherUser = { email: 'mohamadalzaibak.8@gmail.com', role: 'BUYER' };
+  const otherUser = { email: 'mohamadalzaibak.8@gmail.com', role: 'READER' };
   const User = createUserModel([previousAdmin, otherUser]);
 
   await assert.rejects(
@@ -125,7 +125,7 @@ test('ne modifie pas le compte si l’adresse de destination appartient à un au
   assert.equal(previousAdmin.email, 'gg@gmail.com');
 });
 
-test('avec l’option explicite, promeut le BUYER cible puis supprime le SUPER_ADMIN précédent', async () => {
+test('avec l’option explicite, promeut le READER cible puis supprime le SUPER_ADMIN précédent', async () => {
   const previousAdmin = {
     email: 'gg@gmail.com',
     role: 'SUPER_ADMIN',
@@ -135,7 +135,7 @@ test('avec l’option explicite, promeut le BUYER cible puis supprime le SUPER_A
   };
   const buyer = {
     email: 'mohamadalzaibak.8@gmail.com',
-    role: 'BUYER',
+    role: 'READER',
     organizationId: 7,
     async update(values) {
       Object.assign(this, values);

@@ -1,6 +1,12 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { validateBody, loginSchema, passwordResetSchema } = require('../middleware/validation');
+const {
+  validateBody,
+  loginSchema,
+  passwordResetSchema,
+  readerRegistrationSchema
+} = require('../middleware/validation');
+const { videoSchema, mediaUploadSchema } = require('../middleware/storyValidation');
 
 test('la validation normalise les entrées valides avant le contrôleur', () => {
   const req = { body: { email: '  buyer@example.test ', password: 'secure-password' } };
@@ -42,4 +48,32 @@ test('la réinitialisation exige une adresse e-mail et un mot de passe fort', ()
     email: 'buyer@example.test',
     password: 'short'
   }).success, false);
+});
+
+test('l’inscription lecteur ne requiert pas d’organisation et utilise l’arabe par défaut', () => {
+  const result = readerRegistrationSchema.safeParse({
+    firstName: 'Amal',
+    lastName: 'Lectrice',
+    email: 'reader@example.test',
+    password: 'a-secure-reader-password'
+  });
+
+  test('les médias imposent la confirmation de représentation et des URL HTTP(S)', () => {
+    const media = {
+      storyId: 1,
+      mediaType: 'image',
+      fileName: 'scene.png',
+      mimeType: 'image/png',
+      depictionPolicyConfirmed: true
+    };
+    assert.equal(mediaUploadSchema.safeParse(media).success, true);
+    assert.equal(mediaUploadSchema.safeParse({ ...media, depictionPolicyConfirmed: false }).success, false);
+    assert.equal(videoSchema.safeParse({
+      episodeNumber: 1,
+      depictionPolicyConfirmed: true,
+      videoUrl: 'javascript:alert(1)'
+    }).success, false);
+  });
+  assert.equal(result.success, true);
+  assert.equal(result.data.language, 'ar');
 });

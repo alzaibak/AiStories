@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const { User, Organization } = require('../models');
+const { User } = require('../models');
 
 async function authenticate(req, res, next) {
   try {
@@ -8,11 +8,9 @@ async function authenticate(req, res, next) {
       return res.status(401).json({ message: 'Authentification requise.' });
     }
     const claims = jwt.verify(authorization.slice(7), process.env.JWT_SECRET_KEY);
-    const user = await User.findByPk(claims.id, {
-      include: [{ model: Organization, as: 'organization' }]
-    });
+    const user = await User.findByPk(claims.id);
     if (!user || user.status !== 'ACTIVE' || claims.status !== user.status || !user.emailVerifiedAt ||
-      claims.role !== user.role || claims.organizationId !== user.organizationId) {
+      claims.role !== user.role) {
       return res.status(401).json({ message: 'Identifiants invalides ou compte indisponible.' });
     }
     req.user = user;
@@ -23,6 +21,11 @@ async function authenticate(req, res, next) {
     }
     next(error);
   }
+}
+
+function optionalAuthenticate(req, res, next) {
+  if (!req.headers.authorization) return next();
+  return authenticate(req, res, next);
 }
 
 function allowRoles(...roles) {
@@ -37,24 +40,4 @@ function allowRoles(...roles) {
   };
 }
 
-async function requireApprovedSeller(req, res, next) {
-  if (req.user.role !== 'SELLER') {
-    return res.status(403).json({ message: 'Accès réservé aux vendeurs.' });
-  }
-  const organization = req.user.organization;
-  if (!organization || organization.verificationStatus !== 'APPROVED') {
-    return res.status(403).json({ message: 'Le vendeur doit être vérifié avant cette opération.' });
-  }
-  next();
-}
-
-function namespaceRole(role) {
-  return (req, res, next) => {
-    if (!req.user || req.user.role !== role) {
-      return res.status(403).json({ message: 'Rôle non autorisé pour cet espace API.' });
-    }
-    next();
-  };
-}
-
-module.exports = { authenticate, allowRoles, requireApprovedSeller, namespaceRole };
+module.exports = { authenticate, optionalAuthenticate, allowRoles };

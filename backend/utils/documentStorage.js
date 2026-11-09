@@ -46,6 +46,14 @@ function createUploadKey(organizationId) {
   return `private-document-uploads/${organizationId}/${randomUUID()}`;
 }
 
+function createMediaUploadKey() {
+  return `private-story-media-uploads/${randomUUID()}`;
+}
+
+function createMediaKey() {
+  return `private-story-media/${randomUUID()}`;
+}
+
 async function createUploadForm({ key, mimeType }) {
   const storage = getStorage();
   return createPresignedPost(storage.client, {
@@ -57,12 +65,27 @@ async function createUploadForm({ key, mimeType }) {
   });
 }
 
+async function createMediaUploadForm({ key, mimeType }) {
+  return createUploadForm({ key, mimeType });
+}
+
 async function getDocumentMetadata(key) {
   const storage = getStorage();
   return storage.client.send(new HeadObjectCommand({ Bucket: storage.bucket, Key: key }));
 }
 
 async function promoteUploadedDocument({ sourceKey, destinationKey, etag }) {
+  const storage = getStorage();
+  return storage.client.send(new CopyObjectCommand({
+    Bucket: storage.bucket,
+    Key: destinationKey,
+    CopySource: `${storage.bucket}/${sourceKey}`,
+    CopySourceIfMatch: etag,
+    MetadataDirective: 'COPY'
+  }));
+}
+
+async function promoteUploadedMedia({ sourceKey, destinationKey, etag }) {
   const storage = getStorage();
   return storage.client.send(new CopyObjectCommand({
     Bucket: storage.bucket,
@@ -89,14 +112,29 @@ async function createDownloadUrl({ key, fileName, mimeType }) {
   }), { expiresIn: SIGNED_URL_TTL_SECONDS });
 }
 
+async function createMediaUrl({ key, mimeType }) {
+  const storage = getStorage();
+  return getSignedUrl(storage.client, new GetObjectCommand({
+    Bucket: storage.bucket,
+    Key: key,
+    ResponseContentDisposition: 'inline',
+    ...(mimeType ? { ResponseContentType: mimeType } : {})
+  }), { expiresIn: SIGNED_URL_TTL_SECONDS });
+}
+
 module.exports = {
   MAX_DOCUMENT_BYTES,
   SIGNED_URL_TTL_SECONDS,
   createDocumentKey,
   createUploadKey,
+  createMediaUploadKey,
+  createMediaKey,
   createUploadForm,
+  createMediaUploadForm,
   getDocumentMetadata,
   promoteUploadedDocument,
+  promoteUploadedMedia,
   deleteDocumentObject,
-  createDownloadUrl
+  createDownloadUrl,
+  createMediaUrl
 };

@@ -1,55 +1,69 @@
-import { Navigate, Route, Routes } from 'react-router-dom';
-import { BrowserRouter } from 'react-router-dom';
-import { dashboardForRole, TenderAuthProvider, useTenderAuth } from '@/contexts/TenderAuthContext';
-import type { UserRole } from '@/lib/tenderApi';
-import AuthPage from '@/pages/tendering/AuthPage';
-import LandingPage from '@/pages/tendering/LandingPage';
-import WorkspacePage from '@/pages/tendering/WorkspacePage';
-import NotFound, { StatusPage } from '@/pages/NotFound';
+import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation, useParams } from 'react-router-dom';
+import { StoryAuthProvider } from '@/contexts/StoryAuthContext';
+import NotFound from '@/pages/NotFound';
+import AdminContentPage from '@/pages/stories/AdminContentPage';
+import {
+  AccountPage,
+  AdminLoginPage,
+  AdminStoreOrdersPage,
+  AdminSubscriptionsPage,
+  BookDetailPage,
+  BooksPage,
+  CheckoutResultPage,
+  LandingPage,
+  MembershipPage,
+  PolicyPage,
+  ReaderAuthPage,
+  ReaderPage,
+  StoriesPage,
+  StoryDetailPage
+} from '@/pages/stories/StoryPlatform';
 
-function ProtectedWorkspace({ role }: { role?: UserRole }) {
-  const { user, isLoading } = useTenderAuth();
-  if (isLoading) return <div className="grid min-h-screen place-items-center text-sm text-slate-500">Chargement de votre espace…</div>;
-  if (!user) return <Navigate to="/login" replace />;
-  const userRole = user.role === 'SUPER_ADMIN' ? 'ADMIN' : user.role;
-  if (role && userRole !== role) return <Navigate to={dashboardForRole(user.role)} replace />;
-  if (!role) return <Navigate to={dashboardForRole(user.role)} replace />;
-  return <WorkspacePage />;
+function LocalizedRoutes() {
+  const { locale = '' } = useParams();
+  const location = useLocation();
+  if (!['fr', 'en', 'ar'].includes(locale)) {
+    return <Navigate to={`/ar${location.pathname}${location.search}${location.hash}`} replace />;
+  }
+  return <Outlet />;
+}
+
+function LegacyRouteRedirect() {
+  const location = useLocation();
+  return <Navigate to={`/ar${location.pathname === '/' ? '' : location.pathname}${location.search}${location.hash}`} replace />;
 }
 
 export default function App() {
   return (
     <BrowserRouter>
-      <TenderAuthProvider>
+      <StoryAuthProvider>
         <Routes>
-          <Route path="/" element={<LandingPage />} />
-          <Route path="/login" element={<AuthPage mode="login" />} />
-          <Route path="/register" element={<AuthPage mode="register" />} />
-          <Route path="/register/buyer" element={<AuthPage mode="register" role="BUYER" />} />
-          <Route path="/register/seller" element={<AuthPage mode="register" role="SELLER" />} />
-          <Route path="/workspace" element={<ProtectedWorkspace />} />
-          <Route path="/buyer/login" element={<Navigate to="/login" replace />} />
-          <Route path="/seller/login" element={<Navigate to="/login" replace />} />
-          <Route path="/buyer/register" element={<Navigate to="/register/buyer" replace />} />
-          <Route path="/seller/register" element={<Navigate to="/register/seller" replace />} />
-          <Route path="/buyer/*" element={<ProtectedWorkspace role="BUYER" />} />
-          <Route path="/seller/*" element={<ProtectedWorkspace role="SELLER" />} />
-          <Route path="/admin/login" element={<AuthPage mode="admin-login" />} />
-          <Route path="/admin/register" element={<AuthPage mode="admin-register" />} />
-          <Route path="/admin/invitations" element={<ProtectedAdminInvitations />} />
-          <Route path="/admin/*" element={<ProtectedWorkspace role="ADMIN" />} />
-          <Route path="/403" element={<StatusPage code={403} title="Accès refusé" description="Votre rôle ne permet pas d’accéder à cette page." />} />
-          <Route path="*" element={<NotFound />} />
+          <Route path="/:locale" element={<LocalizedRoutes />}>
+            <Route index element={<LandingPage />} />
+            <Route path="stories" element={<StoriesPage />} />
+            <Route path="stories/:slug" element={<StoryDetailPage />} />
+            <Route path="stories/:slug/read/:partNumber" element={<ReaderPage />} />
+            <Route path="books" element={<BooksPage />} />
+            <Route path="books/:slug" element={<BookDetailPage />} />
+            <Route path="login" element={<ReaderAuthPage mode="login" />} />
+            <Route path="register" element={<ReaderAuthPage mode="register" />} />
+            <Route path="account" element={<AccountPage />} />
+            <Route path="membership" element={<MembershipPage />} />
+            <Route path="checkout/result" element={<CheckoutResultPage />} />
+            <Route path="policy" element={<PolicyPage kind="overview" />} />
+            <Route path="policy/sources" element={<PolicyPage kind="sources" />} />
+            <Route path="policy/depiction" element={<PolicyPage kind="depiction" />} />
+            <Route path="workspace" element={<Navigate to="../account" replace />} />
+            <Route path="admin/login" element={<AdminLoginPage />} />
+            <Route path="admin/orders" element={<AdminStoreOrdersPage />} />
+            <Route path="admin/subscriptions" element={<AdminSubscriptionsPage />} />
+            <Route path="admin/content" element={<AdminContentPage />} />
+            <Route path="admin" element={<Navigate to="../admin/subscriptions" replace />} />
+            <Route path="*" element={<NotFound />} />
+          </Route>
+          <Route path="*" element={<LegacyRouteRedirect />} />
         </Routes>
-      </TenderAuthProvider>
+      </StoryAuthProvider>
     </BrowserRouter>
   );
-}
-
-function ProtectedAdminInvitations() {
-  const { user, isLoading } = useTenderAuth();
-  if (isLoading) return <div className="grid min-h-screen place-items-center text-sm text-slate-500">Chargement de votre espace…</div>;
-  if (!user) return <Navigate to="/admin/login" replace />;
-  if (user.role !== 'SUPER_ADMIN') return <Navigate to={dashboardForRole(user.role)} replace />;
-  return <AuthPage mode="admin-invite" />;
 }

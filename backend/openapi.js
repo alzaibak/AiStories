@@ -9,17 +9,25 @@ const commonResponses = {
   500: { description: 'Erreur interne du serveur.' }
 };
 
-function operation(summary, { publicAccess = false, body = false, ids = [] } = {}) {
+function operation(summary, { publicAccess = false, body = false, ids = [], params = [] } = {}) {
   return {
     summary,
     security: publicAccess ? [] : [{ bearerAuth: [] }],
-    ...(ids.length ? {
-      parameters: ids.map((name) => ({
+    ...(ids.length || params.length ? {
+      parameters: [
+        ...ids.map((name) => ({
         name,
         in: 'path',
         required: true,
         schema: { type: 'integer' }
-      }))
+        })),
+        ...params.map(({ name, type = 'string' }) => ({
+          name,
+          in: 'path',
+          required: true,
+          schema: { type }
+        }))
+      ]
     } : {}),
     ...(body ? {
       requestBody: {
@@ -37,26 +45,54 @@ function operation(summary, { publicAccess = false, body = false, ids = [] } = {
 
 const paths = {
   '/health': { get: operation('Vérifier la disponibilité de l’API', { publicAccess: true }) },
-  '/seller/tenders': {
-    get: operation('Lister les appels d’offres accessibles aux vendeurs')
+  '/plans': { get: operation('Lister les formules d’abonnement actives', { publicAccess: true }) },
+  '/payments/webhook': {
+    post: operation('Traiter un webhook Stripe signé', { publicAccess: true })
   },
-  '/seller/auth/register/request-code': {
-    post: operation('Envoyer un code de vérification à un vendeur', { publicAccess: true, body: true })
+  '/payments/books/checkout': {
+    post: operation('Créer une session de paiement pour les livres', { body: true })
   },
-  '/seller/auth/register/verify-code': {
-    post: operation('Vérifier le code e-mail d’un vendeur', { publicAccess: true, body: true })
+  '/payments/subscriptions/checkout': {
+    post: operation('Créer une session de paiement pour un abonnement', { body: true })
   },
-  '/seller/auth/register': {
-    post: operation('Créer un compte vendeur après vérification e-mail', { publicAccess: true, body: true })
+  '/payments/session/{sessionId}': {
+    get: operation('Consulter l’état d’un paiement du compte connecté', { params: [{ name: 'sessionId' }] })
   },
-  '/buyer/auth/register/request-code': {
-    post: operation('Envoyer un code de vérification à un acheteur', { publicAccess: true, body: true })
+  '/subscriptions/{id}/cancel': {
+    post: operation('Annuler le renouvellement d’un abonnement', { ids: ['id'] })
   },
-  '/buyer/auth/register/verify-code': {
-    post: operation('Vérifier le code e-mail d’un acheteur', { publicAccess: true, body: true })
+  '/subscriptions/{id}/resume': {
+    post: operation('Reprendre le renouvellement d’un abonnement', { ids: ['id'] })
   },
-  '/buyer/auth/register': {
-    post: operation('Créer un compte acheteur après vérification e-mail', { publicAccess: true, body: true })
+  '/admin/plans': {
+    post: operation('Créer une formule d’abonnement', { body: true })
+  },
+  '/admin/plans/{id}': {
+    patch: operation('Modifier une formule d’abonnement', { body: true, ids: ['id'] })
+  },
+  '/admin/store-orders': {
+    get: operation('Lister les commandes payées à traiter')
+  },
+  '/admin/store-orders/{id}/fulfillment': {
+    patch: operation('Mettre à jour la préparation et l’expédition d’une commande', { body: true, ids: ['id'] })
+  },
+  '/admin/subscriptions/{id}': {
+    patch: operation('Modifier un abonnement géré manuellement', { body: true, ids: ['id'] })
+  },
+  '/admin/subscriptions/{id}/cancel': {
+    post: operation('Arrêter le renouvellement Stripe d’un abonnement', { ids: ['id'] })
+  },
+  '/admin/subscriptions/{id}/resume': {
+    post: operation('Reprendre le renouvellement Stripe d’un abonnement', { ids: ['id'] })
+  },
+  '/reader/auth/register/request-code': {
+    post: operation('Envoyer un code de vérification à un lecteur', { publicAccess: true, body: true })
+  },
+  '/reader/auth/register/verify-code': {
+    post: operation('Vérifier le code e-mail d’un lecteur', { publicAccess: true, body: true })
+  },
+  '/reader/auth/register': {
+    post: operation('Créer un compte lecteur après vérification e-mail', { publicAccess: true, body: true })
   },
   '/auth/login': { post: operation('Ouvrir une session', { publicAccess: true, body: true }) },
   '/auth/password/request-code': {
@@ -75,6 +111,125 @@ const paths = {
     post: operation('Vérifier l’adresse e-mail d’un compte client', { publicAccess: true, body: true })
   },
   '/auth/me': { get: operation('Lire le compte connecté') },
+  '/collections': { get: operation('Lister les collections publiées', { publicAccess: true }) },
+  '/collections/{slug}': {
+    get: operation('Lire une collection et ses histoires publiées', { publicAccess: true, params: [{ name: 'slug' }] })
+  },
+  '/stories': { get: operation('Lister les histoires publiées', { publicAccess: true }) },
+  '/stories/{slug}': {
+    get: operation('Lire les métadonnées et les accès d’une histoire', { publicAccess: true, params: [{ name: 'slug' }] })
+  },
+  '/stories/{slug}/parts/{partNumber}': {
+    get: operation('Lire une partie après contrôle d’accès', {
+      publicAccess: true,
+      params: [{ name: 'slug' }, { name: 'partNumber', type: 'integer' }]
+    })
+  },
+  '/stories/{slug}/parts/{partNumber}/quiz': {
+    get: operation('Lire un quiz validé sans exposer ses réponses', {
+      publicAccess: true,
+      params: [{ name: 'slug' }, { name: 'partNumber', type: 'integer' }]
+    })
+  },
+  '/books': { get: operation('Lister les livres publiés', { publicAccess: true }) },
+  '/books/{slug}': {
+    get: operation('Lire les détails d’un livre', { publicAccess: true, params: [{ name: 'slug' }] })
+  },
+  '/books/{slug}/download': {
+    get: operation('Télécharger un livre numérique après contrôle d’accès', { params: [{ name: 'slug' }] })
+  },
+  '/media-assets/{id}/url': {
+    get: operation('Obtenir une URL média temporaire après contrôle d’accès', { publicAccess: true, ids: ['id'] })
+  },
+  '/quizzes/{id}/start': {
+    post: operation('Démarrer un quiz minuté', { ids: ['id'] })
+  },
+  '/quizzes/{id}/attempts': {
+    post: operation('Soumettre les réponses et obtenir le score et les sources', { body: true, ids: ['id'] })
+  },
+  '/reading-progress': { get: operation('Lire la progression du lecteur') },
+  '/reading-progress/{storyId}': {
+    put: operation('Enregistrer la progression de lecture', { body: true, ids: ['storyId'] })
+  },
+  '/admin/content/collections': {
+    get: operation('Lister les collections dans l’administration'),
+    post: operation('Créer une collection', { body: true })
+  },
+  '/admin/content/collections/{id}': {
+    patch: operation('Modifier une collection', { body: true, ids: ['id'] })
+  },
+  '/admin/content/stories': {
+    get: operation('Lister les histoires dans l’administration'),
+    post: operation('Créer une histoire', { body: true })
+  },
+  '/admin/content/review-queue': { get: operation('Lister la file de revue assignée') },
+  '/admin/content/stories/{id}': {
+    patch: operation('Modifier une histoire', { body: true, ids: ['id'] })
+  },
+  '/admin/content/stories/{id}/reviewer': {
+    put: operation('Assigner un réviseur', { body: true, ids: ['id'] })
+  },
+  '/admin/content/stories/{id}/submit-review': {
+    post: operation('Soumettre une histoire à la revue', { ids: ['id'] })
+  },
+  '/admin/content/stories/{id}/review': {
+    post: operation('Approuver une histoire ou demander des modifications', { body: true, ids: ['id'] })
+  },
+  '/admin/content/stories/{id}/publish': {
+    post: operation('Publier une histoire approuvée', { ids: ['id'] })
+  },
+  '/admin/content/stories/{id}/parts': {
+    post: operation('Créer une partie d’histoire', { body: true, ids: ['id'] })
+  },
+  '/admin/content/parts/{id}': {
+    patch: operation('Modifier une partie', { body: true, ids: ['id'] })
+  },
+  '/admin/content/stories/{id}/videos': {
+    post: operation('Ajouter une vidéo après confirmation de la politique de représentation', { body: true, ids: ['id'] })
+  },
+  '/admin/content/videos/{id}': {
+    patch: operation('Modifier les métadonnées d’une vidéo', { body: true, ids: ['id'] })
+  },
+  '/admin/content/stories/{id}/quizzes': {
+    post: operation('Créer un quiz brouillon', { body: true, ids: ['id'] })
+  },
+  '/admin/content/quizzes/{id}/questions': {
+    post: operation('Ajouter une question à un quiz', { body: true, ids: ['id'] })
+  },
+  '/admin/content/quizzes/{id}': {
+    patch: operation('Modifier un quiz et retirer sa validation', { body: true, ids: ['id'] })
+  },
+  '/admin/content/questions/{id}': {
+    patch: operation('Modifier une question et retirer la validation de son quiz', { body: true, ids: ['id'] })
+  },
+  '/admin/content/quizzes/{id}/validate': {
+    post: operation('Valider un quiz pour publication', { body: true, ids: ['id'] })
+  },
+  '/admin/content/books': {
+    get: operation('Lister et gérer les livres'),
+    post: operation('Créer un livre papier ou numérique', { body: true })
+  },
+  '/admin/content/books/{id}': {
+    patch: operation('Modifier un livre', { body: true, ids: ['id'] })
+  },
+  '/admin/content/media': {
+    get: operation('Lister les médias'),
+    post: operation('Enregistrer un média conforme à la politique de représentation', { body: true })
+  },
+  '/admin/content/media/upload-url': {
+    post: operation('Créer un dépôt média privé temporaire', { body: true })
+  },
+  '/admin/content/media/{id}/complete': {
+    post: operation('Vérifier et finaliser un dépôt média privé', { ids: ['id'] })
+  },
+  '/admin/content/style-guides': {
+    get: operation('Lister les guides visuels'),
+    post: operation('Créer un guide visuel', { body: true })
+  },
+  '/admin/content/style-guides/{id}': {
+    patch: operation('Modifier un guide visuel', { body: true, ids: ['id'] })
+  },
+  '/admin/subscriptions': { get: operation('Consulter les abonnements et leurs états par lecteur') },
   '/admin/auth/invitations': {
     post: operation('Inviter un nouvel administrateur', { body: true })
   },
@@ -99,96 +254,14 @@ const paths = {
   '/admin/auth/admins/{id}/approval': {
     patch: operation('Approuver ou suspendre un administrateur', { body: true, ids: ['id'] })
   },
-  '/auth/onboarding': { patch: operation('Compléter l’organisation d’un acheteur', { body: true }) },
-  '/auth/organizations': { get: operation('Lister les organisations pour vérification') },
-  '/auth/organizations/{id}/verification': {
-    patch: operation('Valider ou rejeter une organisation', { body: true, ids: ['id'] })
-  },
-  '/admin/overview': { get: operation('Lire les indicateurs d’administration') },
-  '/admin/users': { get: operation('Lister les comptes') },
-  '/admin/users/{id}/status': { patch: operation('Modifier le statut d’un compte', { body: true, ids: ['id'] }) },
-  '/admin/audit-logs': { get: operation('Consulter le journal d’audit') },
-  '/tenders': {
-    get: operation('Rechercher les appels d’offres accessibles'),
-    post: operation('Créer un appel d’offres', { body: true })
-  },
-  '/tenders/{id}': {
-    get: operation('Lire un appel d’offres', { ids: ['id'] }),
-    patch: operation('Modifier un appel d’offres brouillon', { body: true, ids: ['id'] })
-  },
-  '/tenders/{id}/invitation-candidates': {
-    get: operation('Lister les vendeurs pouvant être invités', { ids: ['id'] })
-  },
-  '/tenders/{id}/items': { post: operation('Ajouter une ligne demandée', { body: true, ids: ['id'] }) },
-  '/tenders/{id}/publish': { post: operation('Publier un appel d’offres', { ids: ['id'] }) },
-  '/tenders/{id}/invitations': { post: operation('Inviter des vendeurs', { body: true, ids: ['id'] }) },
-  '/tenders/{id}/close': { post: operation('Clore un appel d’offres', { ids: ['id'] }) },
-  '/offers': {
-    get: operation('Lister les offres visibles par le compte'),
-    post: operation('Créer un brouillon d’offre vendeur', { body: true })
-  },
-  '/offers/{id}': { get: operation('Lire une offre accessible', { ids: ['id'] }) },
-  '/offers/{id}/submit': { post: operation('Soumettre une offre', { ids: ['id'] }) },
-  '/offers/{id}/status': { patch: operation('Présélectionner, rejeter ou attribuer une offre', { body: true, ids: ['id'] }) },
-  '/catalog/categories': {
-    get: operation('Lister les catégories'),
-    post: operation('Créer une catégorie', { body: true })
-  },
-  '/catalog/products': {
-    get: operation('Rechercher dans le catalogue pharmaceutique'),
-    post: operation('Créer un produit vendeur', { body: true })
-  },
-  '/catalog/products/{id}': {
-    put: operation('Modifier un produit vendeur', { body: true, ids: ['id'] }),
-    delete: operation('Supprimer un produit vendeur', { ids: ['id'] })
-  },
-  '/documents': { get: operation('Lister les documents accessibles') },
-  '/documents/upload-url': {
-    post: operation('Créer un document et générer un formulaire de dépôt privé (20 Mo maximum)', { body: true })
-  },
-  '/documents/{id}/complete': {
-    post: operation('Vérifier le fichier privé et finaliser son dépôt', { ids: ['id'] })
-  },
-  '/documents/{id}/download-url': {
-    get: operation('Générer une URL de téléchargement temporaire après contrôle d’accès', { ids: ['id'] })
-  },
-  '/documents/{id}': {
-    delete: operation('Supprimer un document privé appartenant à l’organisation', { ids: ['id'] })
-  },
-  '/documents/{id}/verification': {
-    patch: operation('Modifier le statut de vérification d’un document', { body: true, ids: ['id'] })
-  },
-  '/collaboration/tenders/{tenderId}/clarifications': {
-    get: operation('Lire les demandes de clarification publiques', { ids: ['tenderId'] }),
-    post: operation('Poser une question de clarification', { body: true, ids: ['tenderId'] })
-  },
-  '/collaboration/clarifications/{id}/answer': {
-    post: operation('Répondre à une demande de clarification', { body: true, ids: ['id'] })
-  },
-  '/collaboration/offers/{offerId}/messages': {
-    get: operation('Lire les messages privés d’une offre', { ids: ['offerId'] }),
-    post: operation('Envoyer un message privé de négociation', { body: true, ids: ['offerId'] })
-  },
-  '/collaboration/offers/{offerId}/participants': {
-    get: operation('Lister les participants à une négociation', { ids: ['offerId'] })
-  },
-  '/collaboration/messages/{id}/read': {
-    patch: operation('Marquer un message comme lu', { ids: ['id'] })
-  },
-  '/purchase-orders': { get: operation('Lister les bons de commande accessibles') },
-  '/purchase-orders/{id}/status': {
-    patch: operation('Mettre à jour le statut d’un bon de commande', { body: true, ids: ['id'] })
-  },
-  '/notifications': { get: operation('Lister les notifications du compte') },
-  '/notifications/{id}/read': { patch: operation('Marquer une notification comme lue', { ids: ['id'] }) }
 };
 
 module.exports = {
   openapi: '3.0.3',
   info: {
-    title: 'MediTender API',
+    title: 'Islamic Stories API',
     version: '1.0.0',
-    description: 'API de passation d’appels d’offres pharmaceutiques entre acheteurs et vendeurs.'
+    description: 'API arabe-first de publication, lecture et gestion de contenus éducatifs islamiques.'
   },
   servers: [{ url: '/api/v1' }],
   components: {

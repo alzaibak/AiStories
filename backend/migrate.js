@@ -48,8 +48,7 @@ async function runMigrations(direction = 'up') {
   await syncMissingBaseTables([
     models.User,
     models.Category,
-    models.Product,
-    models.Notification
+    models.Product
   ], queryInterface);
 
   const tables = (await queryInterface.showAllTables()).map((table) =>

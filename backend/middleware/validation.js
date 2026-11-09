@@ -1,37 +1,16 @@
 const { z } = require('zod');
 
-const registrationSchema = z.object({
+const readerRegistrationSchema = z.object({
   firstName: z.string().trim().min(1).max(100),
   lastName: z.string().trim().min(1).max(100),
   email: z.string().trim().email().max(255),
   password: z.string().min(12).max(200),
-  language: z.enum(['fr', 'en', 'ar']).optional(),
-  organization: z.object({
-    type: z.enum(['BUYER', 'SELLER']),
-    legalName: z.string().trim().min(1).max(255),
-    country: z.string().trim().min(1).max(120),
-    address: z.string().trim().min(1).max(1000),
-    registrationNumber: z.string().trim().min(1).max(120),
-    pharmaceuticalLicense: z.string().trim().max(255).optional()
-  })
-});
-
-const clientRegistrationSchema = z.object({
-  firstName: z.string().trim().min(1).max(100),
-  lastName: z.string().trim().min(1).max(100),
-  email: z.string().trim().email().max(255),
-  password: z.string().min(12).max(200),
-  language: z.enum(['fr', 'en', 'ar']).default('fr'),
-  legalName: z.string().trim().min(1).max(255),
-  country: z.string().trim().min(1).max(120),
-  address: z.string().trim().min(1).max(1000),
-  registrationNumber: z.string().trim().min(1).max(120),
-  pharmaceuticalLicense: z.string().trim().min(1).max(255).optional()
+  language: z.enum(['fr', 'en', 'ar']).default('ar')
 });
 
 const verificationRequestSchema = z.object({
   email: z.string().trim().email().max(255),
-  language: z.enum(['fr', 'en', 'ar']).default('fr')
+  language: z.enum(['fr', 'en', 'ar']).default('ar')
 });
 
 const verificationSchema = z.object({
@@ -53,7 +32,8 @@ const adminInvitationSchema = z.object({
   email: z.string().trim().email().max(255),
   firstName: z.string().trim().min(1).max(100),
   lastName: z.string().trim().min(1).max(100),
-  language: z.enum(['fr', 'en', 'ar']).default('fr')
+  role: z.enum(['ADMIN', 'EDITOR', 'REVIEWER']).default('ADMIN'),
+  language: z.enum(['fr', 'en', 'ar']).default('ar')
 });
 
 const adminRegistrationSchema = adminInvitationSchema.extend({
@@ -61,18 +41,6 @@ const adminRegistrationSchema = adminInvitationSchema.extend({
 });
 
 const adminApprovalSchema = z.object({ status: z.enum(['ACTIVE', 'SUSPENDED']) });
-
-const buyerOnboardingSchema = z.object({
-  legalName: z.string().trim().min(1).max(255),
-  country: z.string().trim().min(1).max(120),
-  address: z.string().trim().min(1).max(1000),
-  registrationNumber: z.string().trim().min(1).max(120)
-});
-
-const organizationVerificationSchema = z.object({
-  verificationStatus: z.enum(['APPROVED', 'REJECTED', 'SUSPENDED', 'PENDING']),
-  internalAdminNote: z.string().max(5000).optional()
-});
 
 function validateBody(schema) {
   return (req, res, next) => {
@@ -93,15 +61,12 @@ function validateBody(schema) {
 
 module.exports = {
   validateBody,
-  registrationSchema,
-  clientRegistrationSchema,
+  readerRegistrationSchema,
   verificationRequestSchema,
   verificationSchema,
   passwordResetSchema,
   loginSchema,
   adminInvitationSchema,
   adminRegistrationSchema,
-  adminApprovalSchema,
-  buyerOnboardingSchema,
-  organizationVerificationSchema
+  adminApprovalSchema
 };

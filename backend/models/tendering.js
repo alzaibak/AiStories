@@ -256,7 +256,7 @@ const AuditLog = sequelize.define('AuditLog', {
 const EmailAuthChallenge = sequelize.define('EmailAuthChallenge', {
   id,
   email: { type: DataTypes.STRING(255), allowNull: false },
-  role: { type: DataTypes.ENUM('ADMIN', 'BUYER', 'SELLER'), allowNull: false },
+  role: { type: DataTypes.ENUM('ADMIN', 'EDITOR', 'REVIEWER', 'READER', 'BUYER', 'SELLER'), allowNull: false },
   purpose: { type: DataTypes.ENUM('REGISTER', 'ADMIN_REGISTER', 'ADMIN_LOGIN', 'VERIFY_EMAIL', 'PASSWORD_RESET'), allowNull: false },
   codeHash: { type: DataTypes.STRING(128), allowNull: false },
   failedAttempts: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },

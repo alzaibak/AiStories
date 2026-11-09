@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  CLIENT_POLICY,
+  READER_POLICY,
   ADMIN_POLICY,
   generateCode,
   hashCode,
@@ -23,9 +23,9 @@ test.after(() => {
 });
 
 test('les politiques OTP appliquent les longueurs, durées et tentatives attendues', () => {
-  assert.deepEqual(CLIENT_POLICY, { digits: 6, lifetimeMinutes: 15, maxAttempts: 5 });
+  assert.deepEqual(READER_POLICY, { digits: 6, lifetimeMinutes: 15, maxAttempts: 5 });
   assert.deepEqual(ADMIN_POLICY, { digits: 8, lifetimeMinutes: 10, maxAttempts: 3 });
-  assert.equal(generateCode(CLIENT_POLICY.digits).length, 6);
+  assert.equal(generateCode(READER_POLICY.digits).length, 6);
   assert.equal(generateCode(ADMIN_POLICY.digits).length, 8);
 });
 
@@ -33,16 +33,16 @@ test('un code faux est compté, puis verrouillé au maximum de tentatives', () =
   const challenge = {
     codeHash: hashCode('123456'),
     failedAttempts: 0,
-    maxAttempts: CLIENT_POLICY.maxAttempts,
+    maxAttempts: READER_POLICY.maxAttempts,
     expiresAt: new Date(Date.now() + 60_000),
     verifiedAt: null
   };
 
-  for (let attempt = 1; attempt < CLIENT_POLICY.maxAttempts; attempt += 1) {
+  for (let attempt = 1; attempt < READER_POLICY.maxAttempts; attempt += 1) {
     assert.equal(checkChallenge(challenge, '000000').status, 'invalid');
   }
   assert.equal(checkChallenge(challenge, '000000').status, 'locked');
-  assert.equal(challenge.failedAttempts, CLIENT_POLICY.maxAttempts);
+  assert.equal(challenge.failedAttempts, READER_POLICY.maxAttempts);
   assert.equal(checkChallenge(challenge, '123456').status, 'locked');
 });
 
@@ -62,15 +62,15 @@ test('un code expiré ou déjà vérifié ne peut plus ouvrir de session', () =>
 
 test('un jeton d’inscription est lié à son rôle et à son adresse', () => {
   const claims = {
-    email: 'seller@example.test',
-    role: 'SELLER',
+    email: 'reader@example.test',
+    role: 'READER',
     purpose: 'EMAIL_REGISTRATION',
     challengeId: 42
   };
-  assert.equal(matchesRegistrationChallenge(claims, 'SELLER', 'SELLER@example.test'), true);
-  assert.equal(matchesRegistrationChallenge(claims, 'BUYER', 'seller@example.test'), false);
-  assert.equal(matchesRegistrationChallenge(claims, 'SELLER', 'other@example.test'), false);
-  assert.equal(matchesRegistrationChallenge({ ...claims, purpose: 'ADMIN_REGISTRATION' }, 'SELLER', claims.email), false);
+  assert.equal(matchesRegistrationChallenge(claims, 'READER', 'READER@example.test'), true);
+  assert.equal(matchesRegistrationChallenge(claims, 'ADMIN', 'reader@example.test'), false);
+  assert.equal(matchesRegistrationChallenge(claims, 'READER', 'other@example.test'), false);
+  assert.equal(matchesRegistrationChallenge({ ...claims, purpose: 'ADMIN_REGISTRATION' }, 'READER', claims.email), false);
 });
 
 test('une adresse déjà utilisée est refusée avant l’émission du code', async () => {
@@ -92,7 +92,7 @@ test('les e-mails de réinitialisation sont traduits pour les trois langues', ()
   const arabic = localizedEmail('ar', '123456', 'PASSWORD_RESET');
 
   assert.match(french.subject, /Réinitialisez votre mot de passe/);
-  assert.match(english.subject, /Reset your MediTender password/);
+  assert.match(english.subject, /Reset your Islamic Stories password/);
   assert.match(arabic.subject, /إعادة تعيين كلمة مرور/);
   assert.match(french.html, /123456/);
   assert.match(english.html, /123456/);
@@ -100,42 +100,46 @@ test('les e-mails de réinitialisation sont traduits pour les trois langues', ()
 });
 
 test('les e-mails contiennent un lien vers le formulaire de vérification approprié', () => {
-  const registrationUrl = authenticationActionUrl({
-    email: 'buyer+test@example.test',
-    role: 'BUYER',
+  const readerRegistrationUrl = authenticationActionUrl({
+    email: 'reader+test@example.test',
+    role: 'READER',
     purpose: 'REGISTER',
-    clientDomain: 'http://10.39.52.238:8080'
+    language: 'fr',
+    clientDomain: 'https://app.example.test'
   });
   const resetUrl = authenticationActionUrl({
     email: 'user@example.test',
-    role: 'SELLER',
+    role: 'READER',
     purpose: 'PASSWORD_RESET',
+    language: 'en',
     clientDomain: 'https://app.example.test,https://backup.example.test'
   });
   const adminLoginUrl = authenticationActionUrl({
     email: 'admin@example.test',
     role: 'ADMIN',
     purpose: 'ADMIN_LOGIN',
+    language: 'fr',
     clientDomain: 'https://app.example.test'
   });
   const superAdminResetUrl = authenticationActionUrl({
     email: 'root@example.test',
     role: 'SUPER_ADMIN',
     purpose: 'PASSWORD_RESET',
+    language: 'ar',
     clientDomain: 'https://app.example.test'
   });
-  const registrationEmail = localizedEmail('fr', '123456', 'REGISTER', registrationUrl);
+  const registrationEmail = localizedEmail('fr', '123456', 'REGISTER', readerRegistrationUrl);
   const resetEmail = localizedEmail('en', '123456', 'PASSWORD_RESET', resetUrl);
   const adminLoginEmail = localizedEmail('fr', '12345678', 'ADMIN_LOGIN', adminLoginUrl);
 
-  assert.equal(registrationUrl, 'http://10.39.52.238:8080/register/buyer?email=buyer%2Btest%40example.test&verify=1');
-  assert.equal(resetUrl, 'https://app.example.test/login?email=user%40example.test&reset=1');
+  assert.equal(readerRegistrationUrl, 'https://app.example.test/fr/register?email=reader%2Btest%40example.test&verify=1');
+  assert.equal(resetUrl, 'https://app.example.test/en/login?email=user%40example.test&reset=1');
   assert.match(registrationEmail.html, /Continuer l’inscription/);
-  assert.match(registrationEmail.html, /register\/buyer\?email=buyer%2Btest%40example\.test&amp;verify=1/);
+  assert.match(registrationEmail.html, /\/fr\/register\?email=reader%2Btest%40example\.test&amp;verify=1/);
   assert.match(resetEmail.html, /Continue password reset/);
-  assert.match(resetEmail.html, /\/login\?email=user%40example\.test&amp;reset=1/);
-  assert.equal(adminLoginUrl, 'https://app.example.test/admin/login?email=admin%40example.test&verify=1');
-  assert.equal(superAdminResetUrl, 'https://app.example.test/admin/login?email=root%40example.test&reset=1');
+  assert.match(resetEmail.html, /\/en\/login\?email=user%40example\.test&amp;reset=1/);
+  assert.equal(adminLoginUrl, 'https://app.example.test/fr/admin/login?email=admin%40example.test&verify=1');
+  assert.equal(superAdminResetUrl, 'https://app.example.test/ar/admin/login?email=root%40example.test&reset=1');
   assert.match(adminLoginEmail.html, /Continuer la connexion/);
 });
 
@@ -143,7 +147,7 @@ test('refuse les liens d’action sans origine cliente HTTP(S) configurée', () 
   assert.throws(
     () => authenticationActionUrl({
       email: 'user@example.test',
-      role: 'BUYER',
+      role: 'READER',
       purpose: 'REGISTER',
       clientDomain: ''
     }),
@@ -152,7 +156,7 @@ test('refuse les liens d’action sans origine cliente HTTP(S) configurée', () 
   assert.throws(
     () => authenticationActionUrl({
       email: 'user@example.test',
-      role: 'BUYER',
+      role: 'READER',
       purpose: 'REGISTER',
       clientDomain: 'javascript:alert(1)'
     }),

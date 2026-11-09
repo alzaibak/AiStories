@@ -36,8 +36,8 @@ async function ensureSeedAdmin({
       throw new Error('SEED_ADMIN_EMAIL est déjà utilisé par un autre compte. Aucun compte n’a été modifié.');
     }
     if (previousUser && targetUser && deletePreviousAdmin &&
-      !['BUYER', 'SUPER_ADMIN'].includes(targetUser.role)) {
-      throw new Error('Le compte de destination doit être BUYER ou SUPER_ADMIN pour le transfert demandé.');
+      !['READER', 'SUPER_ADMIN'].includes(targetUser.role)) {
+      throw new Error('Le compte de destination doit être READER ou SUPER_ADMIN pour le transfert demandé.');
     }
     const userToUpdate = previousUser || targetUser;
     if (userToUpdate && userToUpdate !== targetUser && userToUpdate.role !== 'SUPER_ADMIN') {

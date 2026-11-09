@@ -9,27 +9,30 @@ const User = sequelize.define('User', {
     },
     firstName: {
         type: DataTypes.STRING(255),
-        allowNull: false,
-        // REMOVE unique: true
+        allowNull: false
     },
     lastName: {
         type: DataTypes.STRING(255),
-        allowNull: false,
-        // REMOVE unique: true
+        allowNull: false
     },
     email: {
         type: DataTypes.STRING(255),
         allowNull: false,
-        unique: true // keep email unique
+        unique: true
+    },
+    stripeCustomerId: {
+        type: DataTypes.STRING(255),
+        allowNull: true,
+        unique: true
     },
     passwordHash: {
         type: DataTypes.STRING(255),
         allowNull: false
     },
     role: {
-        type: DataTypes.ENUM('SUPER_ADMIN', 'ADMIN', 'BUYER', 'SELLER'),
+        type: DataTypes.ENUM('SUPER_ADMIN', 'ADMIN', 'EDITOR', 'REVIEWER', 'READER', 'BUYER', 'SELLER'),
         allowNull: false,
-        defaultValue: 'BUYER'
+        defaultValue: 'READER'
     },
     organizationId: {
         type: DataTypes.INTEGER,
@@ -40,7 +43,7 @@ const User = sequelize.define('User', {
     language: {
         type: DataTypes.ENUM('fr', 'en', 'ar'),
         allowNull: false,
-        defaultValue: 'fr'
+        defaultValue: 'ar'
     },
     status: {
         type: DataTypes.ENUM('ACTIVE', 'PENDING', 'SUSPENDED'),

@@ -20,23 +20,4 @@ async function verifyPassword(password, storedHash) {
   return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
 }
 
-function requiredString(value, field, maxLength = 255) {
-  if (typeof value !== 'string' || !value.trim() || value.trim().length > maxLength) {
-    const error = new Error(`${field} est obligatoire et doit contenir au maximum ${maxLength} caractères.`);
-    error.status = 400;
-    throw error;
-  }
-  return value.trim();
-}
-
-function positiveNumber(value, field, { integer = false, allowZero = false } = {}) {
-  const number = Number(value);
-  if (!Number.isFinite(number) || (allowZero ? number < 0 : number <= 0) || (integer && !Number.isInteger(number))) {
-    const error = new Error(`${field} doit être un nombre ${allowZero ? 'positif ou nul' : 'strictement positif'}${integer ? ' entier' : ''}.`);
-    error.status = 400;
-    throw error;
-  }
-  return number;
-}
-
-module.exports = { hashPassword, verifyPassword, requiredString, positiveNumber };
+module.exports = { hashPassword, verifyPassword };

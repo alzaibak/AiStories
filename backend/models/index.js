@@ -2,7 +2,7 @@ const User = require('./User');
 const Category = require('./Category');
 const Product = require('./Product');
 const tendering = require('./tendering');
-const Notification = require('./Notification');
+const storyPlatform = require('./storyPlatform');
 
 const { Organization, Tender, TenderItem, TenderInvitation, Offer, OfferItem, Document, Clarification, Message, PurchaseOrder, AuditLog } = tendering;
 
@@ -36,9 +36,7 @@ Tender.hasMany(Message, { foreignKey: 'tenderId', as: 'messages' });
 Offer.hasOne(PurchaseOrder, { foreignKey: 'offerId', as: 'purchaseOrder' });
 PurchaseOrder.belongsTo(Offer, { foreignKey: 'offerId', as: 'offer' });
 PurchaseOrder.belongsTo(Tender, { foreignKey: 'tenderId', as: 'tender' });
-User.hasMany(Notification, { foreignKey: 'userId', as: 'notifications' });
-
 module.exports = {
   sequelize: require('../config/database'),
-  User, Category, Product, Notification, ...tendering
+  User, Category, Product, ...tendering, ...storyPlatform
 };

@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 
-const CLIENT_POLICY = { digits: 6, lifetimeMinutes: 15, maxAttempts: 5 };
+const READER_POLICY = { digits: 6, lifetimeMinutes: 15, maxAttempts: 5 };
 const ADMIN_POLICY = { digits: 8, lifetimeMinutes: 10, maxAttempts: 3 };
 const RESEND_DELAY_SECONDS = 60;
 const DUPLICATE_EMAIL_MESSAGE =
@@ -72,9 +72,9 @@ function matchesRegistrationChallenge(claims, role, email, purpose = 'EMAIL_REGI
 function localizedEmail(language, code, purpose, actionUrl) {
   const messages = {
     fr: {
-      subject: purpose === 'PASSWORD_RESET' ? 'Réinitialisez votre mot de passe MediTender' : purpose === 'ADMIN_LOGIN' ? 'Votre code de connexion administrateur MediTender' : purpose === 'ADMIN_REGISTER' ? 'Invitation administrateur MediTender' : 'Vérifiez votre adresse e-mail MediTender',
+      subject: purpose === 'PASSWORD_RESET' ? 'Réinitialisez votre mot de passe Islamic Stories' : purpose === 'ADMIN_LOGIN' ? 'Votre code de connexion administrateur Islamic Stories' : purpose === 'ADMIN_REGISTER' ? 'Invitation administrateur Islamic Stories' : 'Vérifiez votre adresse e-mail Islamic Stories',
       title: purpose === 'PASSWORD_RESET' ? 'Réinitialisation du mot de passe' : purpose === 'ADMIN_LOGIN' ? 'Confirmation de connexion' : purpose === 'ADMIN_REGISTER' ? 'Invitation administrateur' : 'Vérification de votre adresse e-mail',
-      intro: purpose === 'PASSWORD_RESET' ? 'Saisissez ce code pour confirmer la réinitialisation de votre mot de passe.' : purpose === 'ADMIN_LOGIN' ? 'Saisissez ce code pour terminer votre connexion administrateur.' : purpose === 'ADMIN_REGISTER' ? 'Vous avez été invité à rejoindre MediTender en tant qu’administrateur. Saisissez ce code pour confirmer votre adresse.' : 'Saisissez ce code pour confirmer votre adresse e-mail.',
+      intro: purpose === 'PASSWORD_RESET' ? 'Saisissez ce code pour confirmer la réinitialisation de votre mot de passe.' : purpose === 'ADMIN_LOGIN' ? 'Saisissez ce code pour terminer votre connexion administrateur.' : purpose === 'ADMIN_REGISTER' ? 'Vous avez été invité à rejoindre Islamic Stories en tant qu’administrateur. Saisissez ce code pour confirmer votre adresse.' : 'Saisissez ce code pour confirmer votre adresse e-mail.',
       expiry: 'Ce code expire dans',
       minutes: purpose === 'ADMIN_LOGIN' || purpose === 'ADMIN_REGISTER' ? '10 minutes' : '15 minutes',
       ignore: 'Si vous n’êtes pas à l’origine de cette demande, ignorez ce message.',
@@ -83,9 +83,9 @@ function localizedEmail(language, code, purpose, actionUrl) {
           : 'Continuer l’inscription'
     },
     en: {
-      subject: purpose === 'PASSWORD_RESET' ? 'Reset your MediTender password' : purpose === 'ADMIN_LOGIN' ? 'Your MediTender administrator sign-in code' : purpose === 'ADMIN_REGISTER' ? 'MediTender administrator invitation' : 'Verify your MediTender email address',
+      subject: purpose === 'PASSWORD_RESET' ? 'Reset your Islamic Stories password' : purpose === 'ADMIN_LOGIN' ? 'Your Islamic Stories administrator sign-in code' : purpose === 'ADMIN_REGISTER' ? 'Islamic Stories administrator invitation' : 'Verify your Islamic Stories email address',
       title: purpose === 'PASSWORD_RESET' ? 'Reset your password' : purpose === 'ADMIN_LOGIN' ? 'Confirm your sign-in' : purpose === 'ADMIN_REGISTER' ? 'Administrator invitation' : 'Verify your email address',
-      intro: purpose === 'PASSWORD_RESET' ? 'Enter this code to confirm your password reset.' : purpose === 'ADMIN_LOGIN' ? 'Enter this code to complete your administrator sign-in.' : purpose === 'ADMIN_REGISTER' ? 'You have been invited to join MediTender as an administrator. Enter this code to verify your email.' : 'Enter this code to confirm your email address.',
+      intro: purpose === 'PASSWORD_RESET' ? 'Enter this code to confirm your password reset.' : purpose === 'ADMIN_LOGIN' ? 'Enter this code to complete your administrator sign-in.' : purpose === 'ADMIN_REGISTER' ? 'You have been invited to join Islamic Stories as an administrator. Enter this code to verify your email.' : 'Enter this code to confirm your email address.',
       expiry: 'This code expires in',
       minutes: purpose === 'ADMIN_LOGIN' || purpose === 'ADMIN_REGISTER' ? '10 minutes' : '15 minutes',
       ignore: 'If you did not request this code, you can ignore this message.',
@@ -94,9 +94,9 @@ function localizedEmail(language, code, purpose, actionUrl) {
           : 'Continue registration'
     },
     ar: {
-      subject: purpose === 'PASSWORD_RESET' ? 'إعادة تعيين كلمة مرور MediTender' : purpose === 'ADMIN_LOGIN' ? 'رمز تسجيل دخول مسؤول MediTender' : purpose === 'ADMIN_REGISTER' ? 'دعوة مسؤول إلى MediTender' : 'تحقق من بريدك الإلكتروني في MediTender',
+      subject: purpose === 'PASSWORD_RESET' ? 'إعادة تعيين كلمة مرور حكايات إسلامية' : purpose === 'ADMIN_LOGIN' ? 'رمز تسجيل دخول مسؤول حكايات إسلامية' : purpose === 'ADMIN_REGISTER' ? 'دعوة مسؤول إلى حكايات إسلامية' : 'تحقق من بريدك الإلكتروني في حكايات إسلامية',
       title: purpose === 'PASSWORD_RESET' ? 'إعادة تعيين كلمة المرور' : purpose === 'ADMIN_LOGIN' ? 'تأكيد تسجيل الدخول' : purpose === 'ADMIN_REGISTER' ? 'دعوة مسؤول' : 'التحقق من عنوان البريد الإلكتروني',
-      intro: purpose === 'PASSWORD_RESET' ? 'أدخل هذا الرمز لتأكيد إعادة تعيين كلمة المرور.' : purpose === 'ADMIN_LOGIN' ? 'أدخل هذا الرمز لإكمال تسجيل دخول المسؤول.' : purpose === 'ADMIN_REGISTER' ? 'تمت دعوتك للانضمام إلى MediTender كمسؤول. أدخل هذا الرمز لتأكيد بريدك الإلكتروني.' : 'أدخل هذا الرمز لتأكيد عنوان بريدك الإلكتروني.',
+      intro: purpose === 'PASSWORD_RESET' ? 'أدخل هذا الرمز لتأكيد إعادة تعيين كلمة المرور.' : purpose === 'ADMIN_LOGIN' ? 'أدخل هذا الرمز لإكمال تسجيل دخول المسؤول.' : purpose === 'ADMIN_REGISTER' ? 'تمت دعوتك للانضمام إلى حكايات إسلامية كمسؤول. أدخل هذا الرمز لتأكيد بريدك الإلكتروني.' : 'أدخل هذا الرمز لتأكيد عنوان بريدك الإلكتروني.',
       expiry: 'تنتهي صلاحية هذا الرمز خلال',
       minutes: purpose === 'ADMIN_LOGIN' || purpose === 'ADMIN_REGISTER' ? '10 دقائق' : '15 دقيقة',
       ignore: 'إذا لم تطلب هذا الرمز، يمكنك تجاهل هذه الرسالة.',
@@ -107,12 +107,13 @@ function localizedEmail(language, code, purpose, actionUrl) {
   };
   const copy = messages[language] || messages.fr;
   const direction = language === 'ar' ? 'rtl' : 'ltr';
+  const brand = 'Islamic Stories';
   const action = actionUrl
     ? `<p style="margin:24px 0;text-align:center"><a href="${escapeHtml(actionUrl)}" style="display:inline-block;border-radius:8px;background:#0b6b50;padding:12px 20px;color:#fff;text-decoration:none;font-weight:700">${copy.action}</a></p>`
     : '';
   return {
     subject: copy.subject,
-    html: `<div style="margin:0;background:#f6faf8;padding:32px;font-family:Arial,sans-serif;color:#16302a" dir="${direction}"><div style="max-width:520px;margin:auto;background:#fff;border:1px solid #dceee4;border-radius:16px;padding:32px"><div style="font-size:20px;font-weight:700;color:#0b6b50">MediTender</div><h1 style="font-size:22px;margin:24px 0 12px">${copy.title}</h1><p style="line-height:1.6">${copy.intro}</p><div style="margin:24px 0;padding:18px;border-radius:12px;background:#e6f5ee;color:#0b6b50;text-align:center;font-size:32px;font-weight:700;letter-spacing:8px">${code}</div>${action}<p>${copy.expiry} ${copy.minutes}.</p><p style="font-size:13px;color:#5e7a71">${copy.ignore}</p></div></div>`
+    html: `<div style="margin:0;background:#f6faf8;padding:32px;font-family:Arial,sans-serif;color:#16302a" dir="${direction}"><div style="max-width:520px;margin:auto;background:#fff;border:1px solid #dceee4;border-radius:16px;padding:32px"><div style="font-size:20px;font-weight:700;color:#0b6b50">${brand}</div><h1 style="font-size:22px;margin:24px 0 12px">${copy.title}</h1><p style="line-height:1.6">${copy.intro}</p><div style="margin:24px 0;padding:18px;border-radius:12px;background:#e6f5ee;color:#0b6b50;text-align:center;font-size:32px;font-weight:700;letter-spacing:8px">${code}</div>${action}<p>${copy.expiry} ${copy.minutes}.</p><p style="font-size:13px;color:#5e7a71">${copy.ignore}</p></div></div>`
   };
 }
 
@@ -126,20 +127,20 @@ function escapeHtml(value) {
   })[character]);
 }
 
-function authenticationActionUrl({ email, role, purpose, clientDomain = process.env.CLIENT_DOMAIN }) {
+function authenticationActionUrl({ email, role, purpose, language = 'fr', clientDomain = process.env.CLIENT_DOMAIN }) {
   let path;
   let queryName;
-  if (purpose === 'REGISTER' && ['BUYER', 'SELLER'].includes(role)) {
-    path = `/register/${role.toLowerCase()}`;
+  if (purpose === 'REGISTER' && role === 'READER') {
+    path = '/register';
     queryName = 'verify';
-  } else if (purpose === 'ADMIN_REGISTER' && role === 'ADMIN') {
+  } else if (purpose === 'ADMIN_REGISTER' && ['ADMIN', 'EDITOR', 'REVIEWER'].includes(role)) {
     path = '/admin/register';
     queryName = 'verify';
-  } else if (purpose === 'ADMIN_LOGIN' && role === 'ADMIN') {
+  } else if (purpose === 'ADMIN_LOGIN' && ['ADMIN', 'EDITOR', 'REVIEWER'].includes(role)) {
     path = '/admin/login';
     queryName = 'verify';
-  } else if (purpose === 'PASSWORD_RESET' && ['ADMIN', 'BUYER', 'SELLER'].includes(role)) {
-    path = role === 'ADMIN' ? '/admin/login' : '/login';
+  } else if (purpose === 'PASSWORD_RESET' && ['ADMIN', 'SUPER_ADMIN', 'EDITOR', 'REVIEWER', 'READER'].includes(role)) {
+    path = ['ADMIN', 'SUPER_ADMIN', 'EDITOR', 'REVIEWER'].includes(role) ? '/admin/login' : '/login';
     queryName = 'reset';
   } else if (purpose === 'PASSWORD_RESET' && role === 'SUPER_ADMIN') {
     path = '/admin/login';
@@ -147,6 +148,8 @@ function authenticationActionUrl({ email, role, purpose, clientDomain = process.
   } else {
     return null;
   }
+  const locale = ['ar', 'en', 'fr'].includes(language) ? language : 'fr';
+  path = `/${locale}${path}`;
 
   const configuredOrigin = clientDomain?.split(',')[0]?.trim();
   if (!configuredOrigin) {
@@ -174,7 +177,7 @@ function authenticationActionUrl({ email, role, purpose, clientDomain = process.
 }
 
 module.exports = {
-  CLIENT_POLICY,
+  READER_POLICY,
   ADMIN_POLICY,
   RESEND_DELAY_SECONDS,
   DUPLICATE_EMAIL_MESSAGE,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { localizeAuthError } from '@/lib/authErrors';
-import { ApiError } from '@/lib/tenderApi';
+import { ApiError } from '@/lib/api';
 
 describe('messages d’authentification localisés', () => {
   it.each([

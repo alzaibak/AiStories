@@ -1,6 +1,5 @@
 const express = require('express');
 const cors = require('cors');
-const net = require('node:net');
 const helmet = require('helmet');
 const { rateLimit } = require('express-rate-limit');
 const swaggerUi = require('swagger-ui-express');
@@ -13,34 +12,16 @@ app.disable('x-powered-by');
 
 const defaultAllowedOrigins = [
   'http://localhost:8080',
-  'http://127.0.0.1:8080',
-  'https://combatable-lilith-unobjectivized.ngrok-free.dev'
+  'http://127.0.0.1:8080'
 ];
 const allowedOrigins = [...new Set([
   ...defaultAllowedOrigins,
   ...(process.env.CLIENT_DOMAIN || '').split(',').map((origin) => origin.trim()).filter(Boolean)
 ])];
-function isPrivateLanOrigin(origin) {
-  let url;
-  try {
-    url = new URL(origin);
-  } catch {
-    return false;
-  }
-  if (url.protocol !== 'http:' || (url.port && url.port !== '8080') || !net.isIPv4(url.hostname)) {
-    return false;
-  }
-
-  const [first, second] = url.hostname.split('.').map(Number);
-  return first === 10 ||
-    (first === 172 && second >= 16 && second <= 31) ||
-    (first === 192 && second === 168);
-}
-
 app.use(helmet());
 app.use(cors({
   origin(origin, callback) {
-    callback(null, !origin || allowedOrigins.includes(origin) || isPrivateLanOrigin(origin));
+    callback(null, !origin || allowedOrigins.includes(origin));
   }
 }));
 app.use('/api/v1', rateLimit({
@@ -69,51 +50,32 @@ function codeSendingRateLimit() {
 }
 app.use('/api/v1/auth/login', authenticationRateLimit());
 app.use('/api/v1/auth/password/request-code', codeSendingRateLimit());
-app.use('/api/v1/seller/auth/register/request-code', codeSendingRateLimit());
-app.use('/api/v1/buyer/auth/register/request-code', codeSendingRateLimit());
+app.use('/api/v1/reader/auth/register/request-code', codeSendingRateLimit());
+app.use('/api/v1/quizzes', rateLimit({
+  windowMs: 60 * 1000,
+  limit: 30,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false
+}));
 app.use('/api/v1/auth/email/request-code', codeSendingRateLimit());
 app.use('/api/v1/admin/auth/register/request-code', codeSendingRateLimit());
 app.use('/api/v1/admin/auth/invitations', codeSendingRateLimit());
 app.use('/api/v1/admin/auth/login', authenticationRateLimit());
+
+const paymentRoutes = require('./routes/payments');
+app.post('/api/v1/payments/webhook', express.raw({ type: 'application/json' }), paymentRoutes.stripeWebhookHandler);
+
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
 const openApiDocument = require('./openapi');
 app.get('/api/v1/openapi.json', (req, res) => res.json(openApiDocument));
 app.use('/api/v1/docs', swaggerUi.serve, swaggerUi.setup(openApiDocument));
-app.get('/api/v1/health', (req, res) => res.json({ status: 'ok', service: 'e-tendering-api' }));
+app.get('/api/v1/health', (req, res) => res.json({ status: 'ok', service: 'islamic-stories-api' }));
 
 app.use('/api/v1', require('./routes/roleAuthentication'));
-app.use('/api/v1/auth', require('./routes/authentication'));
-app.use('/api/v1/tenders', require('./routes/tenders'));
-app.use('/api/v1/offers', require('./routes/offers'));
-app.use('/api/v1/catalog', require('./routes/catalog'));
-app.use('/api/v1/documents', require('./routes/documents'));
-app.use('/api/v1/collaboration', require('./routes/collaboration'));
-app.use('/api/v1/purchase-orders', require('./routes/purchaseOrders'));
-app.use('/api/v1/notifications', require('./routes/notifications'));
-app.use('/api/v1/admin', require('./routes/admin'));
-
-const { authenticate, namespaceRole } = require('./middleware/authorization');
-const sellerNamespace = [authenticate, namespaceRole('SELLER')];
-const buyerNamespace = [authenticate, namespaceRole('BUYER')];
-for (const [prefix, middleware, routes] of [
-  ['/api/v1/seller/offers', sellerNamespace, require('./routes/offers')],
-  ['/api/v1/seller/tenders', sellerNamespace, require('./routes/tenders')],
-  ['/api/v1/seller/catalog', sellerNamespace, require('./routes/catalog')],
-  ['/api/v1/seller/documents', sellerNamespace, require('./routes/documents')],
-  ['/api/v1/seller/collaboration', sellerNamespace, require('./routes/collaboration')],
-  ['/api/v1/seller/notifications', sellerNamespace, require('./routes/notifications')],
-  ['/api/v1/seller/purchase-orders', sellerNamespace, require('./routes/purchaseOrders')],
-  ['/api/v1/buyer/tenders', buyerNamespace, require('./routes/tenders')],
-  ['/api/v1/buyer/offers', buyerNamespace, require('./routes/offers')],
-  ['/api/v1/buyer/documents', buyerNamespace, require('./routes/documents')],
-  ['/api/v1/buyer/collaboration', buyerNamespace, require('./routes/collaboration')],
-  ['/api/v1/buyer/notifications', buyerNamespace, require('./routes/notifications')],
-  ['/api/v1/buyer/purchase-orders', buyerNamespace, require('./routes/purchaseOrders')]
-]) {
-  app.use(prefix, ...middleware, routes);
-}
+app.use('/api/v1', paymentRoutes.router);
+app.use('/api/v1', require('./routes/storyPlatform'));
 
 app.use((req, res) => res.status(404).json({ message: 'Route API introuvable.' }));
 
@@ -134,7 +96,7 @@ async function startServer() {
   await sequelize.authenticate();
   await runMigrations('up');
   const port = Number(process.env.PORT) || 5000;
-  return app.listen(port, '0.0.0.0', () => console.info(`API E-Tendering à l’écoute sur le port ${port}.`));
+  return app.listen(port, '0.0.0.0', () => console.info(`API Islamic Stories à l’écoute sur le port ${port}.`));
 }
 
 if (require.main === module) {
