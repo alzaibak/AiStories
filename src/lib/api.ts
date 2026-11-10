@@ -46,6 +46,7 @@ export interface ReaderSubscription {
     price: number | string;
     currency: string;
     interval: string;
+    translations?: Partial<Record<'ar' | 'en' | 'fr', { name: string; features: string[] }>>;
   };
 }
 
@@ -123,6 +124,30 @@ export async function request<T>(path: string, init: RequestInit = {}, bearerTok
   }
 }
 
+async function requestBlob(path: string): Promise<Blob> {
+  const token = getAuthToken();
+  const headers = new Headers();
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${API_BASE_URL}${path}`, { headers, signal: controller.signal });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new ApiError(body.message || `Erreur API (${response.status}).`, body.code);
+    }
+    return await response.blob();
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error('La demande prend plus de temps que prévu. Vérifiez votre connexion et réessayez dans un instant.');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export const api = {
   get: <T>(path: string) => request<T>(path),
   post: <T>(path: string, body: unknown) =>
@@ -137,5 +162,6 @@ export const api = {
       body: JSON.stringify(body),
       headers: { Authorization: `Bearer ${bearerToken}` }
     }, bearerToken),
+  getBlob: (path: string) => requestBlob(path),
   delete: <T>(path: string) => request<T>(path, { method: 'DELETE' })
 };

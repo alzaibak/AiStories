@@ -11,9 +11,14 @@ function generateCode(digits) {
 }
 
 function hashCode(code) {
-  const secret = process.env.OTP_HASH_SECRET || process.env.JWT_SECRET_KEY;
+  const secret = process.env.OTP_HASH_SECRET;
   if (!secret || secret.length < 32) {
     const error = new Error('La configuration OTP_HASH_SECRET (32 caractères minimum) est requise.');
+    error.status = 503;
+    throw error;
+  }
+  if (secret === process.env.JWT_SECRET_KEY) {
+    const error = new Error('OTP_HASH_SECRET doit être différent de JWT_SECRET_KEY.');
     error.status = 503;
     throw error;
   }
@@ -60,6 +65,11 @@ async function assertUnusedEmail(email, findUser) {
     error.status = 409;
     throw error;
   }
+}
+
+function passwordResetRoleAllowed(role, accountType) {
+  if (accountType === 'admin') return ['ADMIN', 'SUPER_ADMIN', 'EDITOR', 'REVIEWER'].includes(role);
+  return accountType === 'reader' && role === 'READER';
 }
 
 function matchesRegistrationChallenge(claims, role, email, purpose = 'EMAIL_REGISTRATION') {
@@ -188,6 +198,7 @@ module.exports = {
   restoreDeletedChallenge,
   checkChallenge,
   assertUnusedEmail,
+  passwordResetRoleAllowed,
   matchesRegistrationChallenge,
   authenticationActionUrl,
   localizedEmail

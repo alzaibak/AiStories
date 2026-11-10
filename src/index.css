@@ -142,6 +142,48 @@
     @apply bg-gradient-to-r from-accent to-[hsl(var(--brand-light))] bg-clip-text text-transparent;
   }
 
+  main[data-reading-theme='dark'] {
+    background: #111b19;
+    color: #e6eee9;
+    color-scheme: dark;
+  }
+
+  main[data-reading-theme='dark'] .text-emerald-950,
+  main[data-reading-theme='dark'] .text-emerald-900,
+  main[data-reading-theme='dark'] .text-emerald-800,
+  main[data-reading-theme='dark'] .text-emerald-700,
+  main[data-reading-theme='dark'] .text-slate-900,
+  main[data-reading-theme='dark'] .text-slate-800,
+  main[data-reading-theme='dark'] .text-slate-700,
+  main[data-reading-theme='dark'] .text-slate-600 {
+    color: #e1ece6;
+  }
+
+  main[data-reading-theme='dark'] .text-slate-500,
+  main[data-reading-theme='dark'] .text-slate-400 {
+    color: #afc0b8;
+  }
+
+  main[data-reading-theme='dark'] .bg-white,
+  main[data-reading-theme='dark'] [class*='bg-[#f'],
+  main[data-reading-theme='dark'] [class*='bg-[#e'] {
+    background-color: #1b2926;
+  }
+
+  main[data-reading-theme='dark'] .bg-emerald-50,
+  main[data-reading-theme='dark'] .bg-emerald-100 {
+    background-color: #253b33;
+  }
+
+  main[data-reading-theme='dark'] .bg-amber-50,
+  main[data-reading-theme='dark'] .bg-amber-100 {
+    background-color: #3b3423;
+  }
+
+  main[data-reading-theme='dark'] [class*='border-emerald-950/'] {
+    border-color: #40534b;
+  }
+
   .bg-gradient-primary {
     background: linear-gradient(135deg, var(--palette-primary) 0%, var(--palette-forest) 100%);
   }

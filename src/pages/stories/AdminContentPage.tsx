@@ -8,6 +8,10 @@ type Language = 'ar' | 'en' | 'fr';
 type LocalizedFields = Record<Language, Record<string, string>>;
 type Collection = { id: number; title: string; slug: string };
 type Story = { id: number; title: string; slug: string; status: string };
+type MediaUploadResponse = {
+  upload: { url: string; fields: Record<string, string> };
+  completeUrl: string;
+};
 
 const languages: Array<{ code: Language; label: string }> = [
   { code: 'ar', label: 'العربية' },
@@ -22,20 +26,22 @@ function LanguageFields({
   onChange,
   field,
   label,
-  multiline = false
+  multiline = false,
+  disabled = false
 }: {
   values: LocalizedFields;
   onChange: (language: Language, value: string) => void;
   field: string;
   label: string;
   multiline?: boolean;
+  disabled?: boolean;
 }) {
   return <div className="grid gap-3 lg:grid-cols-3">
     {languages.map(({ code, label: languageLabel }) => <label key={code} className="block text-sm font-semibold text-slate-700">
       {label} — {languageLabel}
       {multiline
-        ? <textarea required rows={code === 'ar' ? 5 : 4} value={values[code][field] || ''} onChange={(event) => onChange(code, event.target.value)} dir={code === 'ar' ? 'rtl' : 'ltr'} className="mt-2 w-full rounded-xl border border-emerald-950/15 px-3 py-2.5 font-normal" />
-        : <input required value={values[code][field] || ''} onChange={(event) => onChange(code, event.target.value)} dir={code === 'ar' ? 'rtl' : 'ltr'} className="mt-2 w-full rounded-xl border border-emerald-950/15 px-3 py-2.5 font-normal" />}
+        ? <textarea required disabled={disabled} rows={code === 'ar' ? 5 : 4} value={values[code][field] || ''} onChange={(event) => onChange(code, event.target.value)} dir={code === 'ar' ? 'rtl' : 'ltr'} className="mt-2 w-full rounded-xl border border-emerald-950/15 px-3 py-2.5 font-normal disabled:bg-slate-50" />
+        : <input required disabled={disabled} value={values[code][field] || ''} onChange={(event) => onChange(code, event.target.value)} dir={code === 'ar' ? 'rtl' : 'ltr'} className="mt-2 w-full rounded-xl border border-emerald-950/15 px-3 py-2.5 font-normal disabled:bg-slate-50" />}
     </label>)}
   </div>;
 }
@@ -65,6 +71,9 @@ export default function AdminContentPage() {
   const [partForm, setPartForm] = useState({ storyId: '', partNumber: '1', estimatedReadingMinutes: '5', isFree: false });
   const [bookText, setBookText] = useState(emptyFields(['title', 'description']));
   const [bookForm, setBookForm] = useState({ slug: '', format: 'ebook', price: '', currency: 'EUR', stockQuantity: '', isPublished: false });
+  const [bookFile, setBookFile] = useState<File | null>(null);
+  const [pendingBookId, setPendingBookId] = useState<number | null>(null);
+  const [fileInputKey, setFileInputKey] = useState(0);
 
   useEffect(() => {
     document.documentElement.lang = locale;
@@ -81,7 +90,7 @@ export default function AdminContentPage() {
       setCollections(nextCollections);
       setStories(nextStories);
     } catch (caught) {
-      setLoadError(caught instanceof Error ? caught.message : 'Impossible de charger le contenu.');
+      setLoadError(caught instanceof Error ? caught.message : 'تعذر تحميل المحتوى.');
     }
   }
 
@@ -89,7 +98,7 @@ export default function AdminContentPage() {
     void loadContent();
   }, []);
 
-  if (isLoading) return <main className="p-10 text-center">Chargement…</main>;
+  if (isLoading) return translateTree(<main className="p-10 text-center">جارٍ التحميل…</main>, locale as Language);
   if (!user) return <Navigate to={`/${locale}/admin/login`} replace />;
   if (!['ADMIN', 'SUPER_ADMIN', 'EDITOR'].includes(user.role)) return <Navigate to={`/${locale}/account`} replace />;
 
@@ -116,6 +125,60 @@ export default function AdminContentPage() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function uploadBookPdf(bookId: number, file: File) {
+    if (file.type !== 'application/pdf') throw new Error('اختر ملف PDF صالحًا.');
+    const upload = await api.post<MediaUploadResponse>('/admin/content/media/upload-url', {
+      bookId,
+      mediaType: 'ebook',
+      fileName: file.name,
+      mimeType: file.type,
+      depictionPolicyConfirmed: true
+    });
+    const formData = new FormData();
+    Object.entries(upload.upload.fields).forEach(([name, value]) => formData.append(name, value));
+    formData.append('file', file);
+    const response = await fetch(upload.upload.url, { method: 'POST', body: formData });
+    if (!response.ok) throw new Error('فشل رفع ملف PDF. تحقق من التخزين وحاول مرة أخرى.');
+    await api.post(upload.completeUrl, {});
+  }
+
+  async function saveBook(event: FormEvent) {
+    await submit(event, async () => {
+      const translations = languageRecord(bookText);
+      const details = {
+        title: bookText.ar.title,
+        description: bookText.ar.description,
+        translations,
+        slug: bookForm.slug,
+        format: bookForm.format,
+        price: Number(bookForm.price),
+        currency: bookForm.currency,
+        stockQuantity: bookForm.format === 'print' ? Number(bookForm.stockQuantity) : null,
+        isPublished: bookForm.format === 'ebook' ? false : bookForm.isPublished
+      };
+      if (bookForm.format === 'ebook') {
+        if (!bookFile) throw new Error('أضف ملف PDF للكتاب الإلكتروني.');
+        let bookId = pendingBookId;
+        if (!bookId) {
+          const created = await api.post<{ id: number }>('/admin/content/books', details);
+          bookId = created.id;
+          setPendingBookId(bookId);
+        }
+        await uploadBookPdf(bookId, bookFile);
+        if (bookForm.isPublished) await api.patch(`/admin/content/books/${bookId}`, { isPublished: true });
+      } else {
+        await api.post('/admin/content/books', details);
+      }
+      setPendingBookId(null);
+      setBookFile(null);
+      setFileInputKey((key) => key + 1);
+      setBookText(emptyFields(['title', 'description']));
+      setBookForm({ slug: '', format: 'ebook', price: '', currency: 'EUR', stockQuantity: '', isPublished: false });
+    }, bookForm.format === 'ebook' && bookForm.isPublished
+      ? 'تم رفع ملف الكتاب ونشره للبيع.'
+      : 'تم حفظ الكتاب باللغات التي أدخلتها.');
   }
 
   const inputClass = 'mt-2 w-full rounded-xl border border-emerald-950/15 px-3 py-2.5';
@@ -217,30 +280,18 @@ export default function AdminContentPage() {
 
       <section className="rounded-3xl border border-emerald-950/10 bg-white p-6 sm:p-8">
         <h2 className="mb-5 text-xl font-extrabold text-emerald-950">إضافة كتاب بلغاته</h2>
-        <form onSubmit={(event) => submit(event, async () => {
-          await api.post('/admin/content/books', {
-            title: bookText.ar.title,
-            description: bookText.ar.description,
-            translations: languageRecord(bookText),
-            slug: bookForm.slug,
-            format: bookForm.format,
-            price: Number(bookForm.price),
-            currency: bookForm.currency,
-            stockQuantity: bookForm.format === 'print' ? Number(bookForm.stockQuantity) : null,
-            isPublished: bookForm.isPublished
-          });
-          setBookText(emptyFields(['title', 'description']));
-          setBookForm({ slug: '', format: 'ebook', price: '', currency: 'EUR', stockQuantity: '', isPublished: false });
-        }, 'تم حفظ الكتاب باللغات التي أدخلتها.')} className="space-y-5">
-          <LanguageFields values={bookText} onChange={(lang, value) => updateFields(setBookText, 'title', lang, value)} field="title" label="عنوان الكتاب" />
-          <LanguageFields values={bookText} onChange={(lang, value) => updateFields(setBookText, 'description', lang, value)} field="description" label="الوصف" multiline />
+        <form onSubmit={saveBook} className="space-y-5">
+          <LanguageFields values={bookText} onChange={(lang, value) => updateFields(setBookText, 'title', lang, value)} field="title" label="عنوان الكتاب" disabled={pendingBookId !== null} />
+          <LanguageFields values={bookText} onChange={(lang, value) => updateFields(setBookText, 'description', lang, value)} field="description" label="الوصف" multiline disabled={pendingBookId !== null} />
           <div className="grid gap-4 md:grid-cols-2">
-            <label className="text-sm font-semibold">الرابط المختصر<input required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" value={bookForm.slug} onChange={(event) => setBookForm({ ...bookForm, slug: event.target.value })} dir="ltr" className={inputClass} /></label>
-            <label className="text-sm font-semibold">النوع<select value={bookForm.format} onChange={(event) => setBookForm({ ...bookForm, format: event.target.value })} className={selectClass}><option value="ebook">إلكتروني</option><option value="print">ورقي</option></select></label>
-            <label className="text-sm font-semibold">السعر<input required type="number" min="0" step="0.01" value={bookForm.price} onChange={(event) => setBookForm({ ...bookForm, price: event.target.value })} className={inputClass} /></label>
-            <label className="text-sm font-semibold">العملة<input required minLength={3} maxLength={3} value={bookForm.currency} onChange={(event) => setBookForm({ ...bookForm, currency: event.target.value.toUpperCase() })} className={inputClass} /></label>
-            {bookForm.format === 'print' && <label className="text-sm font-semibold">المخزون<input required type="number" min="0" value={bookForm.stockQuantity} onChange={(event) => setBookForm({ ...bookForm, stockQuantity: event.target.value })} className={inputClass} /></label>}
+            <label className="text-sm font-semibold">الرابط المختصر<input required disabled={pendingBookId !== null} pattern="[a-z0-9]+(?:-[a-z0-9]+)*" value={bookForm.slug} onChange={(event) => setBookForm({ ...bookForm, slug: event.target.value })} dir="ltr" className={inputClass} /></label>
+            <label className="text-sm font-semibold">النوع<select disabled={pendingBookId !== null} value={bookForm.format} onChange={(event) => setBookForm({ ...bookForm, format: event.target.value })} className={selectClass}><option value="ebook">إلكتروني</option><option value="print">ورقي</option></select></label>
+            <label className="text-sm font-semibold">السعر<input required disabled={pendingBookId !== null} type="number" min="0" step="0.01" value={bookForm.price} onChange={(event) => setBookForm({ ...bookForm, price: event.target.value })} className={inputClass} /></label>
+            <label className="text-sm font-semibold">العملة<input required disabled={pendingBookId !== null} minLength={3} maxLength={3} value={bookForm.currency} onChange={(event) => setBookForm({ ...bookForm, currency: event.target.value.toUpperCase() })} className={inputClass} /></label>
+            {bookForm.format === 'print' && <label className="text-sm font-semibold">المخزون<input required disabled={pendingBookId !== null} type="number" min="0" value={bookForm.stockQuantity} onChange={(event) => setBookForm({ ...bookForm, stockQuantity: event.target.value })} className={inputClass} /></label>}
           </div>
+          {bookForm.format === 'ebook' && <label className="block text-sm font-semibold">ملف الكتاب الإلكتروني (PDF)<input key={fileInputKey} type="file" accept="application/pdf,.pdf" required onChange={(event) => setBookFile(event.target.files?.[0] || null)} className={`${inputClass} file:mr-3 file:rounded-lg file:border-0 file:bg-emerald-50 file:px-3 file:py-2`} /><span className="mt-1 block text-xs font-normal text-slate-500">يُرفع الملف إلى التخزين الخاص، ولا يُتاح إلا بعد الشراء.</span></label>}
+          {pendingBookId && <p role="status" className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">تم حفظ مسودة الكتاب رقم {pendingBookId}. أعد اختيار ملف PDF لإكمال الرفع.</p>}
           <label className="inline-flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={bookForm.isPublished} onChange={(event) => setBookForm({ ...bookForm, isPublished: event.target.checked })} /> نشر الكتاب الآن</label>
           <button disabled={busy} className={submitClass}>حفظ الكتاب</button>
         </form>

@@ -274,6 +274,7 @@ const Plan = sequelize.define('Plan', {
   currency: { type: DataTypes.STRING(3), allowNull: false, defaultValue: 'EUR' },
   interval: { type: DataTypes.ENUM('month', 'year'), allowNull: false },
   features: { type: DataTypes.JSON, allowNull: false, defaultValue: [] },
+  translations: { type: DataTypes.JSON, allowNull: true, defaultValue: {} },
   isFamily: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
   stripePriceId: { type: DataTypes.STRING(255), allowNull: true },
   isActive: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true }

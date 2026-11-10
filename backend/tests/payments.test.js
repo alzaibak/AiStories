@@ -1,5 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const {
   getClientAppUrl,
   getInvoiceSubscriptionId,
@@ -13,6 +15,7 @@ const {
   planUpdateSchema,
   subscriptionCheckoutSchema
 } = require('../middleware/storyValidation');
+const { localizePlan } = require('../utils/planLocalization');
 
 test('Stripe prices are converted to currency minor units without rounding invalid decimals', () => {
   assert.equal(toMinorUnits('12.34', 'EUR'), 1234);
@@ -84,10 +87,66 @@ test('payment schemas reject duplicate books and incomplete manual updates', () 
     name: 'Family',
     slug: 'family',
     price: 4.99,
-    interval: 'month'
+    interval: 'month',
+    translations: {
+      ar: { name: 'عائلية', features: ['قراءة غير محدودة'] },
+      en: { name: 'Family', features: ['Unlimited reading'] },
+      fr: { name: 'Famille', features: ['Lecture illimitée'] }
+    }
   }).success, true);
+  assert.equal(planSchema.safeParse({
+    name: 'Family',
+    slug: 'family',
+    price: 4.99,
+    interval: 'month'
+  }).success, false);
   assert.equal(planUpdateSchema.safeParse({}).success, false);
   assert.equal(adminSubscriptionUpdateSchema.safeParse({}).success, false);
+});
+
+test('plans are returned only in the selected manually entered language', () => {
+  const plan = {
+    id: 2,
+    name: 'الخطة العائلية',
+    features: ['قراءة القصص'],
+    translations: {
+      en: { name: 'Family plan', features: ['Read all stories'] },
+      fr: { name: 'Offre famille', features: ['Lire toutes les histoires'] }
+    }
+  };
+  assert.equal(localizePlan(plan, 'ar').name, 'الخطة العائلية');
+  assert.deepEqual(localizePlan(plan, 'en').features, ['Read all stories']);
+  assert.deepEqual(localizePlan(plan, 'fr').features, ['Lire toutes les histoires']);
+  assert.equal(localizePlan(plan, 'en').translations, undefined);
+  assert.equal(localizePlan({ ...plan, translations: {} }, 'fr'), null);
+});
+
+test('the built-in sample ebook is a PDF fixture', () => {
+  const fixture = path.join(__dirname, '..', 'assets', 'sample-ebook.pdf');
+  assert.equal(fs.readFileSync(fixture).subarray(0, 5).toString('ascii'), '%PDF-');
+});
+
+test('plan translations migration adds a nullable JSON field only once', async () => {
+  const migration = require('../migrations/015-add-plan-translations');
+  const columns = {};
+  const calls = [];
+  const queryInterface = {
+    showAllTables: async () => ['plans'],
+    describeTable: async () => columns,
+    addColumn: async (table, column, definition) => {
+      calls.push(['add', table, column, definition]);
+      columns[column] = {};
+    },
+    removeColumn: async (table, column) => {
+      calls.push(['remove', table, column]);
+      delete columns[column];
+    },
+    sequelize: { query: async (sql) => calls.push(['query', sql]) }
+  };
+  await migration.up({ queryInterface, Sequelize: { JSON: 'JSON' } });
+  await migration.up({ queryInterface, Sequelize: { JSON: 'JSON' } });
+  assert.deepEqual(calls.filter(([kind]) => kind === 'add').map(([, table, column]) => [table, column]), [['plans', 'translations']]);
+  assert.equal(calls.filter(([kind]) => kind === 'query').length, 2);
 });
 
 test('payment migration adds and removes only payment workflow columns', async () => {

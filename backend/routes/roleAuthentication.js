@@ -2,12 +2,15 @@ const router = require('express').Router();
 const jwt = require('jsonwebtoken');
 const { User, EmailAuthChallenge, Subscription, Plan } = require('../models');
 const { hashPassword, verifyPassword } = require('../utils/security');
+const { createSessionToken } = require('../utils/sessionToken');
 const { authenticate, allowRoles } = require('../middleware/authorization');
 const {
   validateBody,
   readerRegistrationSchema,
   verificationRequestSchema,
   verificationSchema,
+  passwordResetRequestSchema,
+  passwordResetVerificationSchema,
   passwordResetSchema,
   loginSchema,
   adminInvitationSchema,
@@ -25,6 +28,7 @@ const {
   findChallengeIncludingDeleted,
   restoreDeletedChallenge,
   assertUnusedEmail,
+  passwordResetRoleAllowed,
   matchesRegistrationChallenge,
   authenticationActionUrl
 } = require('../utils/emailAuthentication');
@@ -36,20 +40,6 @@ function publicUser(user) {
   const result = user.toJSON();
   delete result.passwordHash;
   return result;
-}
-
-function accessToken(user) {
-  if (!process.env.JWT_SECRET_KEY || process.env.JWT_SECRET_KEY.length < 32) {
-    const error = new Error('La configuration JWT du serveur est manquante ou trop courte.');
-    error.status = 503;
-    throw error;
-  }
-  return jwt.sign({
-    id: user.id,
-    role: user.role,
-    status: user.status,
-    isAdmin: ['ADMIN', 'SUPER_ADMIN'].includes(user.role),
-  }, process.env.JWT_SECRET_KEY, { expiresIn: '8h' });
 }
 
 function responseForChallengeError(res, status) {
@@ -250,7 +240,7 @@ router.post('/auth/login', validateBody(loginSchema), async (req, res, next) => 
         role: user.role
       });
     }
-    const token = accessToken(user);
+    const token = createSessionToken(user);
     await recordAudit({ actor: user, ip: req.ip }, 'LOGIN', 'User', user.id);
     res.json({ user: publicUser(user), token });
   } catch (error) {
@@ -258,11 +248,11 @@ router.post('/auth/login', validateBody(loginSchema), async (req, res, next) => 
   }
 });
 
-router.post('/auth/password/request-code', validateBody(verificationRequestSchema), async (req, res, next) => {
+router.post('/auth/password/request-code', validateBody(passwordResetRequestSchema), async (req, res, next) => {
   try {
     const email = req.body.email.toLowerCase();
     const user = await User.findOne({ where: { email } });
-    if (user && ['ADMIN', 'SUPER_ADMIN', 'EDITOR', 'REVIEWER', 'READER'].includes(user.role) &&
+    if (user && passwordResetRoleAllowed(user.role, req.body.accountType) &&
       user.status === 'ACTIVE' && user.emailVerifiedAt) {
       await issueChallenge({
         email,
@@ -282,12 +272,12 @@ router.post('/auth/password/request-code', validateBody(verificationRequestSchem
   }
 });
 
-router.post('/auth/password/verify-code', validateBody(verificationSchema), async (req, res, next) => {
+router.post('/auth/password/verify-code', validateBody(passwordResetVerificationSchema), async (req, res, next) => {
   let transaction;
   try {
     const email = req.body.email.toLowerCase();
     const user = await User.findOne({ where: { email } });
-    if (!user || !['ADMIN', 'SUPER_ADMIN', 'EDITOR', 'REVIEWER', 'READER'].includes(user.role) ||
+    if (!user || !passwordResetRoleAllowed(user.role, req.body.accountType) ||
       user.status !== 'ACTIVE' || !user.emailVerifiedAt) {
       return res.status(400).json({ message: 'Le code est invalide ou expiré. Demandez un nouveau code.' });
     }
@@ -309,6 +299,7 @@ router.post('/auth/password/verify-code', validateBody(verificationSchema), asyn
       email,
       role: user.role,
       purpose: 'PASSWORD_RESET',
+      accountType: req.body.accountType,
       challengeId: result.challenge.id
     }, process.env.JWT_SECRET_KEY, { expiresIn: '15m' });
     return res.json({ resetToken, expiresInSeconds: 900 });
@@ -334,7 +325,8 @@ router.post('/auth/password/reset', validateBody(passwordResetSchema), async (re
     }
     const email = req.body.email.toLowerCase();
     if (claims.purpose !== 'PASSWORD_RESET' || claims.email !== email ||
-      !['ADMIN', 'SUPER_ADMIN', 'EDITOR', 'REVIEWER', 'READER'].includes(claims.role) ||
+      claims.accountType !== req.body.accountType ||
+      !passwordResetRoleAllowed(claims.role, req.body.accountType) ||
       !Number.isInteger(claims.challengeId)) {
       return res.status(403).json({ message: 'Le code ne correspond pas à cette adresse e-mail.' });
     }
@@ -662,7 +654,7 @@ router.post('/admin/auth/verify-code', validateBody(verificationSchema), async (
     result.challenge.consumedAt = new Date();
     await result.challenge.save({ transaction });
     await transaction.commit();
-    const token = accessToken(user);
+    const token = createSessionToken(user);
     await recordAudit({ actor: user, ip: req.ip }, 'ADMIN_LOGIN', 'User', user.id);
     res.json({ user: publicUser(user), token });
   } catch (error) {
@@ -690,7 +682,7 @@ router.get('/auth/me', authenticate, async (req, res, next) => {
   try {
     const subscriptions = await Subscription.findAll({
       where: { userId: req.user.id },
-      include: [{ model: Plan, as: 'plan', attributes: ['id', 'name', 'slug', 'price', 'currency', 'interval'] }],
+      include: [{ model: Plan, as: 'plan', attributes: ['id', 'name', 'slug', 'price', 'currency', 'interval', 'translations'] }],
       attributes: ['id', 'planId', 'status', 'startedAt', 'expiresAt', 'gracePeriodEndsAt', 'cancelAtPeriodEnd', 'stripeSubscriptionId', 'createdAt'],
       order: [['createdAt', 'DESC']]
     });

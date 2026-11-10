@@ -22,6 +22,13 @@ const translationsSchema = (fields) => z.object({
   en: localizedText(fields).partial().optional(),
   fr: localizedText(fields).partial().optional()
 }).optional();
+const planTranslationsSchema = z.object(Object.fromEntries(['ar', 'en', 'fr'].map((language) => [
+  language,
+  z.object({
+    name: z.string().trim().min(1).max(120),
+    features: z.array(z.string().trim().min(1).max(500)).max(30)
+  })
+])));
 
 const collectionSchema = z.object({
   title: z.string().trim().min(1).max(255),
@@ -198,6 +205,7 @@ const planSchema = z.object({
   currency: z.string().trim().length(3).regex(/^[A-Za-z]{3}$/).transform((value) => value.toUpperCase()).default('EUR'),
   interval: z.enum(['month', 'year']),
   features: z.array(z.string().trim().min(1).max(500)).max(30).default([]),
+  translations: planTranslationsSchema,
   isFamily: z.boolean().default(false),
   isActive: z.boolean().default(true)
 });
@@ -208,6 +216,7 @@ const planUpdateSchema = z.object({
   currency: z.string().trim().length(3).regex(/^[A-Za-z]{3}$/).transform((value) => value.toUpperCase()),
   interval: z.enum(['month', 'year']),
   features: z.array(z.string().trim().min(1).max(500)).max(30),
+  translations: planTranslationsSchema.optional(),
   isFamily: z.boolean(),
   isActive: z.boolean()
 }).partial().refine((value) => Object.keys(value).length > 0, {

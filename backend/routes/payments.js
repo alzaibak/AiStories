@@ -23,10 +23,12 @@ const {
   getInvoiceSubscriptionId
 } = require('../utils/stripe');
 const { recordAudit } = require('../utils/audit');
+const { requestedLanguage } = require('../utils/contentLocalization');
+const { localizePlan } = require('../utils/planLocalization');
 
 const router = express.Router();
 const readers = [authenticate, allowRoles('READER')];
-const admins = [authenticate, allowRoles('ADMIN')];
+const admins = [authenticate, allowRoles('ADMIN', 'SUPER_ADMIN')];
 
 function apiError(status, message, code) {
   const error = new Error(message);
@@ -456,9 +458,22 @@ async function stripeWebhookHandler(req, res) {
 
 router.get('/plans', async (req, res, next) => {
   try {
+    const language = requestedLanguage(req.query.lang);
     const plans = await Plan.findAll({
       where: { isActive: true },
-      attributes: ['id', 'name', 'slug', 'price', 'currency', 'interval', 'features', 'isFamily'],
+      attributes: ['id', 'name', 'slug', 'price', 'currency', 'interval', 'features', 'translations', 'isFamily'],
+      order: [['price', 'ASC']]
+    });
+    res.json(plans.map((plan) => localizePlan(plan, language)).filter(Boolean));
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/admin/plans', ...admins, async (req, res, next) => {
+  try {
+    const plans = await Plan.findAll({
+      attributes: ['id', 'name', 'slug', 'price', 'currency', 'interval', 'features', 'translations', 'isFamily', 'isActive'],
       order: [['price', 'ASC']]
     });
     res.json(plans);
@@ -603,7 +618,7 @@ router.get('/payments/session/:sessionId', authenticate, async (req, res, next) 
     if (order) return res.json({ kind: 'book', status: order.status });
     const subscription = await Subscription.findOne({
       where: { stripeCheckoutSessionId: req.params.sessionId, userId: req.user.id },
-      include: [{ model: Plan, as: 'plan', attributes: ['name', 'interval'] }]
+      include: [{ model: Plan, as: 'plan', attributes: ['name', 'interval', 'translations'] }]
     });
     if (!subscription) return res.status(404).json({ message: 'Checkout session not found.' });
     const value = subscription.toJSON();

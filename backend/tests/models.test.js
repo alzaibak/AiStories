@@ -16,6 +16,9 @@ test('les comptes portent les rôles et attributs de la plateforme', () => {
   assert.ok(models.User.rawAttributes.emailVerifiedAt);
   assert.ok(models.User.rawAttributes.organizationId);
   assert.deepEqual(models.User.rawAttributes.language.values, ['fr', 'en', 'ar']);
+  assert.deepEqual(models.EmailAuthChallenge.rawAttributes.role.values, [
+    'SUPER_ADMIN', 'ADMIN', 'EDITOR', 'REVIEWER', 'READER', 'BUYER', 'SELLER'
+  ]);
 });
 
 test('les modèles de contenu, boutique et abonnements exposent les workflows requis', () => {

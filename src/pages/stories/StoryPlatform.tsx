@@ -14,7 +14,7 @@ import {
 import {
   ArrowLeft, ArrowUpLeft, BookOpen, Bookmark, Check, ChevronLeft,
   ChevronRight, CircleHelp, Clock3, CreditCard, Headphones, Heart,
-  LockKeyhole, LogIn, MapPin, Menu, RefreshCw, Search, ShieldCheck,
+  LockKeyhole, LogIn, MapPin, Menu, Moon, RefreshCw, Search, ShieldCheck, Sun,
   ShoppingBag, Sparkles, Star, UserRound, X
 } from 'lucide-react';
 import { useStoryAuth } from '@/contexts/StoryAuthContext';
@@ -24,6 +24,11 @@ import { localizeAuthError } from '@/lib/authErrors';
 
 type SiteLanguage = 'ar' | 'en' | 'fr';
 const siteLanguages: SiteLanguage[] = ['ar', 'en', 'fr'];
+const planLanguages: Array<{ code: SiteLanguage; label: string }> = [
+  { code: 'ar', label: 'العربية' },
+  { code: 'en', label: 'English' },
+  { code: 'fr', label: 'Français' }
+];
 
 function useSiteLanguage(): SiteLanguage {
   const { locale } = useParams();
@@ -32,6 +37,10 @@ function useSiteLanguage(): SiteLanguage {
 
 function t(text: string, language: SiteLanguage) {
   return translateText(text, language);
+}
+
+function localizedPlanName(plan: NonNullable<ReaderSubscription['plan']>, language: SiteLanguage) {
+  return plan.translations?.[language]?.name || (language === 'ar' ? plan.name : t('اشتراك', language));
 }
 
 function prefixLanguage(to: To, language: SiteLanguage): To {
@@ -107,6 +116,28 @@ type BookSummary = {
   stockQuantity?: number | null;
 };
 
+type PlanTranslation = { name: string; features: string[] };
+type PlanTranslations = Partial<Record<SiteLanguage, PlanTranslation>>;
+type PlanDraft = {
+  slug: string;
+  price: string;
+  interval: 'month' | 'year';
+  translations: Record<SiteLanguage, { name: string; features: string }>;
+};
+
+function emptyPlanDraft(): PlanDraft {
+  return {
+    slug: '',
+    price: '',
+    interval: 'month',
+    translations: {
+      ar: { name: '', features: '' },
+      en: { name: '', features: '' },
+      fr: { name: '', features: '' }
+    }
+  };
+}
+
 type QuizQuestion = { id: number; text: string; options: string[] };
 type Quiz = { id: number; title: string; passingScore: number; questions: QuizQuestion[] };
 type QuizAttempt = { attemptId: number; questions: QuizQuestion[] };
@@ -174,6 +205,7 @@ function Header() {
         <nav className="hidden items-center gap-8 text-sm font-semibold text-slate-600 md:flex">
           <Link className="transition hover:text-emerald-800" to="/stories">{t('القصص', language)}</Link>
           <Link className="transition hover:text-emerald-800" to="/books">{t('المتجر', language)}</Link>
+          <Link className="transition hover:text-emerald-800" to="/pricing">{t('الأسعار والباقات', language)}</Link>
           <Link className="transition hover:text-emerald-800" to="/policy">{t('منهجنا', language)}</Link>
         </nav>
         <div className="hidden items-center gap-3 md:flex">
@@ -223,6 +255,7 @@ function Header() {
           <nav className="mx-auto flex max-w-7xl flex-col gap-4 text-sm font-semibold text-emerald-950">
             <Link onClick={() => setMenuOpen(false)} to="/stories">{t('القصص', language)}</Link>
             <Link onClick={() => setMenuOpen(false)} to="/books">{t('المتجر', language)}</Link>
+            <Link onClick={() => setMenuOpen(false)} to="/pricing">{t('الأسعار والباقات', language)}</Link>
             <Link onClick={() => setMenuOpen(false)} to="/policy">{t('منهجنا', language)}</Link>
             {user ? <Link onClick={() => setMenuOpen(false)} to={['ADMIN', 'SUPER_ADMIN', 'EDITOR'].includes(user.role) ? '/admin/content' : '/account'}>{t(user.role === 'READER' ? 'حسابي والاشتراك' : 'الإدارة', language)}</Link> : <Link onClick={() => setMenuOpen(false)} to="/login">{t('تسجيل الدخول', language)}</Link>}
           </nav>
@@ -245,6 +278,7 @@ function Footer() {
           <Link to="/policy/sources" className="hover:text-emerald-900">{t('المصادر والتوثيق', language)}</Link>
           <Link to="/policy/depiction" className="hover:text-emerald-900">{t('سياسة التصوير', language)}</Link>
           <Link to="/books" className="hover:text-emerald-900">{t('المتجر', language)}</Link>
+          <Link to="/pricing" className="hover:text-emerald-900">{t('الأسعار والباقات', language)}</Link>
         </div>
       </Container>
     </footer>
@@ -506,7 +540,11 @@ export function StoryDetailPage() {
 export function ReaderPage() {
   const { slug = '', partNumber = '' } = useParams();
   const number = Number(partNumber);
+  const language = useSiteLanguage();
   const { user } = useStoryAuth();
+  const [readingTheme, setReadingTheme] = useState<'light' | 'dark'>(() =>
+    window.localStorage.getItem('reader-theme') === 'dark' ? 'dark' : 'light'
+  );
   const [story, setStory] = useState<StorySummary | null>(null);
   const [part, setPart] = useState<(StoryPart & { content: string; endingHook: string }) | null>(null);
   const [loading, setLoading] = useState(true);
@@ -517,6 +555,10 @@ export function ReaderPage() {
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [result, setResult] = useState<QuizResult | null>(null);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    window.localStorage.setItem('reader-theme', readingTheme);
+  }, [readingTheme]);
 
   useEffect(() => {
     let active = true;
@@ -600,14 +642,20 @@ export function ReaderPage() {
 
   return (
     <SiteLayout>
-      <main><Container className="max-w-4xl py-9 sm:py-14">
-        <Link to={`/stories/${story.slug}`} className="inline-flex items-center gap-2 text-sm font-semibold text-emerald-800"><ArrowLeft size={16} /> {story.title}</Link>
+      <main data-reading-theme={readingTheme}><Container className="max-w-4xl py-9 sm:py-14">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <Link to={`/stories/${story.slug}`} className="inline-flex items-center gap-2 text-sm font-semibold text-emerald-800"><ArrowLeft size={16} /> {story.title}</Link>
+          <button type="button" aria-pressed={readingTheme === 'dark'} aria-label={t(readingTheme === 'dark' ? 'التبديل إلى الوضع الفاتح' : 'التبديل إلى الوضع الداكن', language)} onClick={() => setReadingTheme((theme) => theme === 'dark' ? 'light' : 'dark')} className="inline-flex items-center gap-2 rounded-full border border-emerald-950/15 px-4 py-2 text-sm font-bold text-emerald-900 hover:bg-emerald-50">
+            {readingTheme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+            {t(readingTheme === 'dark' ? 'الوضع الفاتح' : 'الوضع الداكن', language)}
+          </button>
+        </div>
         <div className="mt-7 border-b border-emerald-950/10 pb-6">
           <p className="text-sm font-bold text-emerald-700">الجزء {part.partNumber} من {story.parts?.length || part.partNumber}</p>
           <h1 className="mt-3 text-3xl font-black leading-relaxed text-emerald-950 sm:text-4xl">{part.title}</h1>
           <p className="mt-3 flex items-center gap-2 text-sm text-slate-500"><Clock3 size={15} /> نحو {part.estimatedReadingMinutes} دقائق للقراءة</p>
         </div>
-        <article className="mt-8 whitespace-pre-line text-right text-lg leading-[2.2] text-slate-700">{part.content}</article>
+        <article className="mt-8 whitespace-pre-line text-start text-lg leading-[2.2] text-slate-700">{part.content}</article>
         {part.endingHook && <div className="mt-8 rounded-2xl border-r-4 border-amber-500 bg-amber-50 p-5 leading-8 text-amber-950">{part.endingHook}</div>}
         <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-b border-emerald-950/10 pb-8">
           {previous ? <Link to={`/stories/${slug}/read/${previous.partNumber}`} className="inline-flex items-center gap-2 rounded-full border border-emerald-950/15 px-4 py-2.5 text-sm font-bold text-emerald-900 hover:bg-emerald-50"><ChevronRight size={17} /> الجزء السابق</Link> : <span />}
@@ -655,7 +703,7 @@ export function BooksPage() {
 export function BookDetailPage() {
   const { slug = '' } = useParams();
   const language = useSiteLanguage();
-  const navigate = useNavigate();
+  const navigate = useLocalizedNavigate();
   const { user } = useStoryAuth();
   const { data: book, loading, error } = useRemote<BookSummary>(`/books/${encodeURIComponent(slug)}`);
   const [quantity, setQuantity] = useState(1);
@@ -669,6 +717,53 @@ export function BookDetailPage() {
   });
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [checkingOut, setCheckingOut] = useState(false);
+  const [canDownload, setCanDownload] = useState(false);
+  const [checkingAccess, setCheckingAccess] = useState(false);
+  const [downloadBusy, setDownloadBusy] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!book || book.format !== 'ebook' || !user) {
+      setCanDownload(false);
+      setCheckingAccess(false);
+      return;
+    }
+    let active = true;
+    setCanDownload(false);
+    setCheckingAccess(true);
+    setDownloadError(null);
+    api.get<{ canDownload: boolean }>(`/books/${encodeURIComponent(book.slug)}/access`)
+      .then(({ canDownload: access }) => { if (active) setCanDownload(access); })
+      .catch((caught: unknown) => {
+        if (active) setDownloadError(caught instanceof Error ? caught.message : 'تعذر التحقق من صلاحية التنزيل.');
+      })
+      .finally(() => { if (active) setCheckingAccess(false); });
+    return () => { active = false; };
+  }, [book, user]);
+
+  async function downloadEbook() {
+    if (!book) return;
+    setDownloadBusy(true);
+    setDownloadError(null);
+    try {
+      const result = await api.get<{ url: string; requiresAuth?: boolean }>(`/books/${encodeURIComponent(book.slug)}/download`);
+      if (result.requiresAuth) {
+        const file = await api.getBlob(result.url);
+        const objectUrl = URL.createObjectURL(file);
+        const anchor = document.createElement('a');
+        anchor.href = objectUrl;
+        anchor.download = `${book.slug}.pdf`;
+        anchor.click();
+        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+      } else {
+        window.location.assign(result.url);
+      }
+    } catch (caught) {
+      setDownloadError(caught instanceof Error ? caught.message : 'تعذر تنزيل الكتاب الإلكتروني.');
+    } finally {
+      setDownloadBusy(false);
+    }
+  }
 
   async function checkout(event: FormEvent) {
     event.preventDefault();
@@ -703,9 +798,12 @@ export function BookDetailPage() {
         <h1 className="mt-3 text-3xl font-black leading-relaxed text-emerald-950">{book.title}</h1>
         <p className="mt-5 leading-8 text-slate-600">{book.description || 'كتاب يجمع بين متعة الحكاية وقيمها.'}</p>
         <p className="mt-5 text-xl font-extrabold text-emerald-800">{formatPrice(book.price, book.currency, language)}</p>
+        {book.format === 'ebook' && <p className="mt-2 text-sm leading-6 text-slate-600">{t('يُشترى هذا الكتاب الإلكتروني بشكل منفصل، ولا يشمله الاشتراك.', language)}</p>}
         {book.format === 'print' && book.stockQuantity !== null && book.stockQuantity !== undefined && <p className="mt-2 text-sm text-slate-500">المتوفر: {book.stockQuantity}</p>}
         {!user && <p className="mt-5 text-sm text-slate-600">أكمل الطلب بعد <Link to="/login" className="font-bold text-emerald-800 underline">تسجيل الدخول</Link>.</p>}
         {checkoutError && <div className="mt-5"><ErrorState message={checkoutError} /></div>}
+        {downloadError && <div className="mt-5"><ErrorState message={downloadError} /></div>}
+        {book.format === 'ebook' && canDownload ? <button type="button" onClick={downloadEbook} disabled={downloadBusy || checkingAccess} className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-full bg-emerald-900 px-5 py-3 font-bold text-white disabled:opacity-50"><BookOpen size={17} /> {t(downloadBusy ? 'جارٍ تجهيز التنزيل…' : 'تنزيل الكتاب الإلكتروني', language)}</button> :
         <form onSubmit={checkout} className="mt-6 space-y-4 rounded-2xl border border-emerald-950/10 bg-white p-5">
           {book.format === 'print' && <>
             <div className="flex items-center gap-2 text-sm font-bold text-emerald-950"><MapPin size={17} /> عنوان التوصيل</div>
@@ -724,6 +822,7 @@ export function BookDetailPage() {
             <CreditCard size={17} /> {checkingOut ? 'جارٍ تحويلك للدفع…' : 'المتابعة إلى الدفع الآمن'}
           </button>
         </form>
+        }
         <Link to="/books" className="mt-6 inline-flex items-center gap-2 font-bold text-emerald-800"><ArrowLeft size={17} /> العودة إلى المتجر</Link>
       </div>
     </div>}
@@ -778,15 +877,15 @@ export function ReaderAuthPage({ mode }: { mode: ReaderAuthMode }) {
     try {
       if (mode === 'login') {
         if (recoveryStage === 'email') {
-          setMessage(await requestPasswordResetCode(email, language));
+          setMessage(await requestPasswordResetCode(email, language, 'reader'));
           setRecoveryStage('code');
         } else if (recoveryStage === 'code') {
-          setResetToken(await verifyPasswordResetCode(email, code));
+          setResetToken(await verifyPasswordResetCode(email, code, 'reader'));
           setRecoveryStage('password');
           setCode('');
         } else if (recoveryStage === 'password') {
           if (password !== confirmPassword) throw new Error('Les mots de passe ne correspondent pas.');
-          setMessage(await resetPassword(email, password, resetToken));
+          setMessage(await resetPassword(email, password, resetToken, 'reader'));
           setRecoveryStage(null);
           setPassword('');
           setConfirmPassword('');
@@ -805,6 +904,7 @@ export function ReaderAuthPage({ mode }: { mode: ReaderAuthMode }) {
         setStage('details');
         setMessage('تم التحقق من البريد. أكمل بيانات حسابك.');
       } else {
+        if (password !== confirmPassword) throw new Error('Les mots de passe ne correspondent pas.');
         await registerReader({ firstName, lastName, email, password, language }, verificationToken);
         setMessage('تم إنشاء حسابك بنجاح. يمكنك تسجيل الدخول الآن.');
         navigate('/login', { replace: true, state: { message: 'تم إنشاء حسابك بنجاح. سجّل الدخول للمتابعة.' } });
@@ -835,11 +935,11 @@ export function ReaderAuthPage({ mode }: { mode: ReaderAuthMode }) {
           {(mode === 'login' && (recoveryStage === 'email' || !recoveryStage) || mode === 'register' && stage === 'email') && <label className="block space-y-2 text-sm font-semibold text-slate-700">البريد الإلكتروني<input type="email" required value={email} readOnly={mode === 'login' && recoveryStage !== 'email' && Boolean(searchParams.get('email'))} onChange={(event) => setEmail(event.target.value)} autoComplete="email" dir="ltr" className="w-full rounded-xl border border-emerald-950/15 px-4 py-3 text-left outline-none focus:border-emerald-700" /></label>}
           {recoveryStage === 'code' && <label className="block space-y-2 text-sm font-semibold text-slate-700">رمز إعادة التعيين<input required inputMode="numeric" pattern="[0-9]{6}" maxLength={6} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, ''))} dir="ltr" className="w-full rounded-xl border border-emerald-950/15 px-4 py-3 text-center tracking-[0.5em] outline-none focus:border-emerald-700" /></label>}
           {mode === 'register' && stage === 'code' && <><p className="text-sm text-slate-600">رمز التحقق أُرسل إلى <span dir="ltr" className="font-semibold">{email}</span></p><label className="block space-y-2 text-sm font-semibold text-slate-700">رمز التحقق<input required inputMode="numeric" pattern="[0-9]{6}" maxLength={6} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, ''))} dir="ltr" className="w-full rounded-xl border border-emerald-950/15 px-4 py-3 text-center tracking-[0.5em] outline-none focus:border-emerald-700" /></label></>}
-          {(mode === 'login' && !recoveryStage || mode === 'register' && stage === 'details') && <>
+          {(mode === 'login' && (!recoveryStage || recoveryStage === 'password') || mode === 'register' && stage === 'details') && <>
             {mode === 'register' && <label className="block space-y-2 text-sm font-semibold text-slate-700">البريد الإلكتروني<input type="email" required value={email} readOnly dir="ltr" className="w-full rounded-xl border border-emerald-950/10 bg-slate-50 px-4 py-3 text-left text-slate-500" /></label>}
-            <label className="block space-y-2 text-sm font-semibold text-slate-700">كلمة المرور<input type="password" required minLength={12} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={mode === 'login' && !recoveryStage ? 'current-password' : 'new-password'} className="w-full rounded-xl border border-emerald-950/15 px-4 py-3 outline-none focus:border-emerald-700" /></label>
+            <label className="block space-y-2 text-sm font-semibold text-slate-700">{recoveryStage === 'password' ? 'كلمة المرور الجديدة' : 'كلمة المرور'}<input type="password" required minLength={12} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={mode === 'login' && !recoveryStage ? 'current-password' : 'new-password'} className="w-full rounded-xl border border-emerald-950/15 px-4 py-3 outline-none focus:border-emerald-700" /></label>
+            {(mode === 'register' && stage === 'details' || mode === 'login' && recoveryStage === 'password') && <label className="block space-y-2 text-sm font-semibold text-slate-700">{recoveryStage === 'password' ? 'تأكيد كلمة المرور الجديدة' : 'تأكيد كلمة المرور'}<input type="password" required minLength={12} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} autoComplete="new-password" className="w-full rounded-xl border border-emerald-950/15 px-4 py-3 outline-none focus:border-emerald-700" /></label>}
           </>}
-          {mode === 'login' && recoveryStage === 'password' && <label className="block space-y-2 text-sm font-semibold text-slate-700">تأكيد كلمة المرور الجديدة<input type="password" required minLength={12} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} autoComplete="new-password" className="w-full rounded-xl border border-emerald-950/15 px-4 py-3 outline-none focus:border-emerald-700" /></label>}
           <button type="submit" disabled={busy} className="w-full rounded-full bg-emerald-900 px-5 py-3.5 font-bold text-white transition hover:bg-emerald-800 disabled:cursor-wait disabled:opacity-60">
             {busy ? 'جارٍ الإرسال…' : recoveryStage === 'email' ? 'إرسال رمز إعادة التعيين' : recoveryStage === 'code' ? 'التحقق من الرمز' : recoveryStage === 'password' ? 'حفظ كلمة المرور الجديدة' : mode === 'login' ? 'تسجيل الدخول' : stage === 'email' ? 'إرسال رمز التحقق' : stage === 'code' ? 'تأكيد البريد' : 'إنشاء الحساب'}
           </button>
@@ -929,8 +1029,61 @@ type SubscriptionPlan = {
   currency: string;
   interval: 'month' | 'year';
   features: string[];
+  translations?: PlanTranslations;
   isFamily: boolean;
+  isActive: boolean;
 };
+
+export function PricingPage() {
+  const language = useSiteLanguage();
+  const navigate = useLocalizedNavigate();
+  const { user } = useStoryAuth();
+  const { data: plans, loading, error } = useRemote<SubscriptionPlan[]>('/plans');
+  const [checkoutId, setCheckoutId] = useState<number | null>(null);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
+
+  async function startCheckout(planId: number) {
+    if (!user || user.role !== 'READER') {
+      navigate('/login');
+      return;
+    }
+    setCheckoutId(planId);
+    setCheckoutError(null);
+    try {
+      const response = await api.post<{ checkoutUrl: string }>('/payments/subscriptions/checkout', { planId, language });
+      window.location.assign(response.checkoutUrl);
+    } catch (caught) {
+      setCheckoutError(caught instanceof Error ? caught.message : 'تعذر بدء الاشتراك.');
+      setCheckoutId(null);
+    }
+  }
+
+  return <SiteLayout><main><Container className="py-12 sm:py-16">
+    <p className="text-sm font-bold tracking-widest text-emerald-700">الأسعار والباقات</p>
+    <h1 className="mt-3 text-3xl font-black text-emerald-950 sm:text-4xl">اختر باقة القراءة المناسبة</h1>
+    <p className="mt-3 max-w-3xl leading-8 text-slate-600">قارن الأسعار وما تتضمنه كل باقة قبل الاشتراك. تُدار الأسعار والمزايا من لوحة الإدارة.</p>
+    {loading && <LoadingState />}
+    {error && <div className="mt-6"><ErrorState message={error} /></div>}
+    {!loading && !error && !plans?.length && <div className="mt-8"><EmptyState>لا توجد باقات منشورة حاليًا.</EmptyState></div>}
+    {!!plans?.length && <div className="mt-9 grid gap-5 md:grid-cols-2 lg:grid-cols-3">
+      {plans.map((plan) => <article key={plan.id} className="flex flex-col rounded-3xl border border-emerald-950/10 bg-white p-6 shadow-sm">
+        <div className="flex items-start justify-between gap-4">
+          <div><h2 className="text-xl font-extrabold text-emerald-950">{plan.name}</h2><p className="mt-1 text-sm text-slate-500">{t(plan.isFamily ? 'باقة عائلية' : 'باقة فردية', language)}</p></div>
+          <span className="shrink-0 rounded-xl bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-800">{formatPrice(plan.price, plan.currency, language)} / {t(plan.interval === 'month' ? 'شهر' : 'سنة', language)}</span>
+        </div>
+        <h3 className="mt-6 font-bold text-emerald-950">{t('ما الذي تتضمنه', language)}</h3>
+        <ul className="mt-3 flex-1 space-y-2 text-sm leading-7 text-slate-600">
+          {plan.features.map((feature, index) => <li key={`${index}-${feature}`} className="flex gap-2"><Check size={16} className="mt-1 shrink-0 text-emerald-700" />{feature}</li>)}
+        </ul>
+        {user?.role === 'READER'
+          ? <button onClick={() => startCheckout(plan.id)} disabled={checkoutId !== null} className="mt-7 w-full rounded-full bg-emerald-900 px-5 py-3 font-bold text-white disabled:opacity-50">{t(checkoutId === plan.id ? 'جارٍ تحويلك للدفع…' : 'الاشتراك الآمن', language)}</button>
+          : <Link to="/register" className="mt-7 block w-full rounded-full bg-emerald-900 px-5 py-3 text-center font-bold text-white">{t('إنشاء حساب للاشتراك', language)}</Link>}
+      </article>)}
+    </div>}
+    {checkoutError && <div className="mt-6"><ErrorState message={checkoutError} /></div>}
+    <p className="mt-10 text-center text-sm text-slate-600">{t('يمكن شراء الكتب الإلكترونية بشكل منفصل دون اشتراك.', language)} <Link to="/books" className="font-bold text-emerald-800 underline">{t('تصفّح الكتب', language)}</Link></p>
+  </Container></main></SiteLayout>;
+}
 
 function SubscriptionCard({ subscription, busy, onCancel, onResume }: {
   subscription: ReaderSubscription;
@@ -946,7 +1099,7 @@ function SubscriptionCard({ subscription, busy, onCancel, onResume }: {
   };
   const statusColor = subscription.accessActive ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900';
   return <article className="border-b border-emerald-950/10 pb-4 last:border-0 last:pb-0">
-    <div className="flex flex-wrap items-center justify-between gap-3"><h3 className="font-bold text-emerald-950">{subscription.plan?.name || t('اشتراك', language)}</h3><span className={`rounded-full px-3 py-1 text-xs font-bold ${statusColor}`}>{t(labels[subscription.status], language)}</span></div>
+    <div className="flex flex-wrap items-center justify-between gap-3"><h3 className="font-bold text-emerald-950">{subscription.plan ? localizedPlanName(subscription.plan, language) : t('اشتراك', language)}</h3><span className={`rounded-full px-3 py-1 text-xs font-bold ${statusColor}`}>{t(labels[subscription.status], language)}</span></div>
     <p className="mt-2 text-sm text-slate-600">{t(subscription.accessActive ? 'الوصول إلى المحتوى مفعّل' : 'الوصول إلى المحتوى غير مفعّل', language)}</p>
     {subscription.expiresAt && <p className="mt-1 text-xs text-slate-500">{t('تاريخ الانتهاء:', language)} {new Intl.DateTimeFormat(language).format(new Date(subscription.expiresAt))}</p>}
     {subscription.cancelAtPeriodEnd && <p className="mt-1 text-xs text-amber-800">{t('سيتوقف التجديد في نهاية الفترة الحالية.', language)}</p>}
@@ -990,15 +1143,15 @@ export function AdminLoginPage() {
     setBusy(true);
     try {
       if (recoveryStage === 'email') {
-        setMessage(await requestPasswordResetCode(email, language));
+        setMessage(await requestPasswordResetCode(email, language, 'admin'));
         setRecoveryStage('code');
       } else if (recoveryStage === 'code') {
-        setResetToken(await verifyPasswordResetCode(email, code));
+        setResetToken(await verifyPasswordResetCode(email, code, 'admin'));
         setRecoveryStage('password');
         setCode('');
       } else if (recoveryStage === 'password') {
         if (password !== confirmPassword) throw new Error('Les mots de passe ne correspondent pas.');
-        setMessage(await resetPassword(email, password, resetToken));
+        setMessage(await resetPassword(email, password, resetToken, 'admin'));
         setRecoveryStage(null);
         setPassword('');
         setConfirmPassword('');
@@ -1145,17 +1298,17 @@ export function AdminStoreOrdersPage() {
 export function AdminSubscriptionsPage() {
   const language = useSiteLanguage();
   const { user, isLoading, logout } = useStoryAuth();
-  const navigate = useNavigate();
   const [reloadKey, setReloadKey] = useState(0);
   const [statusDrafts, setStatusDrafts] = useState<Record<number, ReaderSubscription['status']>>({});
   const [busyId, setBusyId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [planDraft, setPlanDraft] = useState({ name: '', slug: '', price: '', interval: 'month' as 'month' | 'year', features: '' });
+  const [planDraft, setPlanDraft] = useState<PlanDraft>(emptyPlanDraft);
+  const [editingPlanId, setEditingPlanId] = useState<number | null>(null);
   const [planBusy, setPlanBusy] = useState(false);
   const [planError, setPlanError] = useState<string | null>(null);
   const { data: subscriptions, loading, error: loadError } = useRemote<AdminSubscription[]>(`/admin/subscriptions?refresh=${reloadKey}`);
-  const { data: plans, loading: plansLoading, error: plansLoadError } = useRemote<SubscriptionPlan[]>(`/plans?refresh=${reloadKey}`);
+  const { data: plans, loading: plansLoading, error: plansLoadError } = useRemote<SubscriptionPlan[]>(`/admin/plans?refresh=${reloadKey}`);
 
   if (isLoading) return <SiteLayout><Container className="py-16"><LoadingState /></Container></SiteLayout>;
   if (!user) return <Navigate to="/admin/login" replace />;
@@ -1191,22 +1344,28 @@ export function AdminSubscriptionsPage() {
     }
   }
 
-  async function createPlan(event: FormEvent) {
+  async function savePlan(event: FormEvent) {
     event.preventDefault();
     setPlanBusy(true);
     setPlanError(null);
     try {
-      await api.post('/admin/plans', {
-        name: planDraft.name,
+      const payload = {
+        name: planDraft.translations.ar.name,
         slug: planDraft.slug,
         price: Number(planDraft.price),
         currency: 'EUR',
         interval: planDraft.interval,
-        features: planDraft.features.split('\n').map((feature) => feature.trim()).filter(Boolean),
-        isFamily: true,
-        isActive: true
-      });
-      setPlanDraft({ name: '', slug: '', price: '', interval: 'month', features: '' });
+        features: planDraft.translations.ar.features.split('\n').map((feature) => feature.trim()).filter(Boolean),
+        translations: Object.fromEntries(planLanguages.map(({ code }) => [code, {
+          name: planDraft.translations[code].name,
+          features: planDraft.translations[code].features.split('\n').map((feature) => feature.trim()).filter(Boolean)
+        }])),
+        isFamily: true
+      };
+      if (editingPlanId) await api.patch(`/admin/plans/${editingPlanId}`, payload);
+      else await api.post('/admin/plans', { ...payload, isActive: true });
+      setEditingPlanId(null);
+      setPlanDraft(emptyPlanDraft());
       setReloadKey((value) => value + 1);
     } catch (caught) {
       setPlanError(caught instanceof Error ? caught.message : 'تعذر إنشاء الباقة.');
@@ -1217,12 +1376,28 @@ export function AdminSubscriptionsPage() {
 
   async function togglePlan(plan: SubscriptionPlan) {
     try {
-      await api.patch(`/admin/plans/${plan.id}`, { isActive: false });
-      setNotice('تم إيقاف الباقة؛ لن تظهر للمشتركين الجدد.');
+      await api.patch(`/admin/plans/${plan.id}`, { isActive: !plan.isActive });
+      setNotice(plan.isActive ? 'تم إيقاف الباقة؛ لن تظهر للمشتركين الجدد.' : 'تم تفعيل الباقة وظهورها للمشتركين الجدد.');
       setReloadKey((value) => value + 1);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'تعذر تعديل الباقة.');
     }
+  }
+
+  function editPlan(plan: SubscriptionPlan) {
+    const translationDraft = Object.fromEntries(planLanguages.map(({ code }) => [code, {
+      name: plan.translations?.[code]?.name || (code === 'ar' ? plan.name : ''),
+      features: plan.translations?.[code]?.features?.join('\n') ||
+        (code === 'ar' ? plan.features.join('\n') : '')
+    }])) as PlanDraft['translations'];
+    setEditingPlanId(plan.id);
+    setPlanDraft({
+      slug: plan.slug,
+      price: String(plan.price),
+      interval: plan.interval,
+      translations: translationDraft
+    });
+    setPlanError(null);
   }
 
   return <SiteLayout><main><Container className="py-12 sm:py-16">
@@ -1236,7 +1411,7 @@ export function AdminSubscriptionsPage() {
         const status = statusDrafts[subscription.id] || subscription.status;
         return <article key={subscription.id} className="rounded-2xl border border-emerald-950/10 bg-white p-5">
           <div className="flex flex-wrap items-start justify-between gap-4">
-            <div><h2 className="font-bold text-emerald-950">{subscription.user.firstName} {subscription.user.lastName}</h2><p className="mt-1 text-sm text-slate-500">{subscription.user.email}</p><p className="mt-2 text-sm text-slate-600">{subscription.plan?.name || 'باقة'} · {subscription.accessActive ? 'الوصول مفعّل' : 'الوصول غير مفعّل'}</p></div>
+            <div><h2 className="font-bold text-emerald-950">{subscription.user.firstName} {subscription.user.lastName}</h2><p className="mt-1 text-sm text-slate-500">{subscription.user.email}</p><p className="mt-2 text-sm text-slate-600">{subscription.plan ? localizedPlanName(subscription.plan, language) : t('باقة', language)} · {subscription.accessActive ? t('الوصول مفعّل', language) : t('الوصول غير مفعّل', language)}</p></div>
             <div className="flex flex-wrap items-center gap-2"><span className={`rounded-full px-3 py-1 text-xs font-bold ${subscription.accessActive ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900'}`}>{status}</span>{subscription.stripeSubscriptionId ? <span className="text-xs text-slate-500">Stripe</span> : <select value={status} onChange={(event) => setStatusDrafts((value) => ({ ...value, [subscription.id]: event.target.value as ReaderSubscription['status'] }))} className="rounded-xl border border-emerald-950/15 px-3 py-2 text-sm"><option value="incomplete">غير مكتمل</option><option value="active">نشط</option><option value="past_due">متأخر السداد</option><option value="canceled">ملغي</option><option value="unpaid">غير مدفوع</option><option value="paused">متوقف</option><option value="expired">منتهي</option></select>}</div>
           </div>
           {subscription.stripeSubscriptionId ? <div className="mt-4">{subscription.cancelAtPeriodEnd ? <button onClick={() => updateStripeRenewal(subscription.id, 'resume')} disabled={busyId === subscription.id} className="text-sm font-bold text-emerald-800 underline disabled:opacity-50">استئناف التجديد</button> : <button onClick={() => updateStripeRenewal(subscription.id, 'cancel')} disabled={busyId === subscription.id} className="text-sm font-bold text-red-700 underline disabled:opacity-50">إيقاف التجديد</button>}</div> : <button onClick={() => updateManualStatus(subscription.id)} disabled={busyId === subscription.id || status === subscription.status} className="mt-4 rounded-full bg-emerald-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{busyId === subscription.id ? 'جارٍ الحفظ…' : 'حفظ الحالة'}</button>}
@@ -1245,17 +1420,24 @@ export function AdminSubscriptionsPage() {
     </section>
     <section className="mt-12 grid gap-8 lg:grid-cols-[0.8fr_1.2fr]">
       <div className="rounded-3xl border border-emerald-950/10 bg-white p-6">
-        <SectionHeading title="إنشاء باقة" />
+        <SectionHeading title={editingPlanId ? 'تعديل الباقة' : 'إنشاء باقة'} />
         {planError && <ErrorState message={planError} />}
-        <form onSubmit={createPlan} className="space-y-4">
-          <label className="block text-sm font-semibold text-slate-700">اسم الباقة<input required value={planDraft.name} onChange={(event) => setPlanDraft({ ...planDraft, name: event.target.value })} className="mt-2 w-full rounded-xl border border-emerald-950/15 px-3 py-2.5" /></label>
+        <form onSubmit={savePlan} className="space-y-4">
+          <p className="text-sm leading-6 text-slate-600">أدخل اسم الباقة ومزاياها يدويًا بكل لغة. لا تُنشأ ترجمات تلقائية.</p>
+          {planLanguages.map(({ code, label }) => <fieldset key={code} className="space-y-3 rounded-2xl border border-emerald-950/10 p-4">
+            <legend className="px-2 text-sm font-bold">{label}</legend>
+            <label className="block text-sm font-semibold text-slate-700">اسم الباقة<input required value={planDraft.translations[code].name} onChange={(event) => setPlanDraft((current) => ({ ...current, translations: { ...current.translations, [code]: { ...current.translations[code], name: event.target.value } } }))} dir={code === 'ar' ? 'rtl' : 'ltr'} className="mt-2 w-full rounded-xl border border-emerald-950/15 px-3 py-2.5" /></label>
+            <label className="block text-sm font-semibold text-slate-700">المزايا (ميزة واحدة في كل سطر)<textarea required rows={3} value={planDraft.translations[code].features} onChange={(event) => setPlanDraft((current) => ({ ...current, translations: { ...current.translations, [code]: { ...current.translations[code], features: event.target.value } } }))} dir={code === 'ar' ? 'rtl' : 'ltr'} className="mt-2 w-full rounded-xl border border-emerald-950/15 px-3 py-2.5" /></label>
+          </fieldset>)}
           <label className="block text-sm font-semibold text-slate-700">الرابط المختصر (slug)<input required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" value={planDraft.slug} onChange={(event) => setPlanDraft({ ...planDraft, slug: event.target.value })} dir="ltr" className="mt-2 w-full rounded-xl border border-emerald-950/15 px-3 py-2.5 text-left" /></label>
           <div className="grid grid-cols-2 gap-3"><label className="text-sm font-semibold text-slate-700">السعر باليورو<input required type="number" min="0.01" step="0.01" value={planDraft.price} onChange={(event) => setPlanDraft({ ...planDraft, price: event.target.value })} className="mt-2 w-full rounded-xl border border-emerald-950/15 px-3 py-2.5" /></label><label className="text-sm font-semibold text-slate-700">الفترة<select value={planDraft.interval} onChange={(event) => setPlanDraft({ ...planDraft, interval: event.target.value as 'month' | 'year' })} className="mt-2 w-full rounded-xl border border-emerald-950/15 px-3 py-2.5"><option value="month">شهرية</option><option value="year">سنوية</option></select></label></div>
-          <label className="block text-sm font-semibold text-slate-700">المزايا (ميزة واحدة في كل سطر)<textarea rows={4} value={planDraft.features} onChange={(event) => setPlanDraft({ ...planDraft, features: event.target.value })} className="mt-2 w-full rounded-xl border border-emerald-950/15 px-3 py-2.5" /></label>
-          <button disabled={planBusy} className="w-full rounded-full bg-emerald-900 px-5 py-3 font-bold text-white disabled:opacity-50">{planBusy ? 'جارٍ الإنشاء…' : 'إنشاء الباقة'}</button>
+          <div className="flex gap-3">
+            <button disabled={planBusy} className="flex-1 rounded-full bg-emerald-900 px-5 py-3 font-bold text-white disabled:opacity-50">{planBusy ? 'جارٍ الحفظ…' : editingPlanId ? 'حفظ الباقة' : 'إنشاء الباقة'}</button>
+            {editingPlanId && <button type="button" onClick={() => { setEditingPlanId(null); setPlanDraft(emptyPlanDraft()); }} className="rounded-full border border-emerald-950/15 px-5 py-3 font-bold">{t('إلغاء', language)}</button>}
+          </div>
         </form>
       </div>
-      <div><SectionHeading title="الباقات المنشورة" /><div className="space-y-3">{plansLoading && <LoadingState />}{plansLoadError && <ErrorState message={plansLoadError} />}{plans?.map((plan) => <article key={plan.id} className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-emerald-950/10 bg-white p-5"><div><h3 className="font-bold text-emerald-950">{plan.name}</h3><p className="mt-1 text-sm text-slate-600">{formatPrice(plan.price, plan.currency)} / {plan.interval === 'month' ? 'شهر' : 'سنة'}</p></div><button onClick={() => togglePlan(plan)} className="text-sm font-bold text-red-700 underline">إيقاف الباقة</button></article>)}</div></div>
+      <div><SectionHeading title="الباقات المنشورة" /><div className="space-y-3">{plansLoading && <LoadingState />}{plansLoadError && <ErrorState message={plansLoadError} />}{plans?.map((plan) => <article key={plan.id} className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-emerald-950/10 bg-white p-5"><div><h3 className="font-bold text-emerald-950">{localizedPlanName(plan, language)}</h3><p className="mt-1 text-sm text-slate-600">{formatPrice(plan.price, plan.currency, language)} / {t(plan.interval === 'month' ? 'شهر' : 'سنة', language)}</p></div><div className="flex items-center gap-3"><button onClick={() => editPlan(plan)} className="text-sm font-bold text-emerald-800 underline">{t('تعديل', language)}</button><button onClick={() => togglePlan(plan)} className="text-sm font-bold text-red-700 underline">{t(plan.isActive ? 'إيقاف الباقة' : 'تفعيل الباقة', language)}</button></div></article>)}</div></div>
     </section>
   </Container></main></SiteLayout>;
 }
@@ -1264,11 +1446,12 @@ type CheckoutResult = {
   kind: 'book' | 'subscription';
   status: string;
   accessActive?: boolean;
-  plan?: { name: string };
+  plan?: { name: string; translations?: PlanTranslations };
 };
 
 export function CheckoutResultPage() {
   const [searchParams] = useSearchParams();
+  const language = useSiteLanguage();
   const sessionId = searchParams.get('session_id');
   const { user, isLoading } = useStoryAuth();
   const { data: result, error, loading } = useRemote<CheckoutResult>(
@@ -1283,7 +1466,11 @@ export function CheckoutResultPage() {
     <h1 className="mt-6 text-3xl font-black leading-relaxed text-emerald-950">{paid ? 'تم تأكيد الدفع' : 'جارٍ تأكيد عملية الدفع'}</h1>
     {loading && <p className="mt-4 text-slate-600">نتحقق من حالة الطلب الآمنة…</p>}
     {error && <div className="mt-5"><ErrorState message={error} /></div>}
-    {result && <p className="mt-4 leading-8 text-slate-600">{paid ? result.kind === 'book' ? 'استلمنا دفعتك، وسيصلك تأكيد الطلب على بريدك الإلكتروني.' : `اشتراكك في ${result.plan?.name || 'الباقة'} فعّال الآن.` : 'قد يستغرق تحديث الحالة لحظات بعد عودتك من بوابة الدفع.'}</p>}
+    {result && <p className="mt-4 leading-8 text-slate-600">{paid
+      ? result.kind === 'book'
+        ? 'استلمنا دفعتك، وسيصلك تأكيد الطلب على بريدك الإلكتروني.'
+        : <>{t('اشتراكك في', language)} {result.plan?.translations?.[language]?.name || (language === 'ar' ? result.plan?.name : t('اشتراك', language)) || t('باقة', language)} {t('فعّال الآن.', language)}</>
+      : 'قد يستغرق تحديث الحالة لحظات بعد عودتك من بوابة الدفع.'}</p>}
     {!sessionId && <p className="mt-4 text-slate-600">لم يتم العثور على رقم جلسة الدفع.</p>}
     <button onClick={() => window.location.reload()} className="mt-7 inline-flex items-center gap-2 rounded-full bg-emerald-900 px-6 py-3 font-bold text-white"><RefreshCw size={16} /> تحديث حالة الدفع</button>
     <Link to={result?.kind === 'book' ? '/books' : '/account'} className="mr-3 mt-7 inline-flex font-bold text-emerald-800">متابعة</Link>

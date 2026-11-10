@@ -7,6 +7,7 @@ const {
   hashCode,
   checkChallenge,
   assertUnusedEmail,
+  passwordResetRoleAllowed,
   matchesRegistrationChallenge,
   authenticationActionUrl,
   localizedEmail,
@@ -27,6 +28,23 @@ test('les politiques OTP appliquent les longueurs, durées et tentatives attendu
   assert.deepEqual(ADMIN_POLICY, { digits: 8, lifetimeMinutes: 10, maxAttempts: 3 });
   assert.equal(generateCode(READER_POLICY.digits).length, 6);
   assert.equal(generateCode(ADMIN_POLICY.digits).length, 8);
+});
+
+test('la clé HMAC OTP doit être configurée séparément de la clé JWT', () => {
+  const previousOtpSecret = process.env.OTP_HASH_SECRET;
+  const previousJwtSecret = process.env.JWT_SECRET_KEY;
+  process.env.JWT_SECRET_KEY = 'test-jwt-secret-with-at-least-32-characters';
+  try {
+    process.env.OTP_HASH_SECRET = process.env.JWT_SECRET_KEY;
+    assert.throws(() => hashCode('123456'), { status: 503 });
+    process.env.OTP_HASH_SECRET = 'test-otp-secret-with-at-least-32-characters';
+    assert.match(hashCode('123456'), /^[a-f0-9]{64}$/);
+  } finally {
+    if (previousOtpSecret === undefined) delete process.env.OTP_HASH_SECRET;
+    else process.env.OTP_HASH_SECRET = previousOtpSecret;
+    if (previousJwtSecret === undefined) delete process.env.JWT_SECRET_KEY;
+    else process.env.JWT_SECRET_KEY = previousJwtSecret;
+  }
 });
 
 test('un code faux est compté, puis verrouillé au maximum de tentatives', () => {
@@ -71,6 +89,15 @@ test('un jeton d’inscription est lié à son rôle et à son adresse', () => {
   assert.equal(matchesRegistrationChallenge(claims, 'ADMIN', 'reader@example.test'), false);
   assert.equal(matchesRegistrationChallenge(claims, 'READER', 'other@example.test'), false);
   assert.equal(matchesRegistrationChallenge({ ...claims, purpose: 'ADMIN_REGISTRATION' }, 'READER', claims.email), false);
+});
+
+test('les réinitialisations sont séparées entre lecteur et administration', () => {
+  assert.equal(passwordResetRoleAllowed('READER', 'reader'), true);
+  assert.equal(passwordResetRoleAllowed('ADMIN', 'reader'), false);
+  assert.equal(passwordResetRoleAllowed('SUPER_ADMIN', 'reader'), false);
+  assert.equal(passwordResetRoleAllowed('ADMIN', 'admin'), true);
+  assert.equal(passwordResetRoleAllowed('SUPER_ADMIN', 'admin'), true);
+  assert.equal(passwordResetRoleAllowed('READER', 'admin'), false);
 });
 
 test('une adresse déjà utilisée est refusée avant l’émission du code', async () => {

@@ -6,9 +6,9 @@ interface AuthContextValue {
   isLoading: boolean;
   error: string | null;
   login: (email: string, password: string) => Promise<void>;
-  requestPasswordResetCode: (email: string, language: 'ar' | 'en' | 'fr') => Promise<string>;
-  verifyPasswordResetCode: (email: string, code: string) => Promise<string>;
-  resetPassword: (email: string, password: string, resetToken: string) => Promise<string>;
+  requestPasswordResetCode: (email: string, language: 'ar' | 'en' | 'fr', accountType: 'reader' | 'admin') => Promise<string>;
+  verifyPasswordResetCode: (email: string, code: string, accountType: 'reader' | 'admin') => Promise<string>;
+  resetPassword: (email: string, password: string, resetToken: string, accountType: 'reader' | 'admin') => Promise<string>;
   adminLogin: (email: string, password: string) => Promise<string>;
   verifyAdminCode: (email: string, code: string) => Promise<void>;
   requestReaderRegistrationCode: (email: string, language: 'ar' | 'en' | 'fr') => Promise<string>;
@@ -57,20 +57,32 @@ export function StoryAuthProvider({ children }: { children: ReactNode }) {
     await refreshUser();
   };
 
-  const requestPasswordResetCode = async (email: string, language: 'ar' | 'en' | 'fr') => {
-    const response = await api.post<{ message: string }>('/auth/password/request-code', { email, language });
+  const requestPasswordResetCode = async (
+    email: string,
+    language: 'ar' | 'en' | 'fr',
+    accountType: 'reader' | 'admin'
+  ) => {
+    const response = await api.post<{ message: string }>('/auth/password/request-code', { email, language, accountType });
     return response.message;
   };
 
-  const verifyPasswordResetCode = async (email: string, code: string) => {
-    const response = await api.post<{ resetToken: string }>('/auth/password/verify-code', { email, code });
+  const verifyPasswordResetCode = async (email: string, code: string, accountType: 'reader' | 'admin') => {
+    const response = await api.post<{ resetToken: string }>(
+      '/auth/password/verify-code',
+      { email, code, accountType }
+    );
     return response.resetToken;
   };
 
-  const resetPassword = async (email: string, password: string, resetToken: string) => {
+  const resetPassword = async (
+    email: string,
+    password: string,
+    resetToken: string,
+    accountType: 'reader' | 'admin'
+  ) => {
     const response = await api.postWithBearer<{ message: string }>(
       '/auth/password/reset',
-      { email, password },
+      { email, password, accountType },
       resetToken
     );
     return response.message;

@@ -34,7 +34,7 @@ async function up({ queryInterface, Sequelize }) {
     defaultValue: 'ar'
   });
   await queryInterface.changeColumn('email_auth_challenges', 'role', {
-    type: Sequelize.ENUM('ADMIN', 'EDITOR', 'REVIEWER', 'READER', 'BUYER', 'SELLER'),
+    type: Sequelize.ENUM('SUPER_ADMIN', 'ADMIN', 'EDITOR', 'REVIEWER', 'READER', 'BUYER', 'SELLER'),
     allowNull: false
   });
 

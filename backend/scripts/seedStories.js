@@ -7,6 +7,7 @@ const {
   Question,
   Book
 } = require('../models');
+const { SAMPLE_EBOOK_STORAGE_KEY } = require('../utils/sampleEbook');
 
 const sampleStories = [
   {
@@ -198,6 +199,33 @@ async function seedStories() {
       price: '4.90',
       currency: 'EUR',
       isPublished: false
+    }
+  });
+  await Book.findOrCreate({
+    where: { slug: 'kindness-lantern-demo' },
+    defaults: {
+      title: 'مصباح اللطف — كتاب إلكتروني تجريبي',
+      slug: 'kindness-lantern-demo',
+      description: 'كتاب إلكتروني قصير باللغة الإنجليزية لاختبار الشراء والتنزيل.',
+      translations: {
+        ar: {
+          title: 'مصباح اللطف — كتاب إلكتروني تجريبي',
+          description: 'كتاب إلكتروني قصير باللغة الإنجليزية لاختبار الشراء والتنزيل.'
+        },
+        en: {
+          title: 'The Lantern of Kindness — Sample E-book',
+          description: 'A short original English sample ebook for testing separate purchase and download.'
+        },
+        fr: {
+          title: 'La lanterne de la gentillesse — ebook de démonstration',
+          description: 'Un court ebook original en anglais pour tester l’achat séparé et le téléchargement.'
+        }
+      },
+      format: 'ebook',
+      price: '4.90',
+      currency: 'EUR',
+      fileStorageKey: SAMPLE_EBOOK_STORAGE_KEY,
+      isPublished: true
     }
   });
   await Book.findOrCreate({

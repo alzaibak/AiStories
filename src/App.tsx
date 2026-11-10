@@ -13,6 +13,7 @@ import {
   LandingPage,
   MembershipPage,
   PolicyPage,
+  PricingPage,
   ReaderAuthPage,
   ReaderPage,
   StoriesPage,
@@ -45,10 +46,11 @@ export default function App() {
             <Route path="stories/:slug/read/:partNumber" element={<ReaderPage />} />
             <Route path="books" element={<BooksPage />} />
             <Route path="books/:slug" element={<BookDetailPage />} />
-            <Route path="login" element={<ReaderAuthPage mode="login" />} />
-            <Route path="register" element={<ReaderAuthPage mode="register" />} />
+            <Route path="login" element={<ReaderAuthPage key="login" mode="login" />} />
+            <Route path="register" element={<ReaderAuthPage key="register" mode="register" />} />
             <Route path="account" element={<AccountPage />} />
             <Route path="membership" element={<MembershipPage />} />
+            <Route path="pricing" element={<PricingPage />} />
             <Route path="checkout/result" element={<CheckoutResultPage />} />
             <Route path="policy" element={<PolicyPage kind="overview" />} />
             <Route path="policy/sources" element={<PolicyPage kind="sources" />} />

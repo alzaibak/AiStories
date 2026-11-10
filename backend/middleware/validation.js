@@ -18,9 +18,18 @@ const verificationSchema = z.object({
   code: z.string().regex(/^\d{6,8}$/)
 });
 
+const passwordResetRequestSchema = verificationRequestSchema.extend({
+  accountType: z.enum(['reader', 'admin']).default('reader')
+});
+
+const passwordResetVerificationSchema = verificationSchema.extend({
+  accountType: z.enum(['reader', 'admin']).default('reader')
+});
+
 const passwordResetSchema = z.object({
   email: z.string().trim().email().max(255),
-  password: z.string().min(12).max(200)
+  password: z.string().min(12).max(200),
+  accountType: z.enum(['reader', 'admin']).default('reader')
 });
 
 const loginSchema = z.object({
@@ -64,6 +73,8 @@ module.exports = {
   readerRegistrationSchema,
   verificationRequestSchema,
   verificationSchema,
+  passwordResetRequestSchema,
+  passwordResetVerificationSchema,
   passwordResetSchema,
   loginSchema,
   adminInvitationSchema,

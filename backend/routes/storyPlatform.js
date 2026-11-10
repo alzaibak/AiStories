@@ -1,5 +1,6 @@
 const crypto = require('node:crypto');
 const express = require('express');
+const fs = require('fs');
 const { rateLimit } = require('express-rate-limit');
 const {
   Collection,
@@ -25,6 +26,7 @@ const schemas = require('../middleware/storyValidation');
 const { canAccessPart, canAccessBook, subscriptionIsActive } = require('../utils/contentAccess');
 const {
   MAX_DOCUMENT_BYTES,
+  createDownloadUrl,
   createMediaUrl,
   createMediaUploadKey,
   createMediaKey,
@@ -33,11 +35,12 @@ const {
   promoteUploadedMedia,
   deleteDocumentObject
 } = require('../utils/documentStorage');
+const { SAMPLE_EBOOK_STORAGE_KEY, SAMPLE_EBOOK_PATH } = require('../utils/sampleEbook');
 const { recordAudit } = require('../utils/audit');
 const { requestedLanguage, localizeFields } = require('../utils/contentLocalization');
 
 const router = express.Router();
-const contentEditors = [authenticate, allowRoles('ADMIN', 'EDITOR')];
+const contentEditors = [authenticate, allowRoles('ADMIN', 'SUPER_ADMIN', 'EDITOR')];
 const reviewers = [authenticate, allowRoles('ADMIN', 'REVIEWER')];
 const quizAttemptRateLimit = rateLimit({
   windowMs: 60 * 1000,
@@ -385,6 +388,16 @@ router.get('/books/:slug', async (req, res, next) => {
   }
 });
 
+router.get('/books/:slug/access', authenticate, async (req, res, next) => {
+  try {
+    const book = await Book.findOne({ where: { slug: req.params.slug, isPublished: true } });
+    if (!book || book.format !== 'ebook') return res.status(404).json({ message: 'Livre numérique introuvable.' });
+    res.json({ canDownload: await canAccessBook({ userId: req.user.id, role: req.user.role, book }) });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.get('/books/:slug/download', authenticate, async (req, res, next) => {
   try {
     const book = await Book.findOne({ where: { slug: req.params.slug, isPublished: true } });
@@ -393,9 +406,38 @@ router.get('/books/:slug/download', authenticate, async (req, res, next) => {
       return res.status(403).json({ message: 'Un droit de téléchargement actif est requis.', code: 'CONTENT_LOCKED' });
     }
     if (!book.fileStorageKey) return res.status(404).json({ message: 'Le fichier du livre n’est pas encore disponible.' });
+    if (book.fileStorageKey === SAMPLE_EBOOK_STORAGE_KEY) {
+      await fs.promises.access(SAMPLE_EBOOK_PATH, fs.constants.R_OK);
+      return res.json({
+        url: `/books/${encodeURIComponent(book.slug)}/sample-download`,
+        requiresAuth: true,
+        expiresInSeconds: 300
+      });
+    }
     res.json({
-      url: await createMediaUrl({ key: book.fileStorageKey, mimeType: 'application/pdf' }),
+      url: await createDownloadUrl({
+        key: book.fileStorageKey,
+        fileName: `${book.slug}.pdf`,
+        mimeType: 'application/pdf'
+      }),
       expiresInSeconds: 300
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/books/:slug/sample-download', authenticate, async (req, res, next) => {
+  try {
+    const book = await Book.findOne({ where: { slug: req.params.slug, isPublished: true } });
+    if (!book || book.format !== 'ebook' || book.fileStorageKey !== SAMPLE_EBOOK_STORAGE_KEY) {
+      return res.status(404).json({ message: 'Fichier de démonstration introuvable.' });
+    }
+    if (!await canAccessBook({ userId: req.user.id, role: req.user.role, book })) {
+      return res.status(403).json({ message: 'Un droit de téléchargement actif est requis.', code: 'CONTENT_LOCKED' });
+    }
+    res.download(SAMPLE_EBOOK_PATH, `${book.slug}.pdf`, (error) => {
+      if (error) next(error);
     });
   } catch (error) {
     next(error);
@@ -1044,7 +1086,7 @@ router.post('/admin/content/media/upload-url', ...contentEditors, validateBody(s
     res.status(201).json({
       mediaId: media.id,
       upload,
-      completeUrl: `/api/v1/admin/content/media/${media.id}/complete`,
+      completeUrl: `/admin/content/media/${media.id}/complete`,
       maxBytes: MAX_DOCUMENT_BYTES
     });
   } catch (error) {
@@ -1138,11 +1180,11 @@ router.post('/admin/content/style-guides', ...contentEditors, validateBody(schem
   }
 });
 
-router.get('/admin/subscriptions', authenticate, allowRoles('ADMIN'), async (req, res, next) => {
+router.get('/admin/subscriptions', authenticate, allowRoles('ADMIN', 'SUPER_ADMIN'), async (req, res, next) => {
   try {
     const subscriptions = await Subscription.findAll({
       include: [
-        { model: Plan, as: 'plan', attributes: ['id', 'name', 'slug', 'price', 'currency', 'interval'] },
+        { model: Plan, as: 'plan', attributes: ['id', 'name', 'slug', 'price', 'currency', 'interval', 'translations'] },
         { model: User, as: 'user', attributes: ['id', 'firstName', 'lastName', 'email', 'role'] }
       ],
       order: [['createdAt', 'DESC']],

@@ -45,7 +45,7 @@ function operation(summary, { publicAccess = false, body = false, ids = [], para
 
 const paths = {
   '/health': { get: operation('Vérifier la disponibilité de l’API', { publicAccess: true }) },
-  '/plans': { get: operation('Lister les formules d’abonnement actives', { publicAccess: true }) },
+  '/plans': { get: operation('Lister les formules actives traduites dans la langue demandée', { publicAccess: true }) },
   '/payments/webhook': {
     post: operation('Traiter un webhook Stripe signé', { publicAccess: true })
   },
@@ -65,6 +65,7 @@ const paths = {
     post: operation('Reprendre le renouvellement d’un abonnement', { ids: ['id'] })
   },
   '/admin/plans': {
+    get: operation('Lister les formules pour l’administration'),
     post: operation('Créer une formule d’abonnement', { body: true })
   },
   '/admin/plans/{id}': {
@@ -135,8 +136,14 @@ const paths = {
   '/books/{slug}': {
     get: operation('Lire les détails d’un livre', { publicAccess: true, params: [{ name: 'slug' }] })
   },
+  '/books/{slug}/access': {
+    get: operation('Vérifier le droit de téléchargement d’un ebook', { params: [{ name: 'slug' }] })
+  },
   '/books/{slug}/download': {
     get: operation('Télécharger un livre numérique après contrôle d’accès', { params: [{ name: 'slug' }] })
+  },
+  '/books/{slug}/sample-download': {
+    get: operation('Télécharger le PDF de démonstration après contrôle d’accès', { params: [{ name: 'slug' }] })
   },
   '/media-assets/{id}/url': {
     get: operation('Obtenir une URL média temporaire après contrôle d’accès', { publicAccess: true, ids: ['id'] })

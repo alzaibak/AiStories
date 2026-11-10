@@ -4,6 +4,8 @@ const {
   validateBody,
   loginSchema,
   passwordResetSchema,
+  passwordResetRequestSchema,
+  passwordResetVerificationSchema,
   readerRegistrationSchema
 } = require('../middleware/validation');
 const { videoSchema, mediaUploadSchema } = require('../middleware/storyValidation');
@@ -40,13 +42,33 @@ test('la validation rejette les entrées invalides avec des détails par champ',
 });
 
 test('la réinitialisation exige une adresse e-mail et un mot de passe fort', () => {
-  assert.equal(passwordResetSchema.safeParse({
+  const readerReset = passwordResetSchema.safeParse({
     email: 'buyer@example.test',
     password: 'a-long-enough-password'
+  });
+  assert.equal(readerReset.success, true);
+  assert.equal(readerReset.data.accountType, 'reader');
+  assert.equal(passwordResetSchema.safeParse({
+    email: 'buyer@example.test',
+    password: 'a-long-enough-password',
+    accountType: 'admin'
   }).success, true);
   assert.equal(passwordResetSchema.safeParse({
     email: 'buyer@example.test',
     password: 'short'
+  }).success, false);
+  assert.equal(passwordResetRequestSchema.safeParse({
+    email: 'admin@example.test',
+    accountType: 'admin'
+  }).success, true);
+  assert.equal(passwordResetVerificationSchema.safeParse({
+    email: 'admin@example.test',
+    code: '123456',
+    accountType: 'admin'
+  }).success, true);
+  assert.equal(passwordResetRequestSchema.safeParse({
+    email: 'admin@example.test',
+    accountType: 'unknown'
   }).success, false);
 });
 

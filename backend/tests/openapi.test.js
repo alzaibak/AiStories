@@ -7,7 +7,7 @@ test('la documentation OpenAPI décrit chaque opération active de l’API', () 
     .reduce((count, path) => count + Object.keys(path).length, 0);
 
   assert.equal(openApiDocument.openapi, '3.0.3');
-  assert.equal(operationCount, 78);
+  assert.equal(operationCount, 81);
   assert.ok(openApiDocument.paths['/auth/password/request-code']);
   assert.ok(openApiDocument.paths['/auth/password/verify-code']);
   assert.ok(openApiDocument.paths['/auth/password/reset']);
