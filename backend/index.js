@@ -3,6 +3,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const { rateLimit } = require('express-rate-limit');
 const swaggerUi = require('swagger-ui-express');
+const { apiErrorResponse, requestLanguage } = require('./utils/apiErrors');
 require('./config/environment').loadEnvironment();
 const sequelize = require('./config/database');
 const runMigrations = require('./migrate');
@@ -82,14 +83,8 @@ app.use((req, res) => res.status(404).json({ message: 'Route API introuvable.' }
 app.use((error, req, res, next) => {
   console.error('Erreur API :', error);
   if (res.headersSent) return next(error);
-  const status = error.status ||
-    (error.name === 'SequelizeUniqueConstraintError' ? 409 :
-      error.name === 'SequelizeValidationError' ? 400 : 500);
-  res.status(status).json({
-    message: status >= 500 ? 'Une erreur serveur est survenue.' : error.message,
-    ...(error.code ? { code: error.code } : {}),
-    ...(status === 400 && error.errors ? { details: error.errors.map((item) => item.message) } : {})
-  });
+  const response = apiErrorResponse(error, requestLanguage(req));
+  res.status(response.status).json(response.body);
 });
 
 async function startServer() {

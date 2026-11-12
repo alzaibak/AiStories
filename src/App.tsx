@@ -2,6 +2,15 @@ import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation, useParams 
 import { StoryAuthProvider } from '@/contexts/StoryAuthContext';
 import NotFound from '@/pages/NotFound';
 import AdminContentPage from '@/pages/stories/AdminContentPage';
+import AdminLayout from '@/pages/stories/AdminLayout';
+import {
+  AdminCollectionsPage,
+  AdminBooksPage,
+  AdminDashboardPage,
+  AdminModulePage,
+  AdminReviewQueuePage,
+  AdminStoriesPage
+} from '@/pages/stories/AdminDashboardPages';
 import {
   AccountPage,
   AdminLoginPage,
@@ -57,10 +66,25 @@ export default function App() {
             <Route path="policy/depiction" element={<PolicyPage kind="depiction" />} />
             <Route path="workspace" element={<Navigate to="../account" replace />} />
             <Route path="admin/login" element={<AdminLoginPage />} />
-            <Route path="admin/orders" element={<AdminStoreOrdersPage />} />
-            <Route path="admin/subscriptions" element={<AdminSubscriptionsPage />} />
-            <Route path="admin/content" element={<AdminContentPage />} />
-            <Route path="admin" element={<Navigate to="../admin/subscriptions" replace />} />
+            <Route path="admin" element={<AdminLayout />}>
+              <Route index element={<AdminDashboardPage />} />
+              <Route path="content" element={<Navigate to="stories" replace />} />
+              <Route path="content/collections" element={<AdminCollectionsPage />} />
+              <Route path="content/collections/new" element={<AdminContentPage />} />
+              <Route path="content/collections/:collectionId/edit" element={<AdminContentPage />} />
+              <Route path="content/stories" element={<AdminStoriesPage />} />
+              <Route path="content/stories/new" element={<AdminContentPage />} />
+              <Route path="content/stories/:storyId/edit" element={<AdminContentPage />} />
+              <Route path="content/stories/:storyId/parts/new" element={<AdminContentPage />} />
+              <Route path="content/review-queue" element={<AdminReviewQueuePage />} />
+              <Route path="shop/books" element={<AdminBooksPage />} />
+              <Route path="shop/books/new" element={<AdminContentPage />} />
+              <Route path="shop/books/:bookId/edit" element={<AdminContentPage />} />
+              <Route path="orders" element={<AdminStoreOrdersPage />} />
+              <Route path="subscriptions" element={<AdminSubscriptionsPage />} />
+              <Route path="system" element={<AdminModulePage title="إعدادات النظام" />} />
+              <Route path="*" element={<NotFound />} />
+            </Route>
             <Route path="*" element={<NotFound />} />
           </Route>
           <Route path="*" element={<LegacyRouteRedirect />} />

@@ -192,6 +192,7 @@ function Header() {
   }, [language]);
   const languagePath = (nextLanguage: SiteLanguage) =>
     `/${nextLanguage}${location.pathname.replace(/^\/(fr|en|ar)(?=\/|$)/, '')}`;
+  const isAdminUser = Boolean(user && ['ADMIN', 'SUPER_ADMIN', 'EDITOR', 'REVIEWER'].includes(user.role));
 
   return (
     <header className="sticky top-0 z-30 border-b border-emerald-950/10 bg-[#fbfaf6]/95 backdrop-blur">
@@ -220,8 +221,8 @@ function Header() {
           </nav>
           {user ? (
             <>
-              <Link to={['ADMIN', 'SUPER_ADMIN', 'EDITOR'].includes(user.role) ? '/admin/content' : '/account'} className="inline-flex items-center gap-2 rounded-full border border-emerald-950/15 px-4 py-2 text-sm font-semibold text-emerald-950 hover:bg-emerald-50">
-                <UserRound size={16} /> {t(['ADMIN', 'SUPER_ADMIN', 'EDITOR'].includes(user.role) ? 'الإدارة' : 'حسابي', language)}
+              <Link to={isAdminUser ? `/${language}/admin` : `/${language}/account`} className="inline-flex items-center gap-2 rounded-full border border-emerald-950/15 px-4 py-2 text-sm font-semibold text-emerald-950 hover:bg-emerald-50">
+                <UserRound size={16} /> {t(isAdminUser ? 'الإدارة' : 'حسابي', language)}
               </Link>
               <button onClick={logout} className="px-2 py-2 text-sm font-semibold text-slate-500 hover:text-emerald-900">{t('خروج', language)}</button>
             </>
@@ -257,7 +258,7 @@ function Header() {
             <Link onClick={() => setMenuOpen(false)} to="/books">{t('المتجر', language)}</Link>
             <Link onClick={() => setMenuOpen(false)} to="/pricing">{t('الأسعار والباقات', language)}</Link>
             <Link onClick={() => setMenuOpen(false)} to="/policy">{t('منهجنا', language)}</Link>
-            {user ? <Link onClick={() => setMenuOpen(false)} to={['ADMIN', 'SUPER_ADMIN', 'EDITOR'].includes(user.role) ? '/admin/content' : '/account'}>{t(user.role === 'READER' ? 'حسابي والاشتراك' : 'الإدارة', language)}</Link> : <Link onClick={() => setMenuOpen(false)} to="/login">{t('تسجيل الدخول', language)}</Link>}
+            {user ? <Link onClick={() => setMenuOpen(false)} to={isAdminUser ? `/${language}/admin` : `/${language}/account`}>{t(isAdminUser ? 'الإدارة' : 'حسابي والاشتراك', language)}</Link> : <Link onClick={() => setMenuOpen(false)} to="/login">{t('تسجيل الدخول', language)}</Link>}
           </nav>
         </div>
       )}
@@ -955,6 +956,7 @@ export function ReaderAuthPage({ mode }: { mode: ReaderAuthMode }) {
 }
 
 export function AccountPage() {
+  const language = useSiteLanguage();
   const { user, isLoading, logout, refreshUser, error: authError } = useStoryAuth();
   const [refreshing, setRefreshing] = useState(false);
   const [updatingSubscriptionId, setUpdatingSubscriptionId] = useState<number | null>(null);
@@ -971,7 +973,7 @@ export function AccountPage() {
   const subscriptions: ReaderSubscription[] = user?.subscriptions || [];
   if (isLoading) return <SiteLayout><Container className="py-16"><LoadingState /></Container></SiteLayout>;
   if (!user) return <Navigate to="/login" replace />;
-  if (['ADMIN', 'SUPER_ADMIN', 'EDITOR'].includes(user.role)) return <Navigate to="/admin/content" replace />;
+  if (['ADMIN', 'SUPER_ADMIN', 'EDITOR', 'REVIEWER'].includes(user.role)) return <Navigate to={`/${language}/admin`} replace />;
 
   async function startPlanCheckout(planId: number) {
     setPlanCheckoutId(planId);
@@ -1229,7 +1231,7 @@ const fulfillmentOrder: AdminStoreOrder['fulfillmentStatus'][] = ['unfulfilled',
 
 export function AdminStoreOrdersPage() {
   const language = useSiteLanguage();
-  const { user, isLoading, logout } = useStoryAuth();
+  const { user, isLoading } = useStoryAuth();
   const [reloadKey, setReloadKey] = useState(0);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1237,9 +1239,9 @@ export function AdminStoreOrdersPage() {
   const [drafts, setDrafts] = useState<Record<number, { fulfillmentStatus: AdminStoreOrder['fulfillmentStatus']; trackingNumber: string }>>({});
   const { data: orders, loading, error: loadError } = useRemote<AdminStoreOrder[]>(`/admin/store-orders?refresh=${reloadKey}`);
 
-  if (isLoading) return <SiteLayout><Container className="py-16"><LoadingState /></Container></SiteLayout>;
-  if (!user) return <Navigate to="/admin/login" replace />;
-  if (!['ADMIN', 'SUPER_ADMIN'].includes(user.role)) return <Navigate to="/account" replace />;
+  if (isLoading) return translateTree(<main className="p-8"><LoadingState /></main>, language);
+  if (!user) return <Navigate to={`/${language}/admin/login`} replace />;
+  if (!['ADMIN', 'SUPER_ADMIN'].includes(user.role)) return <Navigate to={`/${language}/account`} replace />;
 
   async function saveOrder(order: AdminStoreOrder) {
     const draft = drafts[order.id] || {
@@ -1263,10 +1265,10 @@ export function AdminStoreOrdersPage() {
     }
   }
 
-  return <SiteLayout><main><Container className="py-12 sm:py-16">
-    <div className="flex flex-wrap items-center justify-between gap-4">
-      <div><p className="text-sm font-bold tracking-widest text-emerald-700">لوحة الإدارة</p><h1 className="mt-3 text-3xl font-black text-emerald-950">طلبات الكتب الورقية</h1><p className="mt-2 text-slate-600">الطلبات المدفوعة وعناوين الشحن وحالة التجهيز.</p></div>
-      <div className="flex flex-wrap gap-2"><Link to="/admin/content" className="rounded-full border border-emerald-950/15 px-4 py-2 text-sm font-bold text-emerald-900">إدارة المحتوى</Link><Link to="/admin/subscriptions" className="rounded-full border border-emerald-950/15 px-4 py-2 text-sm font-bold text-emerald-900">الاشتراكات والباقات</Link><button onClick={() => setReloadKey((value) => value + 1)} className="rounded-full border border-emerald-950/15 px-4 py-2 text-sm font-bold text-emerald-900">تحديث</button><button onClick={logout} className="rounded-full border border-emerald-950/15 px-4 py-2 text-sm font-bold text-emerald-900">خروج</button></div>
+  return translateTree(<main><Container className="max-w-7xl space-y-6">
+    <div className="flex flex-wrap items-end justify-between gap-4">
+      <div><h1 className="text-2xl font-black text-emerald-950">طلبات الكتب الورقية</h1><p className="mt-2 text-slate-600">الطلبات المدفوعة وعناوين الشحن وحالة التجهيز.</p></div>
+      <button onClick={() => setReloadKey((value) => value + 1)} className="rounded-xl border border-emerald-950/15 px-4 py-2 text-sm font-bold text-emerald-900">تحديث</button>
     </div>
     {error && <div className="mt-6"><ErrorState message={error} /></div>}{loadError && <div className="mt-6"><ErrorState message={loadError} /></div>}{notice && <p className="mt-5 rounded-xl bg-emerald-50 p-4 text-sm text-emerald-900" role="status">{notice}</p>}
     <section className="mt-8 space-y-4">
@@ -1292,12 +1294,12 @@ export function AdminStoreOrdersPage() {
         </article>;
       })}
     </section>
-  </Container></main></SiteLayout>;
+  </Container></main>, language);
 }
 
 export function AdminSubscriptionsPage() {
   const language = useSiteLanguage();
-  const { user, isLoading, logout } = useStoryAuth();
+  const { user, isLoading } = useStoryAuth();
   const [reloadKey, setReloadKey] = useState(0);
   const [statusDrafts, setStatusDrafts] = useState<Record<number, ReaderSubscription['status']>>({});
   const [busyId, setBusyId] = useState<number | null>(null);
@@ -1310,9 +1312,9 @@ export function AdminSubscriptionsPage() {
   const { data: subscriptions, loading, error: loadError } = useRemote<AdminSubscription[]>(`/admin/subscriptions?refresh=${reloadKey}`);
   const { data: plans, loading: plansLoading, error: plansLoadError } = useRemote<SubscriptionPlan[]>(`/admin/plans?refresh=${reloadKey}`);
 
-  if (isLoading) return <SiteLayout><Container className="py-16"><LoadingState /></Container></SiteLayout>;
-  if (!user) return <Navigate to="/admin/login" replace />;
-  if (!['ADMIN', 'SUPER_ADMIN'].includes(user.role)) return <Navigate to="/account" replace />;
+  if (isLoading) return translateTree(<main className="p-8"><LoadingState /></main>, language);
+  if (!user) return <Navigate to={`/${language}/admin/login`} replace />;
+  if (!['ADMIN', 'SUPER_ADMIN'].includes(user.role)) return <Navigate to={`/${language}/account`} replace />;
 
   async function updateManualStatus(id: number) {
     setBusyId(id);
@@ -1400,8 +1402,8 @@ export function AdminSubscriptionsPage() {
     setPlanError(null);
   }
 
-  return <SiteLayout><main><Container className="py-12 sm:py-16">
-    <div className="flex flex-wrap items-center justify-between gap-4"><div><p className="text-sm font-bold tracking-widest text-emerald-700">لوحة الإدارة</p><h1 className="mt-3 text-3xl font-black text-emerald-950">الاشتراكات والباقات</h1><p className="mt-2 text-slate-600">حالة الوصول تُحدّث من أحداث Stripe، والتعديلات اليدوية متاحة للسجلات غير المرتبطة بمزوّد الدفع.</p></div><div className="flex flex-wrap gap-2"><Link to="/admin/content" className="rounded-full border border-emerald-950/15 px-4 py-2 text-sm font-bold text-emerald-900">إدارة المحتوى</Link><Link to="/admin/orders" className="rounded-full border border-emerald-950/15 px-4 py-2 text-sm font-bold text-emerald-900">طلبات الكتب</Link><button onClick={() => setReloadKey((value) => value + 1)} className="inline-flex items-center gap-2 rounded-full border border-emerald-950/15 px-4 py-2 text-sm font-bold text-emerald-900"><RefreshCw size={15} /> تحديث</button><button onClick={logout} className="rounded-full border border-emerald-950/15 px-4 py-2 text-sm font-bold text-emerald-900">خروج</button></div></div>
+  return translateTree(<main><Container className="max-w-7xl space-y-6">
+    <div className="flex flex-wrap items-end justify-between gap-4"><div><h1 className="text-2xl font-black text-emerald-950">الاشتراكات والباقات</h1><p className="mt-2 text-slate-600">حالة الوصول تُحدّث من أحداث Stripe، والتعديلات اليدوية متاحة للسجلات غير المرتبطة بمزوّد الدفع.</p></div><button onClick={() => setReloadKey((value) => value + 1)} className="inline-flex items-center gap-2 rounded-xl border border-emerald-950/15 px-4 py-2 text-sm font-bold text-emerald-900"><RefreshCw size={15} /> تحديث</button></div>
     {error && <div className="mt-6"><ErrorState message={error} /></div>}{loadError && <div className="mt-6"><ErrorState message={loadError} /></div>}{notice && <p className="mt-5 rounded-xl bg-emerald-50 p-4 text-sm text-emerald-900" role="status">{notice}</p>}
     <section className="mt-9">
       <SectionHeading title="حالة كل مشترك" />
@@ -1439,7 +1441,7 @@ export function AdminSubscriptionsPage() {
       </div>
       <div><SectionHeading title="الباقات المنشورة" /><div className="space-y-3">{plansLoading && <LoadingState />}{plansLoadError && <ErrorState message={plansLoadError} />}{plans?.map((plan) => <article key={plan.id} className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-emerald-950/10 bg-white p-5"><div><h3 className="font-bold text-emerald-950">{localizedPlanName(plan, language)}</h3><p className="mt-1 text-sm text-slate-600">{formatPrice(plan.price, plan.currency, language)} / {t(plan.interval === 'month' ? 'شهر' : 'سنة', language)}</p></div><div className="flex items-center gap-3"><button onClick={() => editPlan(plan)} className="text-sm font-bold text-emerald-800 underline">{t('تعديل', language)}</button><button onClick={() => togglePlan(plan)} className="text-sm font-bold text-red-700 underline">{t(plan.isActive ? 'إيقاف الباقة' : 'تفعيل الباقة', language)}</button></div></article>)}</div></div>
     </section>
-  </Container></main></SiteLayout>;
+  </Container></main>, language);
 }
 
 type CheckoutResult = {

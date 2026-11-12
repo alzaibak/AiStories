@@ -8,6 +8,7 @@ describe('erreurs API', () => {
   });
 
   it('explique clairement qu’un e-mail existe déjà et indique quoi faire', async () => {
+    window.history.replaceState({}, '', '/fr/signup');
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(
       JSON.stringify({ message: 'Cette adresse e-mail est déjà utilisée.' }),
       { status: 409, headers: { 'Content-Type': 'application/json' } }
@@ -17,8 +18,9 @@ describe('erreurs API', () => {
       method: 'POST',
       body: JSON.stringify({ email: 'existing@example.test' })
     })).rejects.toThrow(
-      'Cette adresse e-mail est déjà associée à un compte. Connectez-vous si vous avez déjà un compte, ou utilisez une autre adresse.'
+      'Cette adresse e-mail est déjà associée à un compte. Connectez-vous ou utilisez une autre adresse.'
     );
+    window.history.replaceState({}, '', '/');
   });
 
   it('envoie la langue de la route aux endpoints de lecture', async () => {

@@ -10,6 +10,7 @@ dist-ssr/
 backend/.env
 !backend/.env.example
 backend/node_modules/
+backend/private_uploads/
 
 # Journaux
 logs/

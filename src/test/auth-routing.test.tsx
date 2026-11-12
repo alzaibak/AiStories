@@ -40,6 +40,19 @@ vi.mock('@/pages/stories/StoryPlatform', async () => {
   };
 });
 vi.mock('@/pages/NotFound', () => ({ default: () => <div>not-found-view</div> }));
+vi.mock('@/pages/stories/AdminContentPage', () => ({ default: () => <div>admin-content-form-view</div> }));
+vi.mock('@/pages/stories/AdminLayout', async () => {
+  const { Outlet } = await import('react-router-dom');
+  return { default: () => <div>admin-shell<Outlet /></div> };
+});
+vi.mock('@/pages/stories/AdminDashboardPages', () => ({
+  AdminBooksPage: () => <div>admin-books-view</div>,
+  AdminCollectionsPage: () => <div>admin-collections-view</div>,
+  AdminDashboardPage: () => <div>admin-dashboard-view</div>,
+  AdminModulePage: () => <div>admin-module-view</div>,
+  AdminReviewQueuePage: () => <div>admin-review-view</div>,
+  AdminStoriesPage: () => <div>admin-stories-view</div>
+}));
 
 import App from '@/App';
 
@@ -81,6 +94,22 @@ describe('routes de la plateforme de récits', () => {
     expect(container?.textContent).toContain('books-view');
     await renderAt('/en/books/livre-exemple');
     expect(container?.textContent).toContain('book-view');
+  });
+
+  it('monte les pages admin dans le tableau de bord localisé', async () => {
+    await renderAt('/fr/admin');
+    expect(container?.textContent).toContain('admin-shell');
+    expect(container?.textContent).toContain('admin-dashboard-view');
+    await renderAt('/en/admin/content/stories');
+    expect(container?.textContent).toContain('admin-stories-view');
+    await renderAt('/ar/admin/content/stories/12/parts/new');
+    expect(container?.textContent).toContain('admin-content-form-view');
+    await renderAt('/fr/admin/content/collections/2/edit');
+    expect(container?.textContent).toContain('admin-content-form-view');
+    await renderAt('/fr/admin/shop/books');
+    expect(container?.textContent).toContain('admin-books-view');
+    await renderAt('/fr/admin/shop/books/new');
+    expect(container?.textContent).toContain('admin-content-form-view');
   });
 
   it('monte les formulaires lecteur, le compte et les politiques', async () => {

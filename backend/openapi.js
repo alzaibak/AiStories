@@ -145,8 +145,14 @@ const paths = {
   '/books/{slug}/sample-download': {
     get: operation('Télécharger le PDF de démonstration après contrôle d’accès', { params: [{ name: 'slug' }] })
   },
+  '/books/{slug}/local-download': {
+    get: operation('Télécharger un ebook local après contrôle d’accès', { params: [{ name: 'slug' }] })
+  },
   '/media-assets/{id}/url': {
     get: operation('Obtenir une URL média temporaire après contrôle d’accès', { publicAccess: true, ids: ['id'] })
+  },
+  '/media-assets/{id}/file': {
+    get: operation('Lire un média local après contrôle d’accès', { publicAccess: true, ids: ['id'] })
   },
   '/quizzes/{id}/start': {
     post: operation('Démarrer un quiz minuté', { ids: ['id'] })
@@ -189,7 +195,14 @@ const paths = {
     post: operation('Créer une partie d’histoire', { body: true, ids: ['id'] })
   },
   '/admin/content/parts/{id}': {
-    patch: operation('Modifier une partie', { body: true, ids: ['id'] })
+    patch: operation('Modifier une partie', { body: true, ids: ['id'] }),
+    delete: operation('Supprimer une partie et son quiz associé', { ids: ['id'] })
+  },
+  '/admin/content/parts/{id}/move': {
+    post: operation('Réordonner une partie en renumérotant la liste dans une transaction', { body: true, ids: ['id'] })
+  },
+  '/admin/content/parts/{id}/duplicate': {
+    post: operation('Dupliquer une partie à la fin de son histoire', { ids: ['id'] })
   },
   '/admin/content/stories/{id}/videos': {
     post: operation('Ajouter une vidéo après confirmation de la politique de représentation', { body: true, ids: ['id'] })
@@ -225,6 +238,9 @@ const paths = {
   },
   '/admin/content/media/upload-url': {
     post: operation('Créer un dépôt média privé temporaire', { body: true })
+  },
+  '/admin/content/media/{id}/upload': {
+    post: operation('Téléverser un média vers le stockage local privé', { ids: ['id'] })
   },
   '/admin/content/media/{id}/complete': {
     post: operation('Vérifier et finaliser un dépôt média privé', { ids: ['id'] })

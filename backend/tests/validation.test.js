@@ -19,8 +19,8 @@ test('la validation normalise les entrées valides avant le contrôleur', () => 
   assert.equal(req.body.email, 'buyer@example.test');
 });
 
-test('la validation rejette les entrées invalides avec des détails par champ', () => {
-  const req = { body: { email: 'invalid-email', password: '' } };
+test('la validation rejette les entrées invalides avec des messages localisés par champ', () => {
+  const req = { body: { email: 'invalid-email', password: '' }, headers: { 'accept-language': 'fr' } };
   const res = {
     statusCode: 200,
     status(code) {
@@ -38,7 +38,9 @@ test('la validation rejette les entrées invalides avec des détails par champ',
 
   assert.equal(continued, false);
   assert.equal(res.statusCode, 400);
-  assert.equal(res.body.details.length, 2);
+  assert.equal(res.body.code, 'VALIDATION_FAILED');
+  assert.equal(res.body.fields.email, 'Cette valeur est invalide.');
+  assert.equal(res.body.fields.password, 'Cette valeur est invalide.');
 });
 
 test('la réinitialisation exige une adresse e-mail et un mot de passe fort', () => {

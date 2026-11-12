@@ -1,7 +1,9 @@
 const crypto = require('node:crypto');
 const express = require('express');
 const fs = require('fs');
+const multer = require('multer');
 const { rateLimit } = require('express-rate-limit');
+const { sequelize } = require('../models');
 const {
   Collection,
   Story,
@@ -25,7 +27,14 @@ const { validateBody } = require('../middleware/validation');
 const schemas = require('../middleware/storyValidation');
 const { canAccessPart, canAccessBook, subscriptionIsActive } = require('../utils/contentAccess');
 const {
-  MAX_DOCUMENT_BYTES,
+  getMaxDocumentBytes,
+  getStorageDriver,
+  ensureLocalStorageDirectories,
+  getLocalUploadDirectory,
+  storeLocalUploadFile,
+  localStoragePath,
+  mediaUploadMatches,
+  isLocalStorageKey,
   createDownloadUrl,
   createMediaUrl,
   createMediaUploadKey,
@@ -48,6 +57,46 @@ const quizAttemptRateLimit = rateLimit({
   standardHeaders: 'draft-8',
   legacyHeaders: false
 });
+function uploadError(message, status, code) {
+  const error = new Error(message);
+  error.status = status;
+  error.code = code;
+  return error;
+}
+
+function uploadLocalMedia(req, res, next) {
+  const fileUpload = multer({
+    storage: multer.diskStorage({
+      destination(_request, _file, callback) {
+        ensureLocalStorageDirectories()
+          .then(() => callback(null, getLocalUploadDirectory()))
+          .catch(callback);
+      },
+      filename(_request, _file, callback) {
+        callback(null, crypto.randomUUID());
+      }
+    }),
+    limits: { fileSize: getMaxDocumentBytes(), files: 1 }
+  }).single('file');
+  fileUpload(req, res, next);
+}
+
+function partNumberConflict(part) {
+  const error = uploadError(
+    `Part ${part.partNumber} already exists for this story.`,
+    409,
+    'PART_NUMBER_CONFLICT'
+  );
+  error.partNumber = part.partNumber;
+  error.fields = { partNumber: error.message };
+  error.existingPart = { id: part.id, partNumber: part.partNumber };
+  return error;
+}
+
+function isPartNumberUniqueError(error) {
+  return error.name === 'SequelizeUniqueConstraintError' &&
+    (error.errors || []).some((item) => item.path === 'partNumber' || item.path === 'storyId');
+}
 
 function parseId(value, label) {
   const parsed = Number(value);
@@ -67,6 +116,30 @@ function notFound(message) {
 
 function isPrivileged(user) {
   return ['ADMIN', 'SUPER_ADMIN', 'EDITOR', 'REVIEWER'].includes(user?.role);
+}
+
+async function canAccessMedia(media, user) {
+  let accessible = isPrivileged(user);
+  if (!accessible && media.bookId) {
+    const book = await Book.findByPk(media.bookId);
+    accessible = Boolean(book && await canAccessBook({ userId: user?.id, role: user?.role, book }));
+  } else if (!accessible && (media.storyId || media.partId)) {
+    const part = media.partId ? await StoryPart.findByPk(media.partId) : null;
+    const storyId = media.storyId || part?.storyId;
+    const story = storyId ? await Story.findByPk(storyId, {
+      include: [{ model: Collection, as: 'collection' }]
+    }) : null;
+    const accessPart = part
+      ? (part.storyId === story?.id ? part : null)
+      : story && await StoryPart.findOne({ where: { storyId: story.id }, order: [['partNumber', 'ASC']] });
+    accessible = Boolean(story && accessPart && story.status === 'published' && await canAccessPart({
+      userId: user?.id,
+      role: user?.role,
+      story,
+      part: accessPart
+    }));
+  }
+  return accessible;
 }
 
 async function findPublishedStory(slug) {
@@ -414,6 +487,13 @@ router.get('/books/:slug/download', authenticate, async (req, res, next) => {
         expiresInSeconds: 300
       });
     }
+    if (isLocalStorageKey(book.fileStorageKey)) {
+      return res.json({
+        url: `/books/${encodeURIComponent(book.slug)}/local-download`,
+        requiresAuth: true,
+        expiresInSeconds: 300
+      });
+    }
     res.json({
       url: await createDownloadUrl({
         key: book.fileStorageKey,
@@ -421,6 +501,23 @@ router.get('/books/:slug/download', authenticate, async (req, res, next) => {
         mimeType: 'application/pdf'
       }),
       expiresInSeconds: 300
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/books/:slug/local-download', authenticate, async (req, res, next) => {
+  try {
+    const book = await Book.findOne({ where: { slug: req.params.slug, isPublished: true } });
+    if (!book || book.format !== 'ebook' || !isLocalStorageKey(book.fileStorageKey)) {
+      return res.status(404).json({ message: 'Fichier ebook introuvable.' });
+    }
+    if (!await canAccessBook({ userId: req.user.id, role: req.user.role, book })) {
+      return res.status(403).json({ message: 'Un droit de téléchargement actif est requis.', code: 'CONTENT_LOCKED' });
+    }
+    res.download(localStoragePath(book.fileStorageKey), `${book.slug}.pdf`, (error) => {
+      if (error) next(error);
     });
   } catch (error) {
     next(error);
@@ -454,32 +551,38 @@ router.get('/media-assets/:id/url', optionalAuthenticate, async (req, res, next)
     if (media.metadata?.uploadPending) {
       return res.status(409).json({ message: 'Le téléversement du média n’est pas encore finalisé.' });
     }
-    let accessible = isPrivileged(req.user);
-    if (!accessible && media.bookId) {
-      const book = await Book.findByPk(media.bookId);
-      accessible = Boolean(book && await canAccessBook({ userId: req.user?.id, role: req.user?.role, book }));
-    } else if (!accessible && (media.storyId || media.partId)) {
-      const part = media.partId ? await StoryPart.findByPk(media.partId) : null;
-      const storyId = media.storyId || part?.storyId;
-      const story = storyId ? await Story.findByPk(storyId, {
-        include: [{ model: Collection, as: 'collection' }]
-      }) : null;
-      const accessPart = part
-        ? (part.storyId === story?.id ? part : null)
-        : story && await StoryPart.findOne({ where: { storyId: story.id }, order: [['partNumber', 'ASC']] });
-      accessible = Boolean(story && accessPart && story.status === 'published' && await canAccessPart({
-        userId: req.user?.id,
-        role: req.user?.role,
-        story,
-        part: accessPart
-      }));
-    }
+    const accessible = await canAccessMedia(media, req.user);
     if (!accessible) return res.status(403).json({ message: 'Accès au média non autorisé.', code: 'CONTENT_LOCKED' });
     if (media.externalUrl) return res.json({ url: media.externalUrl });
     if (!media.storageKey) return res.status(404).json({ message: 'Le fichier du média est indisponible.' });
+    if (isLocalStorageKey(media.storageKey)) {
+      return res.json({ url: `/media-assets/${media.id}/file`, requiresAuth: true });
+    }
     res.json({
       url: await createMediaUrl({ key: media.storageKey, mimeType: media.mimeType }),
       expiresInSeconds: 300
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/media-assets/:id/file', optionalAuthenticate, async (req, res, next) => {
+  try {
+    const media = await MediaAsset.findByPk(parseId(req.params.id, 'Média'));
+    if (!media || !isLocalStorageKey(media.storageKey) || media.metadata?.uploadPending) {
+      return res.status(404).json({ message: 'Fichier média introuvable.' });
+    }
+    if (!media.depictionPolicyConfirmed) {
+      return res.status(403).json({ message: 'La politique de représentation doit être confirmée pour ce média.' });
+    }
+    if (!await canAccessMedia(media, req.user)) {
+      return res.status(403).json({ message: 'Accès au média non autorisé.', code: 'CONTENT_LOCKED' });
+    }
+    res.type(media.mimeType || 'application/octet-stream');
+    res.setHeader('Content-Disposition', 'inline');
+    res.sendFile(localStoragePath(media.storageKey), (error) => {
+      if (error) next(error);
     });
   } catch (error) {
     next(error);
@@ -812,11 +915,27 @@ router.post('/admin/content/stories/:id/publish', ...reviewers, async (req, res,
 router.post('/admin/content/stories/:id/parts', ...contentEditors, validateBody(schemas.partSchema), async (req, res, next) => {
   try {
     const storyId = parseId(req.params.id, 'Histoire');
-    if (!await Story.findByPk(storyId)) return res.status(404).json({ message: 'Histoire introuvable.' });
+    const story = await Story.findByPk(storyId);
+    if (!story) return res.status(404).json({ message: 'Histoire introuvable.' });
+    const existing = await StoryPart.findOne({
+      where: { storyId, partNumber: req.body.partNumber }
+    });
+    if (existing) throw partNumberConflict(existing);
     const part = await StoryPart.create({ ...req.body, storyId });
+    if (story.status === 'published') {
+      story.status = 'in_review';
+      story.approvedAt = null;
+      await story.save();
+    }
     await recordAudit(req, 'CREATE_STORY_PART', 'StoryPart', part.id, { storyId });
     res.status(201).json(part);
   } catch (error) {
+    if (isPartNumberUniqueError(error) && req.body.partNumber !== undefined) {
+      const existing = await StoryPart.findOne({
+        where: { storyId: Number(req.params.id), partNumber: req.body.partNumber }
+      });
+      if (existing) return next(partNumberConflict(existing));
+    }
     next(error);
   }
 });
@@ -825,6 +944,12 @@ router.patch('/admin/content/parts/:id', ...contentEditors, validateBody(schemas
   try {
     const part = await StoryPart.findByPk(parseId(req.params.id, 'Partie'));
     if (!part) return res.status(404).json({ message: 'Partie introuvable.' });
+    if (req.body.partNumber !== undefined && req.body.partNumber !== part.partNumber) {
+      const existing = await StoryPart.findOne({
+        where: { storyId: part.storyId, partNumber: req.body.partNumber }
+      });
+      if (existing) throw partNumberConflict(existing);
+    }
     await part.update(req.body);
     const story = await Story.findByPk(part.storyId);
     if (story?.status === 'published') {
@@ -834,6 +959,118 @@ router.patch('/admin/content/parts/:id', ...contentEditors, validateBody(schemas
     }
     await recordAudit(req, 'UPDATE_STORY_PART', 'StoryPart', part.id);
     res.json(part);
+  } catch (error) {
+    if (isPartNumberUniqueError(error) && req.body.partNumber !== undefined) {
+      const part = await StoryPart.findByPk(Number(req.params.id));
+      const existing = part && await StoryPart.findOne({
+        where: { storyId: part.storyId, partNumber: req.body.partNumber }
+      });
+      if (existing) return next(partNumberConflict(existing));
+    }
+    next(error);
+  }
+});
+
+router.post('/admin/content/parts/:id/move', ...contentEditors, async (req, res, next) => {
+  try {
+    const partId = parseId(req.params.id, 'Partie');
+    if (!['up', 'down'].includes(req.body.direction)) {
+      return res.status(400).json({ message: 'Choisissez un déplacement valide.' });
+    }
+    const result = await sequelize.transaction(async (transaction) => {
+      const part = await StoryPart.findByPk(partId, {
+        transaction,
+        lock: transaction.LOCK.UPDATE
+      });
+      if (!part) return null;
+      const parts = await StoryPart.findAll({
+        where: { storyId: part.storyId },
+        order: [['partNumber', 'ASC']],
+        transaction,
+        lock: transaction.LOCK.UPDATE
+      });
+      const index = parts.findIndex((entry) => entry.id === part.id);
+      const targetIndex = index + (req.body.direction === 'up' ? -1 : 1);
+      if (index < 0 || targetIndex < 0 || targetIndex >= parts.length) {
+        return { parts, storyId: part.storyId, changed: false };
+      }
+      [parts[index], parts[targetIndex]] = [parts[targetIndex], parts[index]];
+      for (let position = 0; position < parts.length; position += 1) {
+        await parts[position].update({ partNumber: -(position + 1) }, { transaction });
+      }
+      for (let position = 0; position < parts.length; position += 1) {
+        await parts[position].update({ partNumber: position + 1 }, { transaction });
+      }
+      return { parts, storyId: part.storyId, changed: true };
+    });
+    if (!result) return res.status(404).json({ message: 'Partie introuvable.' });
+    if (!result.changed) return res.json(result.parts);
+    const story = await Story.findByPk(result.storyId);
+    if (story?.status === 'published') {
+      story.status = 'in_review';
+      story.approvedAt = null;
+      await story.save();
+    }
+    await recordAudit(req, 'REORDER_STORY_PARTS', 'StoryPart', Number(req.params.id), {
+      direction: req.body.direction
+    });
+    res.json(result.parts);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/admin/content/parts/:id/duplicate', ...contentEditors, async (req, res, next) => {
+  try {
+    const part = await StoryPart.findByPk(parseId(req.params.id, 'Partie'));
+    if (!part) return res.status(404).json({ message: 'Partie introuvable.' });
+    const nextPartNumber = (await StoryPart.max('partNumber', { where: { storyId: part.storyId } }) || 0) + 1;
+    const duplicate = await StoryPart.create({
+      storyId: part.storyId,
+      partNumber: nextPartNumber,
+      title: part.title,
+      content: part.content,
+      translations: part.translations,
+      estimatedReadingMinutes: part.estimatedReadingMinutes,
+      endingHook: part.endingHook,
+      isFree: part.isFree,
+      releaseAt: part.releaseAt,
+      earlyAccessUntil: part.earlyAccessUntil
+    });
+    const story = await Story.findByPk(part.storyId);
+    if (story?.status === 'published') {
+      story.status = 'in_review';
+      story.approvedAt = null;
+      await story.save();
+    }
+    await recordAudit(req, 'DUPLICATE_STORY_PART', 'StoryPart', duplicate.id, {
+      sourcePartId: part.id
+    });
+    res.status(201).json(duplicate);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.delete('/admin/content/parts/:id', ...contentEditors, async (req, res, next) => {
+  try {
+    const partId = parseId(req.params.id, 'Partie');
+    const storyId = await sequelize.transaction(async (transaction) => {
+      const part = await StoryPart.findByPk(partId, { transaction, lock: transaction.LOCK.UPDATE });
+      if (!part) return null;
+      await Quiz.destroy({ where: { partId }, transaction });
+      await part.destroy({ transaction });
+      return part.storyId;
+    });
+    if (!storyId) return res.status(404).json({ message: 'Partie introuvable.' });
+    const story = await Story.findByPk(storyId);
+    if (story?.status === 'published') {
+      story.status = 'in_review';
+      story.approvedAt = null;
+      await story.save();
+    }
+    await recordAudit(req, 'DELETE_STORY_PART', 'StoryPart', partId, { storyId });
+    res.status(204).end();
   } catch (error) {
     next(error);
   }
@@ -1058,6 +1295,7 @@ router.post('/admin/content/media', ...contentEditors, validateBody(schemas.medi
 
 router.post('/admin/content/media/upload-url', ...contentEditors, validateBody(schemas.mediaUploadSchema), async (req, res, next) => {
   try {
+    const maxBytes = getMaxDocumentBytes();
     if (req.body.partId) {
       const part = await StoryPart.findByPk(req.body.partId);
       if (!part || req.body.storyId && part.storyId !== req.body.storyId) {
@@ -1075,22 +1313,74 @@ router.post('/admin/content/media/upload-url', ...contentEditors, validateBody(s
       }
     }
     const uploadKey = createMediaUploadKey();
-    const upload = await createMediaUploadForm({ key: uploadKey, mimeType: req.body.mimeType });
+    const storageKey = createMediaKey();
     const media = await MediaAsset.create({
       ...req.body,
-      storageKey: createMediaKey(),
+      storageKey,
       uploadedBy: req.user.id,
       metadata: { uploadKey, uploadPending: true }
     });
+    let upload;
+    try {
+      upload = await createMediaUploadForm({
+        key: uploadKey,
+        mimeType: req.body.mimeType,
+        localUploadUrl: `/admin/content/media/${media.id}/upload`
+      });
+    } catch (error) {
+      await media.destroy();
+      throw error;
+    }
     await recordAudit(req, 'REQUEST_MEDIA_UPLOAD', 'MediaAsset', media.id);
     res.status(201).json({
       mediaId: media.id,
       upload,
       completeUrl: `/admin/content/media/${media.id}/complete`,
-      maxBytes: MAX_DOCUMENT_BYTES
+      maxBytes
     });
   } catch (error) {
     next(error);
+  }
+});
+
+router.post('/admin/content/media/:id/upload', ...contentEditors, uploadLocalMedia, async (req, res, next) => {
+  const temporaryPath = req.file?.path;
+  try {
+    const media = await MediaAsset.findByPk(parseId(req.params.id, 'Média'));
+    if (!media || media.uploadedBy !== req.user.id) {
+      return res.status(404).json({ message: 'Média introuvable.' });
+    }
+    if (getStorageDriver() !== 'local' || !isLocalStorageKey(media.storageKey)) {
+      return res.status(409).json({ message: 'Ce média doit être envoyé vers le stockage configuré.' });
+    }
+    if (!media.metadata?.uploadPending || !media.metadata.uploadKey) {
+      return res.status(409).json({ message: 'Ce dépôt est déjà finalisé ou ne possède pas de fichier en attente.' });
+    }
+    if (!req.file) {
+      throw uploadError('No file was selected.', 400, 'INVALID_UPLOAD');
+    }
+    if (!mediaUploadMatches({
+      filePath: req.file.path,
+      mimeType: media.mimeType,
+      mediaType: media.mediaType
+    })) {
+      throw uploadError('The uploaded file content does not match the selected media type.', 400, 'INVALID_UPLOAD');
+    }
+    if (req.file.size > getMaxDocumentBytes()) {
+      throw uploadError('The uploaded file exceeds the configured limit.', 413, 'UPLOAD_TOO_LARGE');
+    }
+    await storeLocalUploadFile({ sourcePath: req.file.path, key: media.metadata.uploadKey });
+    res.status(201).json({ uploaded: true });
+  } catch (error) {
+    next(error);
+  } finally {
+    if (temporaryPath) {
+      try {
+        await fs.promises.rm(temporaryPath, { force: true });
+      } catch (cleanupError) {
+        console.error('Échec du nettoyage du fichier temporaire :', cleanupError);
+      }
+    }
   }
 });
 
@@ -1106,8 +1396,9 @@ router.post('/admin/content/media/:id/complete', ...contentEditors, async (req, 
     const metadata = await getDocumentMetadata(media.metadata.uploadKey);
     const fileSize = Number(metadata.ContentLength);
     if (!metadata.ETag || !Number.isFinite(fileSize) || fileSize < 1 ||
-      fileSize > MAX_DOCUMENT_BYTES || metadata.ContentType !== media.mimeType) {
-      return res.status(400).json({ message: 'Le fichier déposé ne respecte pas le type ou la taille autorisée.' });
+      fileSize > getMaxDocumentBytes() || metadata.ContentType !== media.mimeType ||
+      metadata.DetectedContentType !== media.mimeType) {
+      throw uploadError('The uploaded file failed type or size validation.', 400, 'INVALID_UPLOAD');
     }
     await promoteUploadedMedia({
       sourceKey: media.metadata.uploadKey,
@@ -1118,7 +1409,19 @@ router.post('/admin/content/media/:id/complete', ...contentEditors, async (req, 
     media.metadata = { uploadPending: false };
     await media.save();
     if (media.bookId && media.mediaType === 'ebook') {
-      await Book.update({ fileStorageKey: media.storageKey }, { where: { id: media.bookId } });
+      const book = await Book.findByPk(media.bookId);
+      if (!book) return res.status(409).json({ message: 'Le livre associé à ce dépôt n’existe plus.' });
+      const previousStorageKey = book.fileStorageKey;
+      book.fileStorageKey = media.storageKey;
+      await book.save();
+      if (previousStorageKey && previousStorageKey !== media.storageKey &&
+        previousStorageKey !== SAMPLE_EBOOK_STORAGE_KEY) {
+        const previousMedia = await MediaAsset.findOne({
+          where: { bookId: book.id, storageKey: previousStorageKey }
+        });
+        if (previousMedia) await previousMedia.destroy();
+        await deleteDocumentObject(previousStorageKey);
+      }
     }
     const storyId = media.storyId || (media.partId && (await StoryPart.findByPk(media.partId))?.storyId);
     if (storyId) {

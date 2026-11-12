@@ -3,17 +3,29 @@ const API_BASE_URL = import.meta.env.DEV
   : import.meta.env.VITE_API_URL ||
     `${window.location.protocol}//${window.location.hostname}:5000/api/v1`;
 const REQUEST_TIMEOUT_MS = 15000;
-const DUPLICATE_EMAIL_MESSAGE =
-  'Cette adresse e-mail est déjà associée à un compte. Connectez-vous si vous avez déjà un compte, ou utilisez une autre adresse.';
+const DUPLICATE_EMAIL_MESSAGES = {
+  ar: 'هذا البريد الإلكتروني مرتبط بحساب بالفعل. سجّل الدخول أو استخدم بريدًا آخر.',
+  en: 'This email address is already associated with an account. Sign in or use another address.',
+  fr: 'Cette adresse e-mail est déjà associée à un compte. Connectez-vous ou utilisez une autre adresse.'
+};
 
 export type UserRole = 'SUPER_ADMIN' | 'ADMIN' | 'READER' | 'EDITOR' | 'REVIEWER';
 export class ApiError extends Error {
   code?: string;
+  fields?: Record<string, string>;
+  existingPart?: { id: number; partNumber: number };
 
-  constructor(message: string, code?: string) {
+  constructor(
+    message: string,
+    code?: string,
+    fields?: Record<string, string>,
+    existingPart?: { id: number; partNumber: number }
+  ) {
     super(message);
     this.name = 'ApiError';
     this.code = code;
+    this.fields = fields;
+    this.existingPart = existingPart;
   }
 }
 
@@ -89,6 +101,7 @@ export async function request<T>(path: string, init: RequestInit = {}, bearerTok
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   const method = (init.method || 'GET').toUpperCase();
   const language = window.location.pathname.match(/^\/(ar|en|fr)(?:\/|$)/)?.[1] || 'ar';
+  headers.set('Accept-Language', language);
   const localizedPath = method === 'GET' && ['ar', 'en', 'fr'].includes(language) && !/[?&]lang=/.test(path)
     ? `${path}${path.includes('?') ? '&' : '?'}lang=${language}`
     : path;
@@ -108,9 +121,9 @@ export async function request<T>(path: string, init: RequestInit = {}, bearerTok
         /e-?mail/i.test(body.message) &&
         /(déjà|already|exists)/i.test(body.message)
       ) {
-        throw new ApiError(DUPLICATE_EMAIL_MESSAGE, body.code);
+        throw new ApiError(DUPLICATE_EMAIL_MESSAGES[language as keyof typeof DUPLICATE_EMAIL_MESSAGES], body.code);
       }
-      throw new ApiError(body.message || `Erreur API (${response.status}).`, body.code);
+      throw new ApiError(body.message || `Erreur API (${response.status}).`, body.code, body.fields, body.existingPart);
     }
     return body as T;
   } catch (error) {
@@ -127,6 +140,7 @@ export async function request<T>(path: string, init: RequestInit = {}, bearerTok
 async function requestBlob(path: string): Promise<Blob> {
   const token = getAuthToken();
   const headers = new Headers();
+  headers.set('Accept-Language', window.location.pathname.match(/^\/(ar|en|fr)(?:\/|$)/)?.[1] || 'ar');
   if (token) headers.set('Authorization', `Bearer ${token}`);
 
   const controller = new AbortController();
@@ -135,7 +149,7 @@ async function requestBlob(path: string): Promise<Blob> {
     const response = await fetch(`${API_BASE_URL}${path}`, { headers, signal: controller.signal });
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
-      throw new ApiError(body.message || `Erreur API (${response.status}).`, body.code);
+      throw new ApiError(body.message || `Erreur API (${response.status}).`, body.code, body.fields, body.existingPart);
     }
     return await response.blob();
   } catch (error) {
@@ -152,6 +166,11 @@ export const api = {
   get: <T>(path: string) => request<T>(path),
   post: <T>(path: string, body: unknown) =>
     request<T>(path, { method: 'POST', body: JSON.stringify(body) }),
+  uploadFile: <T>(path: string, file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return request<T>(path, { method: 'POST', body: formData });
+  },
   patch: <T>(path: string, body: unknown) =>
     request<T>(path, { method: 'PATCH', body: JSON.stringify(body) }),
   put: <T>(path: string, body: unknown) =>

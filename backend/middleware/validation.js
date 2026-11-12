@@ -1,4 +1,5 @@
 const { z } = require('zod');
+const { apiErrorResponse, requestLanguage } = require('../utils/apiErrors');
 
 const readerRegistrationSchema = z.object({
   firstName: z.string().trim().min(1).max(100),
@@ -55,13 +56,7 @@ function validateBody(schema) {
   return (req, res, next) => {
     const result = schema.safeParse(req.body);
     if (!result.success) {
-      return res.status(400).json({
-        message: 'Le corps de la requête est invalide.',
-        details: result.error.issues.map((issue) => ({
-          field: issue.path.join('.'),
-          message: issue.message
-        }))
-      });
+      return res.status(400).json(apiErrorResponse(result.error, requestLanguage(req)).body);
     }
     req.body = result.data;
     next();

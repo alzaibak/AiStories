@@ -11,12 +11,14 @@ function localizeFields(record, language, fields, requiredFields = fields) {
     return value;
   }
 
-  const translation = value.translations?.[language];
-  if (!translation || requiredFields.some((field) => typeof translation[field] !== 'string' || !translation[field].trim())) {
-    return null;
-  }
+  const translation = value.translations?.[language] || {};
   for (const field of fields) {
-    if (typeof translation[field] === 'string') value[field] = translation[field];
+    const translatedValue = translation[field];
+    if (typeof translatedValue === 'string' && translatedValue.trim()) {
+      value[field] = translatedValue;
+    } else if (requiredFields.includes(field) && (typeof value[field] !== 'string' || !value[field].trim())) {
+      return null;
+    }
   }
   delete value.translations;
   return value;
