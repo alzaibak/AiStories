@@ -34,5 +34,8 @@ describe('traduction de l’interface', () => {
     expect(translateText('رموز الخصم والهدايا', 'fr')).toBe('Codes de réduction et cadeaux');
     expect(translateText('اجعل التبرع شهريًا متكررًا', 'en')).toBe('Make this a monthly recurring donation');
     expect(translateText('اجعل التبرع شهريًا متكررًا', 'fr')).toBe('Faire un don mensuel récurrent');
+    expect(translateText('تفضيلات البريد الإلكتروني', 'en')).toBe('Email preferences');
+    expect(translateText('تفضيلات البريد الإلكتروني', 'fr')).toBe('Préférences e-mail');
+    expect(translateText('تحديث النموذج', 'en')).toBe('Update template');
   });
 });

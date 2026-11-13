@@ -26,7 +26,11 @@ async function processDueReminders({ limit = 100, now = new Date() } = {}) {
 
       processed += 1;
       const user = await User.findByPk(reminder.userId, { transaction });
-      if (!user || user.emailPreferences?.reminders === false) {
+      const preferenceField = reminder.preferenceCategory === 'marketing' ? 'marketing' : 'reminders';
+      if (!user || (
+        reminder.preferenceCategory !== 'transactional' &&
+        user.emailPreferences?.[preferenceField] === false
+      )) {
         await reminder.update({ status: 'cancelled' }, { transaction });
         await transaction.commit();
         continue;

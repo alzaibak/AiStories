@@ -67,6 +67,12 @@ const paths = {
   '/donations/recurring/{id}/cancel': {
     post: operation('Annuler le renouvellement d’un don mensuel', { ids: ['id'] })
   },
+  '/reminders': {
+    post: operation('Programmer un rappel de lecture', { body: true })
+  },
+  '/account/email-preferences': {
+    patch: operation('Modifier les préférences d’e-mails non essentiels', { body: true })
+  },
   '/payments/session/{sessionId}': {
     get: operation('Consulter l’état d’un paiement du compte connecté', { params: [{ name: 'sessionId' }] })
   },
@@ -96,6 +102,19 @@ const paths = {
   },
   '/admin/money/recurring-donations': {
     get: operation('Lister les dons mensuels')
+  },
+  '/admin/system/email-templates': {
+    get: operation('Lister les modèles de courriel'),
+    post: operation('Créer un modèle de courriel', { body: true })
+  },
+  '/admin/system/email-templates/{id}': {
+    patch: operation('Modifier ou désactiver un modèle de courriel', { body: true, ids: ['id'] })
+  },
+  '/admin/system/email-templates/{id}/test': {
+    post: operation('Envoyer un courriel de test', { ids: ['id'], body: true })
+  },
+  '/admin/system/reminders/process': {
+    post: operation('Traiter les rappels planifiés arrivés à échéance')
   },
   '/admin/store-orders': {
     get: operation('Lister les commandes payées à traiter')

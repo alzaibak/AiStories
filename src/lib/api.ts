@@ -42,6 +42,7 @@ export interface PlatformUser {
   emailVerifiedAt: string | null;
   mustChangePassword?: boolean;
   language: 'fr' | 'en' | 'ar';
+  emailPreferences?: { marketing: boolean; reminders: boolean };
   subscriptions?: ReaderSubscription[];
 }
 

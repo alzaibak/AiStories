@@ -68,6 +68,8 @@ const { requestedLanguage, localizeFields } = require('../utils/contentLocalizat
 const { slugFromLocalized } = require('../utils/slug');
 const { deliverEmail } = require('../utils/email');
 const { processDueReminders } = require('../utils/reminders');
+const { enqueueTemplateEmails } = require('../utils/emailQueue');
+const { getClientAppUrl } = require('../utils/stripe');
 const {
   localizedQuizValue,
   localizedTextValue,
@@ -428,6 +430,35 @@ async function publishStory(req, story) {
   story.publishedAt = story.publishedAt || now;
   story.rejectionReason = null;
   await story.save();
+  try {
+    const readers = await User.findAll({
+      attributes: ['id', 'language', 'emailPreferences'],
+      where: {
+        role: 'READER',
+        status: 'ACTIVE',
+        emailVerifiedAt: { [Op.ne]: null }
+      }
+    });
+    const publicUrl = getClientAppUrl();
+    const queued = await enqueueTemplateEmails({
+      recipients: readers,
+      code: 'story_published',
+      preferenceCategory: 'marketing',
+      dedupeKeyPrefix: `story-published:${story.id}`,
+      metadata: (reader) => {
+        const language = requestedLanguage(reader.language);
+        const storyTitle = story.translations?.[language]?.title || story.title;
+        return {
+          firstName: '',
+          storyTitle,
+          actionUrl: `${publicUrl}/${language}/stories/${encodeURIComponent(story.slug)}`
+        };
+      }
+    });
+    if (queued) console.info(`Notifications de publication mises en file : ${queued} destinataires pour l’histoire ${story.id}.`);
+  } catch (error) {
+    console.error(`Impossible de mettre en file les notifications de publication pour l’histoire ${story.id} :`, error);
+  }
 }
 
 async function sendPublishedStoryBackToReview(req, story) {
@@ -1089,6 +1120,25 @@ router.post('/quizzes/:id/attempts', authenticate, quizAttemptRateLimit, validat
       if (certificate) {
         await ensureBadgeAward(req.user.id, 'quiz-certificate', 'quiz', quiz.id, { certificateId: certificate.certificate.id, score });
       }
+    }
+    try {
+      await enqueueTemplateEmails({
+        recipients: [req.user],
+        code: 'quiz_result',
+        preferenceCategory: 'transactional',
+        dedupeKeyPrefix: `quiz-result:${attempt.id}`,
+        metadata: {
+          quizTitle: localizedQuizValue(quiz.translations, language, 'title') || quiz.title || quiz.slug,
+          score,
+          passed,
+          result: passed
+            ? ({ ar: 'اجتزت الاختبار بنجاح.', en: 'You passed the quiz.', fr: 'Vous avez réussi le quiz.' })[language]
+            : ({ ar: 'يمكنك مواصلة التعلم والمحاولة مجددًا.', en: 'Keep learning and try again.', fr: 'Continuez à apprendre et réessayez.' })[language],
+          actionUrl: `${getClientAppUrl()}/${language}/account`
+        }
+      });
+    } catch (error) {
+      console.error(`Impossible de mettre en file le résultat du quiz ${attempt.id} :`, error);
     }
     res.json({
       attemptId: attempt.id,
@@ -1762,12 +1812,16 @@ router.post('/reminders', authenticate, async (req, res, next) => {
     if (!/^[a-z0-9_-]{2,100}$/.test(code) || Number.isNaN(scheduledAt.getTime()) || scheduledAt <= new Date()) {
       return res.status(400).json({ message: 'Le modèle et une date future valide sont requis.' });
     }
+    if (code !== 'continue_reading') {
+      return res.status(400).json({ message: 'Seul le rappel de reprise de lecture peut être programmé par un lecteur.' });
+    }
     if (req.user.emailPreferences?.reminders === false) {
       return res.status(403).json({ message: 'Les rappels par e-mail sont désactivés dans vos préférences.' });
     }
     const reminder = await ScheduledReminder.create({
       userId: req.user.id,
       code,
+      preferenceCategory: 'reminders',
       scheduledAt,
       metadata: req.body.metadata && typeof req.body.metadata === 'object' ? req.body.metadata : {}
     });

@@ -113,14 +113,14 @@ async function up({ queryInterface, Sequelize }) {
       fr: { subject: 'Votre abonnement est renouvelé', body: 'Bonjour {{firstName}}, le paiement de votre abonnement est confirmé.' }
     }],
     ['quiz_result', {
-      ar: { subject: 'نتيجة الاختبار: {{score}}%', body: 'أحسنت {{firstName}}، نتيجتك في {{quizTitle}} هي {{score}}%.' },
-      en: { subject: 'Quiz result: {{score}}%', body: 'Well done, {{firstName}}. Your score for {{quizTitle}} is {{score}}%.' },
-      fr: { subject: 'Résultat du quiz : {{score}} %', body: 'Bravo {{firstName}}, votre résultat pour {{quizTitle}} est de {{score}} %.' }
+      ar: { subject: 'نتيجة الاختبار: {{score}}%', body: 'مرحبًا {{firstName}}، نتيجتك في {{quizTitle}} هي {{score}}%. {{result}}\n{{actionUrl}}' },
+      en: { subject: 'Quiz result: {{score}}%', body: 'Hello {{firstName}}, your result for {{quizTitle}} is {{score}}%. {{result}}\n{{actionUrl}}' },
+      fr: { subject: 'Résultat du quiz : {{score}} %', body: 'Bonjour {{firstName}}, votre résultat pour {{quizTitle}} est de {{score}} %. {{result}}\n{{actionUrl}}' }
     }],
     ['story_published', {
-      ar: { subject: 'قصة جديدة: {{storyTitle}}', body: 'أصبحت قصة {{storyTitle}} متاحة للقراءة.' },
-      en: { subject: 'A new story: {{storyTitle}}', body: '{{storyTitle}} is now available to read.' },
-      fr: { subject: 'Nouvelle histoire : {{storyTitle}}', body: '{{storyTitle}} est maintenant disponible.' }
+      ar: { subject: 'قصة جديدة: {{storyTitle}}', body: 'أصبحت قصة {{storyTitle}} متاحة للقراءة.\n{{actionUrl}}' },
+      en: { subject: 'A new story: {{storyTitle}}', body: '{{storyTitle}} is now available to read.\n{{actionUrl}}' },
+      fr: { subject: 'Nouvelle histoire : {{storyTitle}}', body: '{{storyTitle}} est maintenant disponible.\n{{actionUrl}}' }
     }],
     ['donation_receipt', {
       ar: { subject: 'إيصال تبرعك', body: 'شكرًا {{firstName}} على دعمك بمبلغ {{amount}} {{currency}}.\n{{actionUrl}}' },

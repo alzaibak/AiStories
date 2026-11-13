@@ -620,6 +620,8 @@ const ScheduledReminder = sequelize.define('ScheduledReminder', {
   id,
   userId: { type: DataTypes.INTEGER, allowNull: false, references: { model: 'users', key: 'id' }, onDelete: 'CASCADE' },
   code: { type: DataTypes.STRING(100), allowNull: false },
+  preferenceCategory: { type: DataTypes.ENUM('reminders', 'marketing', 'transactional'), allowNull: false, defaultValue: 'reminders' },
+  dedupeKey: { type: DataTypes.STRING(255), allowNull: true, unique: true },
   scheduledAt: { type: DataTypes.DATE, allowNull: false },
   sentAt: { type: DataTypes.DATE, allowNull: true },
   status: { type: DataTypes.ENUM('pending', 'sent', 'cancelled'), allowNull: false, defaultValue: 'pending' },

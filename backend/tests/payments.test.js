@@ -303,3 +303,34 @@ test('recurring donation migration creates its table and resumes safely', async 
     ['donations', 'stripeInvoiceId']
   ]);
 });
+
+test('email notification migration adds preference and deduplication columns once', async () => {
+  const migration = require('../migrations/024-email-notification-queue');
+  const calls = [];
+  const columns = { scheduled_reminders: {} };
+  const queryInterface = {
+    showAllTables: async () => ['scheduled_reminders'],
+    describeTable: async (table) => columns[table],
+    addColumn: async (table, column, definition) => {
+      calls.push([table, column, definition]);
+      columns[table][column] = {};
+    }
+  };
+  await migration.up({
+    queryInterface,
+    Sequelize: {
+      ENUM: (...values) => values,
+      STRING: (length) => `STRING(${length})`
+    }
+  });
+  await migration.up({
+    queryInterface,
+    Sequelize: {
+      ENUM: (...values) => values,
+      STRING: (length) => `STRING(${length})`
+    }
+  });
+  assert.deepEqual(calls.map(([, column]) => column), ['preferenceCategory', 'dedupeKey']);
+  assert.equal(calls[0][2].defaultValue, 'reminders');
+  assert.equal(calls[1][2].unique, true);
+});

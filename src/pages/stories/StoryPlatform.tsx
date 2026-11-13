@@ -1314,6 +1314,10 @@ export function AccountPage() {
   const [giftCodeBusy, setGiftCodeBusy] = useState(false);
   const [giftCodeError, setGiftCodeError] = useState<string | null>(null);
   const [giftCodeNotice, setGiftCodeNotice] = useState<string | null>(null);
+  const [emailPreferences, setEmailPreferences] = useState({ marketing: true, reminders: true });
+  const [savingEmailPreferences, setSavingEmailPreferences] = useState(false);
+  const [emailPreferencesError, setEmailPreferencesError] = useState<string | null>(null);
+  const [emailPreferencesNotice, setEmailPreferencesNotice] = useState<string | null>(null);
   const { data: progress, loading, error } = useRemote<Array<{
     id: number;
     storyId: number;
@@ -1363,6 +1367,9 @@ export function AccountPage() {
   const [recurringDonationError, setRecurringDonationError] = useState<string | null>(null);
   const [cancelingDonationId, setCancelingDonationId] = useState<number | null>(null);
   const subscriptions: ReaderSubscription[] = user?.subscriptions || [];
+  useEffect(() => {
+    if (user?.emailPreferences) setEmailPreferences(user.emailPreferences);
+  }, [user?.emailPreferences]);
   useEffect(() => {
     if (recurringDonations) setRecurringDonationItems(recurringDonations);
   }, [recurringDonations]);
@@ -1438,10 +1445,36 @@ export function AccountPage() {
     }
   }
 
+  async function saveEmailPreferences(event: FormEvent) {
+    event.preventDefault();
+    setSavingEmailPreferences(true);
+    setEmailPreferencesError(null);
+    setEmailPreferencesNotice(null);
+    try {
+      const result = await api.patch<{ emailPreferences: typeof emailPreferences }>('/account/email-preferences', emailPreferences);
+      setEmailPreferences(result.emailPreferences);
+      setEmailPreferencesNotice(t('تم حفظ تفضيلات البريد الإلكتروني.', language));
+    } catch (caught) {
+      setEmailPreferencesError(caught instanceof Error ? caught.message : t('تعذر حفظ تفضيلات البريد الإلكتروني.', language));
+    } finally {
+      setSavingEmailPreferences(false);
+    }
+  }
+
   return <SiteLayout><main><Container className="py-12 sm:py-16">
     <p className="text-sm font-bold tracking-widest text-emerald-700">مساحتك</p>
     <div className="mt-3 flex flex-wrap items-center justify-between gap-4"><div><h1 className="text-3xl font-black text-emerald-950">أهلًا، {user.firstName}</h1><p className="mt-2 text-slate-600">{user.email}</p></div><div className="flex gap-2"><button onClick={async () => { setRefreshing(true); await refreshUser(); setRefreshing(false); }} disabled={refreshing} className="rounded-full border border-emerald-950/15 px-5 py-2.5 text-sm font-bold text-emerald-900 hover:bg-emerald-50 disabled:opacity-60">{refreshing ? 'جارٍ التحديث…' : 'تحديث الحالة'}</button><button onClick={logout} className="rounded-full border border-emerald-950/15 px-5 py-2.5 text-sm font-bold text-emerald-900 hover:bg-emerald-50">تسجيل الخروج</button></div></div>
     {authError && <div className="mt-5"><ErrorState message={authError} /></div>}
+    <form onSubmit={saveEmailPreferences} className="mt-6 rounded-2xl border border-emerald-950/10 bg-white p-5">
+      <h2 className="text-lg font-extrabold">{t('تفضيلات البريد الإلكتروني', language)}</h2>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <label className="flex items-start gap-2 text-sm leading-6"><input type="checkbox" checked={emailPreferences.marketing} onChange={(event) => setEmailPreferences((current) => ({ ...current, marketing: event.target.checked }))} /><span>{t('رسائل القصص الجديدة والعروض', language)}</span></label>
+        <label className="flex items-start gap-2 text-sm leading-6"><input type="checkbox" checked={emailPreferences.reminders} onChange={(event) => setEmailPreferences((current) => ({ ...current, reminders: event.target.checked }))} /><span>{t('التذكيرات المجدولة', language)}</span></label>
+      </div>
+      <button disabled={savingEmailPreferences} className="mt-4 rounded-full border border-emerald-900 px-4 py-2 text-sm font-bold text-emerald-900 disabled:opacity-50">{t(savingEmailPreferences ? 'جارٍ الحفظ…' : 'حفظ تفضيلات البريد الإلكتروني', language)}</button>
+      {emailPreferencesError && <div className="mt-3"><ErrorState message={emailPreferencesError} /></div>}
+      {emailPreferencesNotice && <p role="status" className="mt-3 text-sm text-emerald-800">{emailPreferencesNotice}</p>}
+    </form>
     <TeamAccountPanel />
     <div className="mt-10 grid gap-8 lg:grid-cols-[1.25fr_0.75fr]">
       <section><SectionHeading title="تابع القراءة" />{loading && <LoadingState />}{error && <ErrorState message={error} />}{!loading && !error && !progress?.length && <EmptyState>لم تحفظ أي تقدّم بعد. <Link to="/stories" className="font-bold text-emerald-800 underline">اكتشف القصص</Link></EmptyState>}{!!progress?.length && <div className="space-y-3">{progress.map((item) => <Link key={item.id} to={`/stories/${item.story?.slug || ''}`} className="flex items-center justify-between gap-4 rounded-2xl border border-emerald-950/10 bg-white p-5 hover:border-emerald-700"><div><h3 className="font-bold text-emerald-950">{item.story?.title || 'حكاية'}</h3><p className="mt-1 text-sm text-slate-500">أتممت {item.completedParts.length} أجزاء</p></div><ChevronLeft size={20} className="text-emerald-700" /></Link>)}</div>}</section>

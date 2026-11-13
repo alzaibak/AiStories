@@ -70,6 +70,7 @@ export function AdminEventsPage() {
   const [endsAt, setEndsAt] = useState('');
   const [translations, setTranslations] = useState(blankEventText());
   const [activeLanguage, setActiveLanguage] = useState<Language>('ar');
+  const [winnerLanguage, setWinnerLanguage] = useState<Language>('ar');
   const [editingWinnerId, setEditingWinnerId] = useState<number | null>(null);
   const [winnerDisplayName, setWinnerDisplayName] = useState('');
   const [winnerAnnouncement, setWinnerAnnouncement] = useState<Record<Language, string>>({ ar: '', en: '', fr: '' });
@@ -166,8 +167,8 @@ export function AdminEventsPage() {
       <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-bold">{item.translations?.[language]?.title || item.translations?.ar?.title}</h2><p className="mt-1 text-sm text-slate-500">{item.slug} · {item.status} · {new Date(item.startsAt).toLocaleString(language)}</p>{item.winnerDisplayName && <p className="mt-1 text-sm text-emerald-800">{t('الفائز', language)}: {item.winnerDisplayName}</p>}</div><div className="flex gap-2">{item.status === 'draft' && <button onClick={() => void activate(item)} className="rounded-lg bg-emerald-900 px-4 py-2 text-sm font-bold text-white">{t('نشر الفعالية', language)}</button>}<button type="button" onClick={() => editWinner(item)} className="rounded-lg border px-4 py-2 text-sm font-bold">{t('إعلان الفائز', language)}</button></div></div>
       {editingWinnerId === item.id && <form onSubmit={saveWinner} className="grid gap-3 border-t pt-4 md:grid-cols-2">
         <label className="text-sm font-semibold md:col-span-2">{t('اسم الفائز أو الاسم المستعار', language)}<input maxLength={120} value={winnerDisplayName} onChange={(event) => setWinnerDisplayName(event.target.value)} className={fieldClass} /></label>
-        <div className="flex gap-2 border-b md:col-span-2">{languages.map((code) => <button key={code} type="button" onClick={() => setActiveLanguage(code)} className={`border-b-2 px-3 py-2 font-bold ${activeLanguage === code ? 'border-emerald-800' : 'border-transparent'}`}>{code.toUpperCase()}</button>)}</div>
-        <label className="text-sm font-semibold md:col-span-2">{t('نص إعلان الفائز', language)}<textarea required={activeLanguage === 'ar'} rows={3} value={winnerAnnouncement[activeLanguage]} onChange={(event) => setWinnerAnnouncement((current) => ({ ...current, [activeLanguage]: event.target.value }))} className={fieldClass} /></label>
+        <div className="flex gap-2 border-b md:col-span-2">{languages.map((code) => <button key={code} type="button" onClick={() => setWinnerLanguage(code)} className={`border-b-2 px-3 py-2 font-bold ${winnerLanguage === code ? 'border-emerald-800' : 'border-transparent'}`}>{code.toUpperCase()}</button>)}</div>
+        <label className="text-sm font-semibold md:col-span-2">{t('نص إعلان الفائز', language)}<textarea required={winnerLanguage === 'ar'} rows={3} value={winnerAnnouncement[winnerLanguage]} onChange={(event) => setWinnerAnnouncement((current) => ({ ...current, [winnerLanguage]: event.target.value }))} className={fieldClass} /></label>
         <div className="flex gap-2 md:col-span-2"><button disabled={busy} className="rounded-lg bg-emerald-900 px-4 py-2 text-sm font-bold text-white">{t('حفظ الإعلان', language)}</button><button type="button" onClick={() => setEditingWinnerId(null)} className="rounded-lg border px-4 py-2 text-sm font-bold">{t('إلغاء', language)}</button></div>
       </form>}
     </article>)}</div>
@@ -539,6 +540,7 @@ export function AdminEmailTemplatesPage() {
   const [templates, setTemplates] = useState<EmailTemplate[]>([]);
   const [code, setCode] = useState('');
   const [translations, setTranslations] = useState(blankMailText());
+  const [editingId, setEditingId] = useState<number | null>(null);
   const [activeLanguage, setActiveLanguage] = useState<Language>('ar');
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -553,17 +555,48 @@ export function AdminEmailTemplatesPage() {
   }, [page]);
   useEffect(() => { load().catch((caught) => setError(caught instanceof Error ? caught.message : t('تعذر تحميل النماذج.', language))); }, [load, language]);
 
-  async function create(event: FormEvent) {
+  function editTemplate(template: EmailTemplate) {
+    setEditingId(template.id);
+    setCode(template.code);
+    setTranslations({
+      ar: { subject: template.translations.ar?.subject || '', body: template.translations.ar?.body || '' },
+      en: { subject: template.translations.en?.subject || '', body: template.translations.en?.body || '' },
+      fr: { subject: template.translations.fr?.subject || '', body: template.translations.fr?.body || '' }
+    });
+    setActiveLanguage('ar');
+    setError(null);
+  }
+
+  async function save(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
     setError(null);
     try {
-      await api.post('/admin/system/email-templates', { code, translations, isActive: true });
+      if (editingId) {
+        await api.patch(`/admin/system/email-templates/${editingId}`, { translations });
+      } else {
+        await api.post('/admin/system/email-templates', { code, translations, isActive: true });
+      }
       setCode('');
       setTranslations(blankMailText());
+      setEditingId(null);
+      setNotice(t(editingId ? 'تم تحديث النموذج.' : 'تم إنشاء النموذج.', language));
       await load();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : t('تعذر حفظ النموذج.', language));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function toggleTemplate(template: EmailTemplate) {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.patch(`/admin/system/email-templates/${template.id}`, { isActive: !template.isActive });
+      await load();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : t('تعذر تحديث حالة النموذج.', language));
     } finally {
       setBusy(false);
     }
@@ -598,17 +631,17 @@ export function AdminEmailTemplatesPage() {
 
   if (!user || !['ADMIN', 'SUPER_ADMIN'].includes(user.role)) return <AdminPage title="التذكيرات والقوالب"><AccessDenied /></AdminPage>;
   return <AdminPage title="التذكيرات والقوالب">
-    <form onSubmit={create} className={`${cardClass} grid gap-4 md:grid-cols-2`}>
-      <label className="text-sm font-semibold">{t('رمز النموذج', language)}<input required pattern="[a-z0-9_-]+" value={code} onChange={(event) => setCode(event.target.value)} dir="ltr" className={fieldClass} /></label>
+    <form onSubmit={save} className={`${cardClass} grid gap-4 md:grid-cols-2`}>
+      <label className="text-sm font-semibold">{t('رمز النموذج', language)}<input required pattern="[a-z0-9_-]+" value={code} disabled={Boolean(editingId)} onChange={(event) => setCode(event.target.value)} dir="ltr" className={fieldClass} /></label>
       <div className="flex gap-2 border-b">{languages.map((value) => <button key={value} type="button" onClick={() => setActiveLanguage(value)} className={`border-b-2 px-3 py-2 font-bold ${activeLanguage === value ? 'border-emerald-800' : 'border-transparent'}`}>{value.toUpperCase()}</button>)}</div>
       <label className="text-sm font-semibold">{t('الموضوع', language)}<input required={activeLanguage === 'ar'} value={translations[activeLanguage].subject} onChange={(event) => setTranslations((current) => ({ ...current, [activeLanguage]: { ...current[activeLanguage], subject: event.target.value } }))} className={fieldClass} /></label>
-      <label className="text-sm font-semibold md:col-span-2">{t('نص الرسالة', language)}<textarea required={activeLanguage === 'ar'} rows={5} value={translations[activeLanguage].body} onChange={(event) => setTranslations((current) => ({ ...current, [activeLanguage]: { ...current[activeLanguage], body: event.target.value } }))} className={fieldClass} /><span className="text-xs text-slate-500">{t('المتغيرات المدعومة', language)}: {'{{firstName}}, {{lastName}}, {{email}}'}</span></label>
-      <button disabled={busy} className="rounded-full bg-emerald-900 px-5 py-2.5 font-bold text-white disabled:opacity-50 md:col-span-2">{busy ? t('جارٍ الحفظ…', language) : t('حفظ النموذج', language)}</button>
+      <label className="text-sm font-semibold md:col-span-2">{t('نص الرسالة', language)}<textarea required={activeLanguage === 'ar'} rows={5} value={translations[activeLanguage].body} onChange={(event) => setTranslations((current) => ({ ...current, [activeLanguage]: { ...current[activeLanguage], body: event.target.value } }))} className={fieldClass} /><span className="text-xs text-slate-500">{t('المتغيرات المدعومة', language)}: {'{{firstName}}, {{lastName}}, {{email}}, {{storyTitle}}, {{quizTitle}}, {{score}}, {{result}}, {{orderId}}, {{total}}, {{currency}}, {{actionUrl}}'}</span></label>
+      <div className="flex gap-2 md:col-span-2"><button disabled={busy} className="rounded-full bg-emerald-900 px-5 py-2.5 font-bold text-white disabled:opacity-50">{busy ? t('جارٍ الحفظ…', language) : t(editingId ? 'تحديث النموذج' : 'حفظ النموذج', language)}</button>{editingId && <button type="button" onClick={() => { setEditingId(null); setCode(''); setTranslations(blankMailText()); }} className="rounded-full border px-5 py-2.5 font-bold">{t('إلغاء التعديل', language)}</button>}</div>
     </form>
     <button type="button" disabled={busy} onClick={() => void processReminders()} className="rounded-full border border-emerald-900 px-5 py-2.5 font-bold text-emerald-900 disabled:opacity-50">{t('معالجة التذكيرات المستحقة الآن', language)}</button>
     {error && <p role="alert" className="rounded-xl bg-red-50 p-4 text-red-800">{error}</p>}
     {notice && <p role="status" className="rounded-xl bg-emerald-50 p-4 text-emerald-900">{notice}</p>}
-    <div className="space-y-3">{templates.map((template) => <article key={template.id} className={`${cardClass} flex flex-wrap items-center justify-between gap-3`}><div><h2 className="font-bold">{template.code}</h2><p className="text-sm text-slate-500">{template.translations?.[language]?.subject || template.translations?.ar?.subject}</p></div><button disabled={busy} onClick={() => void testSend(template)} className="rounded-lg border px-4 py-2 text-sm font-bold">{t('إرسال رسالة اختبار', language)}</button></article>)}</div>
+    <div className="space-y-3">{templates.map((template) => <article key={template.id} className={`${cardClass} flex flex-wrap items-center justify-between gap-3`}><div><h2 className="font-bold">{template.code}</h2><p className="text-sm text-slate-500">{template.translations?.[language]?.subject || template.translations?.ar?.subject}</p><p className="text-xs text-slate-500">{t(template.isActive ? 'نشط' : 'متوقف', language)}</p></div><div className="flex gap-2"><button disabled={busy} onClick={() => editTemplate(template)} className="rounded-lg border px-4 py-2 text-sm font-bold">{t('تعديل', language)}</button><button disabled={busy} onClick={() => void toggleTemplate(template)} className="rounded-lg border px-4 py-2 text-sm font-bold">{t(template.isActive ? 'إيقاف' : 'تفعيل', language)}</button><button disabled={busy} onClick={() => void testSend(template)} className="rounded-lg border px-4 py-2 text-sm font-bold">{t('إرسال رسالة اختبار', language)}</button></div></article>)}</div>
     <Pager page={page} total={total} onPage={setPage} language={language} />
   </AdminPage>;
 }
