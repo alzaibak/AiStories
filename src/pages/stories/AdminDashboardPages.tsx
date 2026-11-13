@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
 import { BookOpen, CircleDollarSign, ClipboardList, Library, RefreshCw, ShieldCheck, Users } from 'lucide-react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useStoryAuth } from '@/contexts/StoryAuthContext';
@@ -9,7 +9,9 @@ type AdminStory = {
   id: number;
   title: string;
   slug: string;
-  status: 'draft' | 'in_review' | 'published' | string;
+  status: 'draft' | 'in_review' | 'published' | 'rejected' | 'archived' | string;
+  rejectionReason?: string | null;
+  publishedAt?: string | null;
   summary?: string;
   updatedAt?: string;
   parts?: Array<{ id: number; partNumber: number; title?: string; content?: string; endingHook?: string }>;
@@ -33,6 +35,8 @@ type AdminBook = {
   price: string | number;
   currency: string;
   isPublished: boolean;
+  status?: 'draft' | 'published' | 'archived';
+  publishedAt?: string | null;
   fileStorageKey: string | null;
 };
 type AdminOrderSummary = { id: number; total: string | number; currency: string; createdAt: string };
@@ -41,32 +45,91 @@ type DashboardData = {
   subscriptions: unknown[] | null;
   orders: AdminOrderSummary[] | null;
 };
+type AdminActionState = {
+  language: SiteLanguage;
+  setBusyId: Dispatch<SetStateAction<number | null>>;
+  setError: Dispatch<SetStateAction<string | null>>;
+  setNotice: Dispatch<SetStateAction<string | null>>;
+  setReloadKey: Dispatch<SetStateAction<number>>;
+};
 
 function useAdminLanguage() {
   const { locale = 'ar' } = useParams();
   return (['ar', 'en', 'fr'].includes(locale) ? locale : 'ar') as SiteLanguage;
+}
+async function deleteCollection(collection: AdminCollection, state: AdminActionState) {
+  const { language, setBusyId, setError, setNotice, setReloadKey } = state;
+  if (!window.confirm(t('هل تريد حذف هذه المجموعة الفارغة؟', language))) return;
+  setBusyId(collection.id);
+  setError(null);
+  setNotice(null);
+  try {
+    await api.delete(`/admin/content/collections/${collection.id}`);
+    setNotice(t('تم حذف المجموعة.', language));
+    setReloadKey((value) => value + 1);
+  } catch (caught) {
+    setError(caught instanceof Error ? caught.message : t('تعذر حذف المجموعة.', language));
+  } finally {
+    setBusyId(null);
+  }
 }
 
 function t(text: string, language: SiteLanguage) {
   return translateText(text, language);
 }
 
+async function deleteStory(story: AdminStory, state: AdminActionState) {
+  const { language, setBusyId, setError, setNotice, setReloadKey } = state;
+  if (!window.confirm(t('هل تريد حذف هذه المسودة نهائيًا؟', language))) return;
+  setBusyId(story.id);
+  setError(null);
+  setNotice(null);
+  try {
+    await api.delete(`/admin/content/stories/${story.id}`);
+    setNotice(t('تم حذف القصة.', language));
+    setReloadKey((value) => value + 1);
+  } catch (caught) {
+    setError(caught instanceof Error ? caught.message : t('تعذر حذف القصة.', language));
+  } finally {
+    setBusyId(null);
+  }
+}
+
 function ErrorMessage({ message, language }: { message: string; language: SiteLanguage }) {
   return <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{message || t('تعذر تحميل البيانات.', language)}</p>;
+}
+
+async function deleteBook(book: AdminBook, state: AdminActionState) {
+  const { language, setBusyId, setError, setNotice, setReloadKey } = state;
+  if (!window.confirm(t('هل تريد حذف هذا الكتاب غير المنشور نهائيًا؟', language))) return;
+  setBusyId(book.id);
+  setError(null);
+  setNotice(null);
+  try {
+    await api.delete(`/admin/content/books/${book.id}`);
+    setNotice(t('تم حذف الكتاب.', language));
+    setReloadKey((value) => value + 1);
+  } catch (caught) {
+    setError(caught instanceof Error ? caught.message : t('تعذر حذف الكتاب.', language));
+  } finally {
+    setBusyId(null);
+  }
 }
 
 function StatusBadge({ status, language }: { status: string; language: SiteLanguage }) {
   const styles: Record<string, string> = {
     published: 'bg-emerald-100 text-emerald-800',
     in_review: 'bg-amber-100 text-amber-900',
-    draft: 'bg-slate-100 text-slate-700'
+    draft: 'bg-slate-100 text-slate-700',
+    rejected: 'bg-red-100 text-red-800',
+    archived: 'bg-slate-200 text-slate-700'
   };
-  const labels: Record<string, string> = {
-    published: 'منشورة',
-    in_review: 'قيد المراجعة',
-    draft: 'مسودة'
+  const labels: Record<SiteLanguage, Record<string, string>> = {
+    ar: { published: 'منشورة', in_review: 'قيد المراجعة', draft: 'مسودة', rejected: 'مرفوضة', archived: 'مؤرشفة' },
+    en: { published: 'Published', in_review: 'In review', draft: 'Draft', rejected: 'Rejected', archived: 'Archived' },
+    fr: { published: 'Publiée', in_review: 'En révision', draft: 'Brouillon', rejected: 'Rejetée', archived: 'Archivée' }
   };
-  return <span className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ${styles[status] || styles.draft}`}>{t(labels[status] || status, language)}</span>;
+  return <span className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ${styles[status] || styles.draft}`}>{labels[language][status] || labels[language].draft}</span>;
 }
 
 export function AdminDashboardPage() {
@@ -201,13 +264,30 @@ export function AdminStoriesPage() {
   }), [search, statusFilter, stories]);
   const pageCount = Math.max(1, Math.ceil(filteredStories.length / pageSize));
   const visibleStories = filteredStories.slice((page - 1) * pageSize, page * pageSize);
-  async function storyAction(story: AdminStory) {
+  async function storyAction(story: AdminStory, action: 'submit' | 'approve' | 'reject' | 'return' | 'unpublish') {
     setBusyId(story.id);
     setError(null);
     setNotice(null);
     try {
-      await api.post(`/admin/content/stories/${story.id}/submit-review`, {});
-      setNotice(t('أُرسلت القصة للمراجعة.', language));
+      if (action === 'submit') {
+        await api.post(`/admin/content/stories/${story.id}/submit-review`, {});
+        setNotice(t('أُرسلت القصة للمراجعة.', language));
+      } else if (action === 'reject') {
+        const comments = window.prompt(t('أدخل سبب الرفض الإلزامي.', language))?.trim();
+        if (!comments) return;
+        await api.post(`/admin/content/stories/${story.id}/review`, { decision: 'rejected', comments });
+        setNotice(t('تم رفض القصة وحفظ السبب.', language));
+      } else if (action === 'approve') {
+        await api.post(`/admin/content/stories/${story.id}/review`, { decision: 'approved', comments: '' });
+        setNotice(t('تم اعتماد القصة ونشرها.', language));
+      } else if (action === 'return') {
+        await api.post(`/admin/content/stories/${story.id}/review`, { decision: 'return_to_draft', comments: '' });
+        setNotice(t('أُعيدت القصة إلى المسودة.', language));
+      } else {
+        if (!window.confirm(t('إزالة القصة من الموقع العام؟', language))) return;
+        await api.post(`/admin/content/stories/${story.id}/unpublish`, {});
+        setNotice(t('أُزيل نشر القصة.', language));
+      }
       setReloadKey((value) => value + 1);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : t('تعذر تحديث القصة.', language));
@@ -241,7 +321,7 @@ export function AdminStoriesPage() {
       <div className="flex flex-wrap gap-3">
         <label className="min-w-52 flex-1 text-sm font-semibold">{t('البحث', language)}<input aria-label={t('البحث عن القصص', language)} value={search} onChange={(event) => updateSearch(event.target.value)} className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 font-normal" placeholder={t('العنوان أو المجموعة', language)} /></label>
         <label className="text-sm font-semibold">{t('الحالة', language)}<select value={statusFilter} onChange={(event) => updateStatus(event.target.value)} className="mt-1.5 block rounded-xl border border-slate-200 bg-white px-3 py-2.5">
-          <option value="all">{t('كل الحالات', language)}</option><option value="draft">{t('مسودة', language)}</option><option value="in_review">{t('قيد المراجعة', language)}</option><option value="published">{t('منشورة', language)}</option>
+          <option value="all">{t('كل الحالات', language)}</option><option value="draft">{t('مسودة', language)}</option><option value="in_review">{t('قيد المراجعة', language)}</option><option value="published">{t('منشورة', language)}</option><option value="rejected">{t('مرفوضة', language)}</option><option value="archived">{t('مؤرشفة', language)}</option>
         </select></label>
       </div>
       {error && <ErrorMessage message={error} language={language} />}
@@ -255,14 +335,21 @@ export function AdminStoriesPage() {
           </tr></thead>
           <tbody className="divide-y divide-slate-100">
             {visibleStories.map((story) => <tr key={story.id}>
-              <td className="px-3 py-4"><p className="font-bold text-slate-900">{story.title}</p><p className="mt-1 text-xs text-slate-500" dir="ltr">{story.slug}</p></td>
+              <td className="px-3 py-4"><p className="font-bold text-slate-900">{story.title}</p><p className="mt-1 text-xs text-slate-500" dir="ltr">{story.slug}</p>{story.status === 'rejected' && story.rejectionReason && <p className="mt-2 text-xs text-red-700">{t('سبب الرفض', language)}: {story.rejectionReason}</p>}</td>
               <td className="px-3 py-4">{story.collection?.title || '—'}</td>
               <td className="px-3 py-4">{story.parts?.length || 0}</td>
               <td className="px-3 py-4"><StatusBadge status={story.status} language={language} /></td>
               <td className="px-3 py-4"><div className="flex flex-wrap items-center gap-x-3 gap-y-2">
                 <Link to={`/${locale}/admin/content/stories/${story.id}/edit`} className="font-bold text-emerald-800 underline">{t('تعديل', language)}</Link>
                 <Link to={`/${locale}/admin/content/stories/${story.id}/parts/new`} className="font-bold text-emerald-800 underline">{t('الأجزاء', language)}</Link>
-                {story.status === 'draft' && <button type="button" onClick={() => void storyAction(story)} disabled={busyId === story.id} className="font-bold text-slate-700 underline disabled:opacity-50">{t('إرسال للمراجعة', language)}</button>}
+                {['draft', 'rejected'].includes(story.status) && <button type="button" onClick={() => void storyAction(story, 'submit')} disabled={busyId === story.id} className="font-bold text-slate-700 underline disabled:opacity-50">{t(story.status === 'rejected' ? 'إعادة الإرسال للمراجعة' : 'إرسال للمراجعة', language)}</button>}
+                {story.status === 'in_review' && ['ADMIN', 'SUPER_ADMIN'].includes(user?.role || '') && <>
+                  <button type="button" onClick={() => void storyAction(story, 'approve')} disabled={busyId === story.id} className="font-bold text-emerald-800 underline disabled:opacity-50">{t('اعتماد ونشر', language)}</button>
+                  <button type="button" onClick={() => void storyAction(story, 'reject')} disabled={busyId === story.id} className="font-bold text-red-700 underline disabled:opacity-50">{t('رفض', language)}</button>
+                  <button type="button" onClick={() => void storyAction(story, 'return')} disabled={busyId === story.id} className="font-bold text-slate-700 underline disabled:opacity-50">{t('إعادة إلى المسودة', language)}</button>
+                </>}
+                {story.status === 'published' && ['ADMIN', 'SUPER_ADMIN'].includes(user?.role || '') && <button type="button" onClick={() => void storyAction(story, 'unpublish')} disabled={busyId === story.id} className="font-bold text-amber-800 underline disabled:opacity-50">{t('إلغاء النشر', language)}</button>}
+                {['draft', 'rejected', 'archived'].includes(story.status) && !story.publishedAt && <button type="button" onClick={() => void deleteStory(story, { language, setBusyId, setError, setNotice, setReloadKey })} disabled={busyId === story.id} className="font-bold text-red-700 underline disabled:opacity-50">{t('حذف', language)}</button>}
               </div></td>
             </tr>)}
           </tbody>
@@ -354,6 +441,7 @@ export function AdminCollectionsPage() {
             <td className="px-3 py-4"><div className="flex flex-wrap gap-3">
               <Link to={`/${locale}/admin/content/collections/${collection.id}/edit`} className="font-bold text-emerald-800 underline">{t('تعديل', language)}</Link>
               <button type="button" onClick={() => void toggleActive(collection)} disabled={busyId === collection.id} className="font-bold text-slate-700 underline disabled:opacity-50">{t(collection.isActive === false ? 'تفعيل' : 'إيقاف', language)}</button>
+              <button type="button" onClick={() => void deleteCollection(collection, { language, setBusyId, setError, setNotice, setReloadKey })} disabled={busyId === collection.id} className="font-bold text-red-700 underline disabled:opacity-50">{t('حذف', language)}</button>
             </div></td>
           </tr>)}</tbody>
         </table></div>
@@ -372,6 +460,7 @@ export function AdminCollectionsPage() {
 export function AdminBooksPage() {
   const language = useAdminLanguage();
   const { locale = 'ar' } = useParams();
+  const { user } = useStoryAuth();
   const [books, setBooks] = useState<AdminBook[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -399,7 +488,7 @@ export function AdminBooksPage() {
 
   const filtered = books.filter((book) =>
     `${book.title} ${book.slug}`.toLowerCase().includes(query.toLowerCase()) &&
-    (statusFilter === 'all' || (statusFilter === 'published' ? book.isPublished : !book.isPublished))
+    (statusFilter === 'all' || (book.status || (book.isPublished ? 'published' : 'draft')) === statusFilter)
   );
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const visibleBooks = filtered.slice((page - 1) * pageSize, page * pageSize);
@@ -409,8 +498,9 @@ export function AdminBooksPage() {
     setError(null);
     setNotice(null);
     try {
-      await api.patch(`/admin/content/books/${book.id}`, { isPublished: !book.isPublished });
-      setNotice(t(book.isPublished ? 'تم إلغاء نشر الكتاب.' : 'تم نشر الكتاب.', language));
+      const currentStatus = book.status || (book.isPublished ? 'published' : 'draft');
+      await api.post(`/admin/content/books/${book.id}/${currentStatus === 'published' ? 'unpublish' : 'publish'}`, {});
+      setNotice(t(currentStatus === 'published' ? 'تم إلغاء نشر الكتاب.' : 'تم نشر الكتاب.', language));
       setReloadKey((value) => value + 1);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : t('تعذر تحديث الكتاب.', language));
@@ -428,7 +518,7 @@ export function AdminBooksPage() {
       <div className="flex flex-wrap gap-3">
         <label className="min-w-52 flex-1 text-sm font-semibold">{t('البحث', language)}<input aria-label={t('البحث عن الكتب', language)} value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 font-normal" /></label>
         <label className="text-sm font-semibold">{t('الحالة', language)}<select value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value); setPage(1); }} className="mt-1.5 block rounded-xl border border-slate-200 bg-white px-3 py-2.5">
-          <option value="all">{t('كل الحالات', language)}</option><option value="published">{t('منشور', language)}</option><option value="draft">{t('مسودة', language)}</option>
+          <option value="all">{t('كل الحالات', language)}</option><option value="published">{t('منشورة', language)}</option><option value="draft">{t('مسودة', language)}</option><option value="archived">{t('مؤرشفة', language)}</option>
         </select></label>
       </div>
       {error && <ErrorMessage message={error} language={language} />}
@@ -442,10 +532,23 @@ export function AdminBooksPage() {
             <td className="px-3 py-4"><p className="font-bold">{book.title}</p><p dir="ltr" className="mt-1 text-xs text-slate-500">{book.slug}</p></td>
             <td className="px-3 py-4">{t(book.format === 'ebook' ? 'إلكتروني' : 'ورقي', language)}{book.format === 'ebook' && !book.fileStorageKey && <p className="mt-1 text-xs text-amber-800">{t('ملف PDF غير مرفق', language)}</p>}</td>
             <td className="px-3 py-4">{new Intl.NumberFormat(language, { style: 'currency', currency: book.currency }).format(Number(book.price))}</td>
-            <td className="px-3 py-4"><span className={`rounded-full px-3 py-1 text-xs font-bold ${book.isPublished ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-700'}`}>{t(book.isPublished ? 'منشور' : 'مسودة', language)}</span></td>
+            <td className="px-3 py-4"><span className={`rounded-full px-3 py-1 text-xs font-bold ${(book.status || (book.isPublished ? 'published' : 'draft')) === 'published' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-700'}`}>{(book.status || (book.isPublished ? 'published' : 'draft')) === 'archived' ? t('مؤرشفة', language) : (book.status || (book.isPublished ? 'published' : 'draft')) === 'published' ? t('منشورة', language) : t('مسودة', language)}</span></td>
             <td className="px-3 py-4"><div className="flex flex-wrap gap-3">
               <Link to={`/${locale}/admin/shop/books/${book.id}/edit`} className="font-bold text-emerald-800 underline">{t('تعديل', language)}</Link>
-              <button type="button" onClick={() => void togglePublished(book)} disabled={busyId === book.id || book.format === 'ebook' && !book.fileStorageKey} className="font-bold text-slate-700 underline disabled:opacity-40">{t(book.isPublished ? 'إلغاء النشر' : 'نشر', language)}</button>
+              {['ADMIN', 'SUPER_ADMIN'].includes(user?.role || '') && (book.status || (book.isPublished ? 'published' : 'draft')) !== 'archived' && <button type="button" onClick={() => void togglePublished(book)} disabled={busyId === book.id || book.format === 'ebook' && !book.fileStorageKey} className="font-bold text-slate-700 underline disabled:opacity-40">{t((book.status || (book.isPublished ? 'published' : 'draft')) === 'published' ? 'إلغاء النشر' : 'نشر', language)}</button>}
+              {['ADMIN', 'SUPER_ADMIN'].includes(user?.role || '') && book.status !== 'archived' && <button type="button" onClick={async () => {
+                if (!window.confirm(t('أرشفة هذا الكتاب نهائيًا؟', language))) return;
+                setBusyId(book.id);
+                try {
+                  await api.post(`/admin/content/books/${book.id}/archive`, {});
+                  setReloadKey((value) => value + 1);
+                } catch (caught) {
+                  setError(caught instanceof Error ? caught.message : t('Impossible d’archiver le livre.', language));
+                } finally {
+                  setBusyId(null);
+                }
+              }} disabled={busyId === book.id} className="font-bold text-red-700 underline disabled:opacity-40">{t('Archiver', language)}</button>}
+              {!book.publishedAt && (book.status || (book.isPublished ? 'published' : 'draft')) !== 'published' && <button type="button" onClick={() => void deleteBook(book, { language, setBusyId, setError, setNotice, setReloadKey })} disabled={busyId === book.id} className="font-bold text-red-700 underline disabled:opacity-40">{t('حذف', language)}</button>}
             </div></td>
           </tr>)}</tbody>
         </table></div>
@@ -460,6 +563,7 @@ export function AdminBooksPage() {
 
 export function AdminReviewQueuePage() {
   const language = useAdminLanguage();
+  const { user } = useStoryAuth();
   const [stories, setStories] = useState<AdminStory[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -481,17 +585,16 @@ export function AdminReviewQueuePage() {
     return () => { active = false; };
   }, [language, reloadKey]);
 
-  async function review(story: AdminStory, decision: 'approved' | 'changes_requested') {
+  async function review(story: AdminStory, decision: 'approved' | 'rejected') {
     const comment = comments[story.id]?.trim();
-    if (!comment) {
-      setError(t('أضف ملاحظة للمراجعة قبل المتابعة.', language));
+    if (decision === 'rejected' && !comment) {
+      setError(t('أضف سببًا إلزاميًا قبل رفض القصة.', language));
       return;
     }
     setBusyId(story.id);
     setError(null);
     try {
       await api.post(`/admin/content/stories/${story.id}/review`, { decision, comments: comment });
-      if (decision === 'approved') await api.post(`/admin/content/stories/${story.id}/publish`, {});
       setReloadKey((value) => value + 1);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : t('تعذر نشر القصة.', language));
@@ -518,10 +621,10 @@ export function AdminReviewQueuePage() {
         </li>)}</ol>
       </details>
       <label className="mt-4 block text-sm font-semibold">{t('ملاحظة المراجعة', language)}<textarea value={comments[story.id] || ''} onChange={(event) => setComments((current) => ({ ...current, [story.id]: event.target.value }))} rows={3} className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2 font-normal" /></label>
-      <div className="mt-4 flex flex-wrap gap-3">
-        <button type="button" onClick={() => void review(story, 'approved')} disabled={busyId === story.id} className="rounded-lg bg-emerald-900 px-3 py-2 text-sm font-bold text-white disabled:opacity-50">{t('اعتماد ونشر', language)}</button>
-        <button type="button" onClick={() => void review(story, 'changes_requested')} disabled={busyId === story.id} className="rounded-lg border border-amber-300 px-3 py-2 text-sm font-bold text-amber-900 disabled:opacity-50">{t('طلب تعديلات', language)}</button>
-      </div>
+      {['ADMIN', 'SUPER_ADMIN'].includes(user?.role || '') && <div className="mt-4 flex flex-wrap gap-3">
+        <button type="button" onClick={() => void review(story, 'approved')} disabled={busyId === story.id} className="rounded-lg bg-emerald-900 px-3 py-2 text-sm font-bold text-white disabled:opacity-50">{t('Approuver et publier', language)}</button>
+        <button type="button" onClick={() => void review(story, 'rejected')} disabled={busyId === story.id || !comments[story.id]?.trim()} className="rounded-lg border border-red-300 px-3 py-2 text-sm font-bold text-red-800 disabled:opacity-50">{t('Rejeter', language)}</button>
+      </div>}
     </article>)}</div>
   </div>;
 }

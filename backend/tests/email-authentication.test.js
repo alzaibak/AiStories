@@ -24,7 +24,7 @@ test.after(() => {
 });
 
 test('les politiques OTP appliquent les longueurs, durées et tentatives attendues', () => {
-  assert.deepEqual(READER_POLICY, { digits: 6, lifetimeMinutes: 15, maxAttempts: 5 });
+  assert.deepEqual(READER_POLICY, { digits: 6, lifetimeMinutes: 10, maxAttempts: 5 });
   assert.deepEqual(ADMIN_POLICY, { digits: 8, lifetimeMinutes: 10, maxAttempts: 3 });
   assert.equal(generateCode(READER_POLICY.digits).length, 6);
   assert.equal(generateCode(ADMIN_POLICY.digits).length, 8);
@@ -146,14 +146,16 @@ test('les e-mails contiennent un lien vers le formulaire de vérification approp
     role: 'ADMIN',
     purpose: 'ADMIN_LOGIN',
     language: 'fr',
-    clientDomain: 'https://app.example.test'
+    clientDomain: 'https://app.example.test',
+    adminDomain: 'https://admin.example.test'
   });
   const superAdminResetUrl = authenticationActionUrl({
     email: 'root@example.test',
     role: 'SUPER_ADMIN',
     purpose: 'PASSWORD_RESET',
     language: 'ar',
-    clientDomain: 'https://app.example.test'
+    clientDomain: 'https://app.example.test',
+    adminDomain: 'https://admin.example.test'
   });
   const registrationEmail = localizedEmail('fr', '123456', 'REGISTER', readerRegistrationUrl);
   const resetEmail = localizedEmail('en', '123456', 'PASSWORD_RESET', resetUrl);
@@ -165,8 +167,8 @@ test('les e-mails contiennent un lien vers le formulaire de vérification approp
   assert.match(registrationEmail.html, /\/fr\/register\?email=reader%2Btest%40example\.test&amp;verify=1/);
   assert.match(resetEmail.html, /Continue password reset/);
   assert.match(resetEmail.html, /\/en\/login\?email=user%40example\.test&amp;reset=1/);
-  assert.equal(adminLoginUrl, 'https://app.example.test/fr/admin/login?email=admin%40example.test&verify=1');
-  assert.equal(superAdminResetUrl, 'https://app.example.test/ar/admin/login?email=root%40example.test&reset=1');
+  assert.equal(adminLoginUrl, 'https://admin.example.test/fr/admin/login?email=admin%40example.test&verify=1');
+  assert.equal(superAdminResetUrl, 'https://admin.example.test/ar/admin/login?email=root%40example.test&reset=1');
   assert.match(adminLoginEmail.html, /Continuer la connexion/);
 });
 

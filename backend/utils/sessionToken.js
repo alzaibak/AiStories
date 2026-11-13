@@ -13,6 +13,8 @@ function createSessionToken(user) {
     role: user.role,
     status: user.status,
     isAdmin: ['ADMIN', 'SUPER_ADMIN'].includes(user.role),
+    aud: ['ADMIN', 'SUPER_ADMIN', 'EDITOR', 'REVIEWER'].includes(user.role) ? 'admin' : 'client',
+    tokenVersion: user.tokenVersion || 0,
     jti: crypto.randomUUID()
   }, secret, {
     expiresIn: ['ADMIN', 'SUPER_ADMIN', 'EDITOR', 'REVIEWER'].includes(user.role) ? '3h' : '3d'

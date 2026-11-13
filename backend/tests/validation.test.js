@@ -8,7 +8,13 @@ const {
   passwordResetVerificationSchema,
   readerRegistrationSchema
 } = require('../middleware/validation');
-const { videoSchema, mediaUploadSchema } = require('../middleware/storyValidation');
+const {
+  videoSchema,
+  videoUpdateSchema,
+  mediaUploadSchema,
+  communityEventSchema,
+  communityEventUpdateSchema
+} = require('../middleware/storyValidation');
 
 test('la validation normalise les entrées valides avant le contrôleur', () => {
   const req = { body: { email: '  buyer@example.test ', password: 'secure-password' } };
@@ -100,4 +106,17 @@ test('l’inscription lecteur ne requiert pas d’organisation et utilise l’ar
   });
   assert.equal(result.success, true);
   assert.equal(result.data.language, 'ar');
+});
+
+test('les mises à jour vidéo et événement acceptent des champs partiels', () => {
+  assert.equal(videoUpdateSchema.safeParse({ status: 'in_review' }).success, true);
+  assert.equal(videoUpdateSchema.safeParse({}).success, false);
+  assert.equal(communityEventUpdateSchema.safeParse({ status: 'published' }).success, true);
+  assert.equal(communityEventUpdateSchema.safeParse({}).success, false);
+  assert.equal(communityEventSchema.safeParse({
+    slug: 'event-example',
+    translations: { ar: { title: 'حدث', rules: 'القواعد' } },
+    startsAt: '2026-06-02T10:00:00.000Z',
+    endsAt: '2026-06-01T10:00:00.000Z'
+  }).success, false);
 });

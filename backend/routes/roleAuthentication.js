@@ -1,7 +1,8 @@
 const router = require('express').Router();
 const jwt = require('jsonwebtoken');
-const { User, EmailAuthChallenge, Subscription, Plan } = require('../models');
-const { hashPassword, verifyPassword } = require('../utils/security');
+const crypto = require('node:crypto');
+const { User, EmailAuthChallenge, Subscription, Plan, AdminPasswordReset } = require('../models');
+const { hashPassword, hashPrivilegedPassword, verifyPassword } = require('../utils/security');
 const { createSessionToken } = require('../utils/sessionToken');
 const { authenticate, allowRoles } = require('../middleware/authorization');
 const {
@@ -15,7 +16,11 @@ const {
   loginSchema,
   adminInvitationSchema,
   adminRegistrationSchema,
-  adminApprovalSchema
+  adminApprovalSchema,
+  adminPasswordChangeSchema,
+  adminPasswordResetCompleteSchema,
+  publicPasswordChangeSchema,
+  userRoleSchema
 } = require('../middleware/validation');
 const {
   READER_POLICY,
@@ -32,14 +37,45 @@ const {
   matchesRegistrationChallenge,
   authenticationActionUrl
 } = require('../utils/emailAuthentication');
-const { sendAuthenticationCode } = require('../utils/email');
+const { sendAuthenticationCode, deliverEmail } = require('../utils/email');
 const { recordAudit } = require('../utils/audit');
 const { subscriptionIsActive } = require('../utils/contentAccess');
 
 function publicUser(user) {
   const result = user.toJSON();
   delete result.passwordHash;
+  delete result.tokenVersion;
+  delete result.adminLoginFailedAttempts;
+  delete result.adminLockedUntil;
   return result;
+}
+
+function adminResetUrl(email, token, language) {
+  const origin = process.env.ADMIN_URL;
+  let url;
+  try {
+    url = new URL(`/${['ar', 'en', 'fr'].includes(language) ? language : 'ar'}/admin/reset-password`, origin);
+  } catch {
+    const error = new Error('ADMIN_URL doit être une URL HTTP(S) valide.');
+    error.status = 503;
+    error.code = 'EMAIL_SERVICE_UNAVAILABLE';
+    throw error;
+  }
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) {
+    const error = new Error('ADMIN_URL doit être une URL HTTP(S) valide.');
+    error.status = 503;
+    error.code = 'EMAIL_SERVICE_UNAVAILABLE';
+    throw error;
+  }
+  url.searchParams.set('email', email);
+  url.searchParams.set('token', token);
+  return url.toString();
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  })[character]);
 }
 
 function responseForChallengeError(res, status) {
@@ -251,8 +287,10 @@ router.post('/auth/login', validateBody(loginSchema), async (req, res, next) => 
 router.post('/auth/password/request-code', validateBody(passwordResetRequestSchema), async (req, res, next) => {
   try {
     const email = req.body.email.toLowerCase();
-    const user = await User.findOne({ where: { email } });
-    if (user && passwordResetRoleAllowed(user.role, req.body.accountType) &&
+    const user = req.body.accountType === 'reader'
+      ? await User.findOne({ where: { email } })
+      : null;
+    if (user && passwordResetRoleAllowed(user.role, 'reader') &&
       user.status === 'ACTIVE' && user.emailVerifiedAt) {
       await issueChallenge({
         email,
@@ -275,6 +313,9 @@ router.post('/auth/password/request-code', validateBody(passwordResetRequestSche
 router.post('/auth/password/verify-code', validateBody(passwordResetVerificationSchema), async (req, res, next) => {
   let transaction;
   try {
+    if (req.body.accountType === 'admin') {
+      return res.status(403).json({ message: 'La réinitialisation des comptes administrateur est réservée au sous-domaine administrateur.' });
+    }
     const email = req.body.email.toLowerCase();
     const user = await User.findOne({ where: { email } });
     if (!user || !passwordResetRoleAllowed(user.role, req.body.accountType) ||
@@ -309,9 +350,30 @@ router.post('/auth/password/verify-code', validateBody(passwordResetVerification
   }
 });
 
+router.post('/auth/password/change', authenticate, validateBody(publicPasswordChangeSchema), async (req, res, next) => {
+  try {
+    if (['ADMIN', 'SUPER_ADMIN'].includes(req.user.role)) {
+      return res.status(403).json({ message: 'Les comptes administrateur ne peuvent pas modifier leur mot de passe depuis le site public.' });
+    }
+    if (!await verifyPassword(req.body.currentPassword, req.user.passwordHash)) {
+      return res.status(400).json({ message: 'Le mot de passe actuel est incorrect.' });
+    }
+    req.user.passwordHash = await hashPassword(req.body.newPassword);
+    req.user.tokenVersion = (req.user.tokenVersion || 0) + 1;
+    await req.user.save();
+    await recordAudit(req, 'PASSWORD_CHANGED', 'User', req.user.id);
+    res.json({ message: 'Le mot de passe a été modifié. Reconnectez-vous.' });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.post('/auth/password/reset', validateBody(passwordResetSchema), async (req, res, next) => {
   let transaction;
   try {
+    if (req.body.accountType === 'admin') {
+      return res.status(403).json({ message: 'La réinitialisation des comptes administrateur est réservée au sous-domaine administrateur.' });
+    }
     const token = req.get('authorization')?.replace(/^Bearer\s+/i, '');
     if (!token || !process.env.JWT_SECRET_KEY) {
       return res.status(401).json({ message: 'Vérifiez le code reçu par e-mail avant de choisir un nouveau mot de passe.' });
@@ -324,6 +386,9 @@ router.post('/auth/password/reset', validateBody(passwordResetSchema), async (re
       return res.status(401).json({ message: 'Le code de réinitialisation est invalide ou expiré. Recommencez la procédure.' });
     }
     const email = req.body.email.toLowerCase();
+    if (['ADMIN', 'SUPER_ADMIN', 'EDITOR', 'REVIEWER'].includes(claims.role)) {
+      return res.status(403).json({ message: 'La réinitialisation des comptes administrateur est réservée au sous-domaine administrateur.' });
+    }
     if (claims.purpose !== 'PASSWORD_RESET' || claims.email !== email ||
       claims.accountType !== req.body.accountType ||
       !passwordResetRoleAllowed(claims.role, req.body.accountType) ||
@@ -337,6 +402,7 @@ router.post('/auth/password/reset', validateBody(passwordResetSchema), async (re
       transaction,
       lock: transaction.LOCK.UPDATE
     });
+
     const challenge = await EmailAuthChallenge.findByPk(claims.challengeId, {
       transaction,
       lock: transaction.LOCK.UPDATE
@@ -348,6 +414,7 @@ router.post('/auth/password/reset', validateBody(passwordResetSchema), async (re
     }
 
     user.passwordHash = await hashPassword(req.body.password);
+    user.tokenVersion = (user.tokenVersion || 0) + 1;
     challenge.consumedAt = new Date();
     await user.save({ transaction });
     await challenge.save({ transaction });
@@ -603,10 +670,27 @@ router.post('/admin/auth/register', validateBody(adminRegistrationSchema), async
 router.post('/admin/auth/login', validateBody(loginSchema), async (req, res, next) => {
   try {
     const user = await User.findOne({ where: { email: req.body.email.toLowerCase() } });
-    if (!user || !['ADMIN', 'SUPER_ADMIN', 'EDITOR', 'REVIEWER'].includes(user.role) ||
-      user.status !== 'ACTIVE' || !user.emailVerifiedAt ||
-      !await verifyPassword(req.body.password, user.passwordHash)) {
+    const adminRole = user && ['ADMIN', 'SUPER_ADMIN', 'EDITOR', 'REVIEWER'].includes(user.role);
+    if (adminRole && user.adminLockedUntil && new Date(user.adminLockedUntil) > new Date()) {
+      return res.status(429).json({ message: 'Compte temporairement verrouillé après plusieurs tentatives. Réessayez plus tard.' });
+    }
+    const validLogin = Boolean(adminRole && user.status === 'ACTIVE' && user.emailVerifiedAt &&
+      await verifyPassword(req.body.password, user.passwordHash));
+    if (!validLogin) {
+      if (adminRole && user.status === 'ACTIVE') {
+        user.adminLoginFailedAttempts = (user.adminLoginFailedAttempts || 0) + 1;
+        if (user.adminLoginFailedAttempts >= 5) {
+          user.adminLockedUntil = new Date(Date.now() + 15 * 60 * 1000);
+          user.adminLoginFailedAttempts = 0;
+        }
+        await user.save();
+      }
       return res.status(401).json({ message: 'Identifiants invalides ou compte indisponible.' });
+    }
+    if (user.adminLoginFailedAttempts || user.adminLockedUntil) {
+      user.adminLoginFailedAttempts = 0;
+      user.adminLockedUntil = null;
+      await user.save();
     }
     const result = await issueChallenge({
       email: user.email,
@@ -674,6 +758,134 @@ router.patch('/admin/auth/admins/:id/approval', authenticate, allowRoles('SUPER_
     await recordAudit(req, 'SET_ADMIN_APPROVAL', 'User', admin.id, { status: admin.status });
     res.json({ user: publicUser(admin) });
   } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/admin/users', authenticate, allowRoles('SUPER_ADMIN'), async (req, res, next) => {
+  try {
+    const users = await User.findAll({
+      attributes: { exclude: ['passwordHash', 'tokenVersion', 'adminLoginFailedAttempts', 'adminLockedUntil'] },
+      order: [['createdAt', 'DESC']],
+      limit: 500
+    });
+    res.json(users);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.patch('/admin/users/:id/role', authenticate, allowRoles('SUPER_ADMIN'), validateBody(userRoleSchema), async (req, res, next) => {
+  try {
+    const target = await User.findByPk(parseInt(req.params.id, 10));
+    if (!target || target.role === 'SUPER_ADMIN' || target.id === req.user.id) {
+      return res.status(404).json({ message: 'Utilisateur administrateur introuvable.' });
+    }
+    const previousRole = target.role;
+    target.role = req.body.role;
+    target.tokenVersion = (target.tokenVersion || 0) + 1;
+    await target.save();
+    await recordAudit(req, 'USER_ROLE_CHANGED', 'User', target.id, { previousRole, role: target.role });
+    res.json({ user: publicUser(target) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/admin/superadmin/change-password', authenticate, allowRoles('SUPER_ADMIN'), validateBody(adminPasswordChangeSchema), async (req, res, next) => {
+  try {
+    if (!await verifyPassword(req.body.currentPassword, req.user.passwordHash)) {
+      return res.status(400).json({ message: 'Le mot de passe actuel est incorrect.' });
+    }
+    req.user.passwordHash = await hashPrivilegedPassword(req.body.newPassword);
+    req.user.mustChangePassword = false;
+    req.user.tokenVersion = (req.user.tokenVersion || 0) + 1;
+    await req.user.save();
+    await recordAudit(req, 'SUPERADMIN_PASSWORD_CHANGED', 'User', req.user.id);
+    try {
+      await deliverEmail({
+        to: req.user.email,
+        purpose: 'superadmin-password-changed',
+        subject: 'Mot de passe administrateur modifié',
+        html: '<p>Le mot de passe de votre compte superadministrateur vient d’être modifié. Si vous n’êtes pas à l’origine de ce changement, contactez immédiatement l’équipe technique.</p>'
+      });
+    } catch (error) {
+      return res.status(503).json({
+        message: 'Le mot de passe a été modifié, mais la notification par e-mail a échoué. Vérifiez la configuration SMTP.',
+        code: 'PASSWORD_CHANGED_EMAIL_FAILED'
+      });
+    }
+    res.json({ message: 'Mot de passe modifié. Reconnectez-vous avec votre nouveau mot de passe.' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/admin/users/:id/reset-password', authenticate, allowRoles('SUPER_ADMIN'), async (req, res, next) => {
+  try {
+    const target = await User.findByPk(parseInt(req.params.id, 10));
+    if (!target || !['ADMIN', 'EDITOR', 'REVIEWER'].includes(target.role)) {
+      return res.status(404).json({ message: 'Compte administrateur introuvable.' });
+    }
+    const token = crypto.randomBytes(32).toString('hex');
+    const challenge = await AdminPasswordReset.create({
+      userId: target.id,
+      tokenHash: crypto.createHash('sha256').update(token).digest('hex'),
+      expiresAt: new Date(Date.now() + 15 * 60 * 1000)
+    });
+    await AdminPasswordReset.destroy({
+      where: { userId: target.id, id: { [require('sequelize').Op.ne]: challenge.id }, usedAt: null }
+    });
+    const link = adminResetUrl(target.email, token, target.language);
+    try {
+      await deliverEmail({
+        to: target.email,
+        purpose: 'admin-password-reset',
+        subject: 'Réinitialisation du mot de passe administrateur',
+        html: `<p>Une réinitialisation de mot de passe a été demandée. Ce lien expire dans 15 minutes et ne peut être utilisé qu’une seule fois.</p><p><a href="${escapeHtml(link)}">Définir un nouveau mot de passe</a></p><p>Si vous n’avez pas demandé cette réinitialisation, ignorez ce message.</p>`
+      });
+    } catch (error) {
+      await challenge.destroy();
+      throw error;
+    }
+    await recordAudit(req, 'ADMIN_PASSWORD_RESET_REQUESTED', 'User', target.id);
+    res.status(202).json({ message: 'Un lien de réinitialisation à usage unique a été envoyé.' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/admin/auth/reset-password', validateBody(adminPasswordResetCompleteSchema), async (req, res, next) => {
+  let transaction;
+  try {
+    const email = req.body.email.toLowerCase();
+    const tokenHash = crypto.createHash('sha256').update(req.body.token).digest('hex');
+    transaction = await User.sequelize.transaction();
+    const target = await User.findOne({
+      where: { email, role: ['ADMIN', 'EDITOR', 'REVIEWER'], status: 'ACTIVE' },
+      transaction,
+      lock: transaction.LOCK.UPDATE
+    });
+    const reset = target && await AdminPasswordReset.findOne({
+      where: { userId: target.id, tokenHash, usedAt: null },
+      transaction,
+      lock: transaction.LOCK.UPDATE
+    });
+    if (!target || !reset || new Date(reset.expiresAt) <= new Date()) {
+      await transaction.rollback();
+      return res.status(400).json({ message: 'Le lien de réinitialisation est invalide, expiré ou déjà utilisé.' });
+    }
+    target.passwordHash = await hashPrivilegedPassword(req.body.newPassword);
+    target.tokenVersion = (target.tokenVersion || 0) + 1;
+    target.mustChangePassword = false;
+    reset.usedAt = new Date();
+    await target.save({ transaction });
+    await reset.save({ transaction });
+    await transaction.commit();
+    await recordAudit({ actor: target, ip: req.ip }, 'ADMIN_PASSWORD_RESET_COMPLETED', 'User', target.id);
+    res.json({ message: 'Mot de passe défini. Connectez-vous sur le portail administrateur.' });
+  } catch (error) {
+    if (transaction && !transaction.finished) await transaction.rollback();
     next(error);
   }
 });

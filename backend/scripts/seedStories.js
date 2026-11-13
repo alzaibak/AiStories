@@ -5,6 +5,7 @@ const {
   StoryVideo,
   Quiz,
   Question,
+  QuizOption,
   Book
 } = require('../models');
 const { SAMPLE_EBOOK_STORAGE_KEY } = require('../utils/sampleEbook');
@@ -165,17 +166,48 @@ async function seedStories() {
         storyId: story.id,
         partId: part.id,
         title: sample.quizTitle,
+        slug: `${sample.slug}-quiz`,
+        description: '',
+        translations: { ar: { title: sample.quizTitle, description: '' }, en: { title: '', description: '' }, fr: { title: '', description: '' } },
         difficulty: 'kids',
         passingScore: 60,
+        accessMode: 'follow_part',
+        status: 'draft',
         validationStatus: 'draft'
       }
     });
     for (let index = 0; index < sample.questions.length; index += 1) {
-      const question = sample.questions[index];
-      await Question.findOrCreate({
+      const sampleQuestion = sample.questions[index];
+      const [question] = await Question.findOrCreate({
         where: { quizId: quiz.id, sortOrder: index + 1 },
-        defaults: { quizId: quiz.id, sortOrder: index + 1, ...question }
+        defaults: {
+          quizId: quiz.id,
+          sortOrder: index + 1,
+          type: 'single_choice',
+          text: sampleQuestion.text,
+          translations: { ar: { text: sampleQuestion.text }, en: { text: '' }, fr: { text: '' } },
+          options: sampleQuestion.options,
+          correctAnswer: sampleQuestion.correctAnswer,
+          points: 1,
+          explanation: sampleQuestion.explanation,
+          explanationTranslations: { ar: sampleQuestion.explanation, en: '', fr: '' },
+          source: sampleQuestion.source,
+          sourceTranslations: { ar: sampleQuestion.source, en: '', fr: '' }
+        }
       });
+      for (let optionIndex = 0; optionIndex < sampleQuestion.options.length; optionIndex += 1) {
+        const option = sampleQuestion.options[optionIndex];
+        await QuizOption.findOrCreate({
+          where: { questionId: question.id, sortOrder: optionIndex },
+          defaults: {
+            questionId: question.id,
+            text: option,
+            translations: { ar: option, en: '', fr: '' },
+            isCorrect: option === sampleQuestion.correctAnswer,
+            sortOrder: optionIndex
+          }
+        });
+      }
     }
     await StoryVideo.findOrCreate({
       where: { storyId: story.id, episodeNumber: 1 },

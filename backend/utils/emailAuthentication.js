@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 
-const READER_POLICY = { digits: 6, lifetimeMinutes: 15, maxAttempts: 5 };
+const READER_POLICY = { digits: 6, lifetimeMinutes: 10, maxAttempts: 5 };
 const ADMIN_POLICY = { digits: 8, lifetimeMinutes: 10, maxAttempts: 3 };
 const RESEND_DELAY_SECONDS = 60;
 const DUPLICATE_EMAIL_MESSAGE =
@@ -26,8 +26,9 @@ function hashCode(code) {
 }
 
 function verifyCode(code, storedHash) {
-  if (typeof code !== 'string' || !/^\d{6,8}$/.test(code) || typeof storedHash !== 'string') return false;
-  const actual = Buffer.from(hashCode(code), 'hex');
+  const normalizedCode = typeof code === 'string' ? code.trim() : code;
+  if (typeof normalizedCode !== 'string' || !/^\d{6,8}$/.test(normalizedCode) || typeof storedHash !== 'string') return false;
+  const actual = Buffer.from(hashCode(normalizedCode), 'hex');
   const expected = Buffer.from(storedHash, 'hex');
   return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
 }
@@ -86,7 +87,7 @@ function localizedEmail(language, code, purpose, actionUrl) {
       title: purpose === 'PASSWORD_RESET' ? 'Réinitialisation du mot de passe' : purpose === 'ADMIN_LOGIN' ? 'Confirmation de connexion' : purpose === 'ADMIN_REGISTER' ? 'Invitation administrateur' : 'Vérification de votre adresse e-mail',
       intro: purpose === 'PASSWORD_RESET' ? 'Saisissez ce code pour confirmer la réinitialisation de votre mot de passe.' : purpose === 'ADMIN_LOGIN' ? 'Saisissez ce code pour terminer votre connexion administrateur.' : purpose === 'ADMIN_REGISTER' ? 'Vous avez été invité à rejoindre Islamic Stories en tant qu’administrateur. Saisissez ce code pour confirmer votre adresse.' : 'Saisissez ce code pour confirmer votre adresse e-mail.',
       expiry: 'Ce code expire dans',
-      minutes: purpose === 'ADMIN_LOGIN' || purpose === 'ADMIN_REGISTER' ? '10 minutes' : '15 minutes',
+      minutes: '10 minutes',
       ignore: 'Si vous n’êtes pas à l’origine de cette demande, ignorez ce message.',
       action: purpose === 'PASSWORD_RESET' ? 'Continuer la réinitialisation'
         : purpose === 'ADMIN_LOGIN' ? 'Continuer la connexion'
@@ -97,7 +98,7 @@ function localizedEmail(language, code, purpose, actionUrl) {
       title: purpose === 'PASSWORD_RESET' ? 'Reset your password' : purpose === 'ADMIN_LOGIN' ? 'Confirm your sign-in' : purpose === 'ADMIN_REGISTER' ? 'Administrator invitation' : 'Verify your email address',
       intro: purpose === 'PASSWORD_RESET' ? 'Enter this code to confirm your password reset.' : purpose === 'ADMIN_LOGIN' ? 'Enter this code to complete your administrator sign-in.' : purpose === 'ADMIN_REGISTER' ? 'You have been invited to join Islamic Stories as an administrator. Enter this code to verify your email.' : 'Enter this code to confirm your email address.',
       expiry: 'This code expires in',
-      minutes: purpose === 'ADMIN_LOGIN' || purpose === 'ADMIN_REGISTER' ? '10 minutes' : '15 minutes',
+      minutes: '10 minutes',
       ignore: 'If you did not request this code, you can ignore this message.',
       action: purpose === 'PASSWORD_RESET' ? 'Continue password reset'
         : purpose === 'ADMIN_LOGIN' ? 'Continue sign-in'
@@ -108,7 +109,7 @@ function localizedEmail(language, code, purpose, actionUrl) {
       title: purpose === 'PASSWORD_RESET' ? 'إعادة تعيين كلمة المرور' : purpose === 'ADMIN_LOGIN' ? 'تأكيد تسجيل الدخول' : purpose === 'ADMIN_REGISTER' ? 'دعوة مسؤول' : 'التحقق من عنوان البريد الإلكتروني',
       intro: purpose === 'PASSWORD_RESET' ? 'أدخل هذا الرمز لتأكيد إعادة تعيين كلمة المرور.' : purpose === 'ADMIN_LOGIN' ? 'أدخل هذا الرمز لإكمال تسجيل دخول المسؤول.' : purpose === 'ADMIN_REGISTER' ? 'تمت دعوتك للانضمام إلى حكايات إسلامية كمسؤول. أدخل هذا الرمز لتأكيد بريدك الإلكتروني.' : 'أدخل هذا الرمز لتأكيد عنوان بريدك الإلكتروني.',
       expiry: 'تنتهي صلاحية هذا الرمز خلال',
-      minutes: purpose === 'ADMIN_LOGIN' || purpose === 'ADMIN_REGISTER' ? '10 دقائق' : '15 دقيقة',
+      minutes: '10 دقائق',
       ignore: 'إذا لم تطلب هذا الرمز، يمكنك تجاهل هذه الرسالة.',
       action: purpose === 'PASSWORD_RESET' ? 'متابعة إعادة تعيين كلمة المرور'
         : purpose === 'ADMIN_LOGIN' ? 'متابعة تسجيل الدخول'
@@ -137,7 +138,14 @@ function escapeHtml(value) {
   })[character]);
 }
 
-function authenticationActionUrl({ email, role, purpose, language = 'fr', clientDomain = process.env.CLIENT_DOMAIN }) {
+function authenticationActionUrl({
+  email,
+  role,
+  purpose,
+  language = 'fr',
+  clientDomain = process.env.CLIENT_URL || process.env.CLIENT_DOMAIN,
+  adminDomain = process.env.ADMIN_URL
+}) {
   let path;
   let queryName;
   if (purpose === 'REGISTER' && role === 'READER') {
@@ -161,9 +169,12 @@ function authenticationActionUrl({ email, role, purpose, language = 'fr', client
   const locale = ['ar', 'en', 'fr'].includes(language) ? language : 'fr';
   path = `/${locale}${path}`;
 
-  const configuredOrigin = clientDomain?.split(',')[0]?.trim();
+  const adminPurpose = ['ADMIN_REGISTER', 'ADMIN_LOGIN'].includes(purpose) ||
+    purpose === 'PASSWORD_RESET' && ['ADMIN', 'SUPER_ADMIN', 'EDITOR', 'REVIEWER'].includes(role);
+  const configuredOrigin = (adminPurpose ? adminDomain : clientDomain)?.split(',')[0]?.trim();
   if (!configuredOrigin) {
-    const error = new Error('La configuration CLIENT_DOMAIN est requise pour créer le lien sécurisé.');
+    const requiredSetting = adminPurpose ? 'ADMIN_URL' : 'CLIENT_URL';
+    const error = new Error(`La configuration ${requiredSetting} est requise pour créer le lien sécurisé.`);
     error.status = 503;
     error.code = 'EMAIL_SERVICE_UNAVAILABLE';
     throw error;

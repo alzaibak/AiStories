@@ -2,7 +2,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { app } = require('../index');
 const openApiDocument = require('../openapi');
-const { Story } = require('../models');
+const jwt = require('jsonwebtoken');
+const { Story, User } = require('../models');
 
 async function startTestServer(context) {
   const server = app.listen(0, '127.0.0.1');
@@ -18,7 +19,7 @@ async function startTestServer(context) {
 
 test('l’API applique les en-têtes de sécurité et limite CORS aux origines autorisées', async (context) => {
   const apiUrl = await startTestServer(context);
-  const allowedOrigin = (process.env.CLIENT_DOMAIN || 'http://localhost:8080,http://127.0.0.1:8080')
+  const allowedOrigin = (process.env.CLIENT_URL || process.env.CLIENT_DOMAIN || 'http://localhost:8080,http://127.0.0.1:8080')
     .split(',')[0]
     .trim();
   const allowedResponse = await fetch(`${apiUrl}/api/v1/health`, {
@@ -39,6 +40,18 @@ test('l’API applique les en-têtes de sécurité et limite CORS aux origines a
   });
   assert.equal(unconfiguredPreflight.status, 200);
   assert.equal(unconfiguredPreflight.headers.get('access-control-allow-origin'), null);
+
+  const adminOrigin = (process.env.ADMIN_URL || 'http://localhost:8081').split(',')[0].trim();
+  const adminPreflight = await fetch(`${apiUrl}/api/admin/auth/login`, {
+    method: 'OPTIONS',
+    headers: {
+      origin: adminOrigin,
+      'access-control-request-method': 'POST',
+      'access-control-request-headers': 'content-type'
+    }
+  });
+  assert.equal(adminPreflight.status, 204);
+  assert.equal(adminPreflight.headers.get('access-control-allow-origin'), adminOrigin);
 
   const lanPreflight = await fetch(`${apiUrl}/api/v1/reader/auth/register/request-code`, {
     method: 'OPTIONS',
@@ -94,6 +107,7 @@ test('les routes d’inscription par rôle et de connexion valident les requête
   for (const path of [
     '/api/v1/auth/login',
     '/api/v1/admin/auth/login',
+    '/api/admin/auth/login',
     '/api/v1/admin/auth/register/request-code'
   ]) {
     const response = await fetch(`${apiUrl}${path}`, {
@@ -103,6 +117,38 @@ test('les routes d’inscription par rôle et de connexion valident les requête
     });
     assert.equal(response.status, 400, `POST ${path}: validation attendue`);
   }
+});
+
+test('la route publique de changement de mot de passe est montée et refuse les comptes admin', async (context) => {
+  const apiUrl = await startTestServer(context);
+  const previousSecret = process.env.JWT_SECRET_KEY;
+  const originalFindByPk = User.findByPk;
+  process.env.JWT_SECRET_KEY = 'test-secret-for-public-password-route';
+  User.findByPk = async () => ({
+    id: 8,
+    role: 'ADMIN',
+    status: 'ACTIVE',
+    emailVerifiedAt: new Date(),
+    tokenVersion: 0,
+    mustChangePassword: false
+  });
+  context.after(() => {
+    User.findByPk = originalFindByPk;
+    if (previousSecret === undefined) delete process.env.JWT_SECRET_KEY;
+    else process.env.JWT_SECRET_KEY = previousSecret;
+  });
+
+  const token = jwt.sign({ id: 8, role: 'ADMIN', status: 'ACTIVE', tokenVersion: 0 }, process.env.JWT_SECRET_KEY);
+  const response = await fetch(`${apiUrl}/api/v1/auth/password/change`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({ currentPassword: 'existing-password', newPassword: 'StrongPass!23456' })
+  });
+
+  assert.equal(response.status, 403);
 });
 
 test('les anciennes routes d’appels d’offres ne sont plus montées', async (context) => {

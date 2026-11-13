@@ -34,7 +34,7 @@ test('la création d’un numéro de partie déjà utilisé renvoie 409 avec la 
     await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   });
 
-  const token = jwt.sign({ id: 8, role: 'EDITOR', status: 'ACTIVE' }, process.env.JWT_SECRET_KEY);
+  const token = jwt.sign({ id: 8, role: 'EDITOR', status: 'ACTIVE', aud: 'admin', tokenVersion: 0 }, process.env.JWT_SECRET_KEY);
   const response = await fetch(`http://127.0.0.1:${server.address().port}/api/v1/admin/content/stories/3/parts`, {
     method: 'POST',
     headers: {

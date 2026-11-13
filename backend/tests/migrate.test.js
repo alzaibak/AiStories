@@ -6,6 +6,10 @@ const {
   normalizeLegacyUserIndexes
 } = require('../migrations/001-create-tendering-schema');
 const { removeForeignKeysForColumn } = require('../migrations/003-remove-commerce-schema');
+const paymentWorkflowMigration = require('../migrations/011-add-payment-workflow');
+const publishingMigration = require('../migrations/016-publishing-auth-and-slugs');
+const bookPublicationDateMigration = require('../migrations/017-repair-book-publication-date');
+const Sequelize = require('sequelize');
 
 test('ne resynchronise pas les tables de base déjà présentes', async () => {
   const syncCalls = [];
@@ -152,4 +156,94 @@ test('retire seulement les anciennes clés étrangères du vendeur avant modific
     table: 'products',
     constraintName: 'products_sellerOrgId_foreign_idx'
   }]);
+});
+
+test('la migration de paiement ignore stripeCustomerId déjà présent', async () => {
+  const columns = {
+    users: { stripeCustomerId: { type: 'VARCHAR(255)' } },
+    store_orders: {},
+    subscriptions: {},
+    entitlements: {}
+  };
+  const added = [];
+  const queryInterface = {
+    async describeTable(table) {
+      return columns[table];
+    },
+    async addColumn(table, column, definition) {
+      added.push({ table, column, definition });
+      columns[table][column] = definition;
+    }
+  };
+
+  await paymentWorkflowMigration.up({ queryInterface, Sequelize });
+
+  assert.equal(added.some(({ table, column }) => table === 'users' && column === 'stripeCustomerId'), false);
+  assert.equal(added.length, 5);
+});
+
+test('répare les slugs courts avec le titre anglais sans perdre l’ancien lien', async () => {
+  const rows = [
+    { id: 2, slug: 'x', title: 'قصة الرفقة', translations: { en: { title: 'Companions in the Cave' } } },
+    { id: 3, slug: null, title: 'قصص الأنبياء', translations: {} }
+  ];
+  const updates = [];
+  const queryInterface = {
+    async showAllTables() {
+      return ['stories'];
+    },
+    sequelize: {
+      async query(sql, options) {
+        assert.match(sql, /SELECT id, slug, title, translations/);
+        assert.equal(options.type, Sequelize.QueryTypes.SELECT);
+        return rows;
+      }
+    },
+    async bulkUpdate(table, values, where) {
+      updates.push({ table, values, where });
+    }
+  };
+  const redirects = await publishingMigration.repairSlugs(
+    queryInterface,
+    Sequelize,
+    'stories',
+    'story',
+    new Set()
+  );
+
+  assert.deepEqual(updates.map(({ values }) => values.slug), ['companions-in-the-cave', 'qss-alanbya']);
+  assert.deepEqual(redirects, [{ entityType: 'story', oldSlug: 'x', newSlug: 'companions-in-the-cave' }]);
+});
+
+test('répare publishedAt manquant dans books et ne duplique pas une colonne existante', async () => {
+  const columns = {};
+  const added = [];
+  const queries = [];
+  const queryInterface = {
+    async showAllTables() {
+      return ['books'];
+    },
+    async describeTable(table) {
+      assert.equal(table, 'books');
+      return columns;
+    },
+    async addColumn(table, column, definition) {
+      added.push({ table, column, definition });
+      columns[column] = definition;
+    },
+    sequelize: {
+      async query(sql) {
+        queries.push(sql);
+      }
+    }
+  };
+
+  await bookPublicationDateMigration.up({ queryInterface, Sequelize });
+  await bookPublicationDateMigration.up({ queryInterface, Sequelize });
+
+  assert.equal(added.length, 1);
+  assert.equal(added[0].table, 'books');
+  assert.equal(added[0].column, 'publishedAt');
+  assert.equal(queries.length, 2);
+  assert.match(queries[0], /WHERE isPublished = 1 AND publishedAt IS NULL/);
 });

@@ -215,11 +215,19 @@ function detectedMimeType(filePath) {
 function mediaUploadMatches({ filePath, mimeType, mediaType }) {
   const detected = detectedMimeType(filePath);
   return detected === mimeType &&
-    (mediaType === 'ebook' ? detected === 'application/pdf' : detected?.startsWith('image/'));
+    (mediaType === 'ebook'
+      ? detected === 'application/pdf'
+      : mediaType === 'video'
+        ? detected?.startsWith('video/')
+        : detected?.startsWith('image/'));
 }
 
 function detectMimeType(buffer) {
   if (buffer.length >= 5 && buffer.subarray(0, 5).toString('ascii') === '%PDF-') return 'application/pdf';
+  if (buffer.length >= 12 && buffer.subarray(4, 8).toString('ascii') === 'ftyp') return 'video/mp4';
+  if (buffer.length >= 4 && buffer.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]))) {
+    return 'video/webm';
+  }
   if (buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) {
     return 'image/png';
   }

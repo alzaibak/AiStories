@@ -1,5 +1,10 @@
 const { z } = require('zod');
 const { apiErrorResponse, requestLanguage } = require('../utils/apiErrors');
+const strongPasswordSchema = z.string().min(14).max(200)
+  .regex(/[a-z]/, 'Le mot de passe doit contenir une minuscule.')
+  .regex(/[A-Z]/, 'Le mot de passe doit contenir une majuscule.')
+  .regex(/[0-9]/, 'Le mot de passe doit contenir un chiffre.')
+  .regex(/[^A-Za-z0-9]/, 'Le mot de passe doit contenir un caractère spécial.');
 
 const readerRegistrationSchema = z.object({
   firstName: z.string().trim().min(1).max(100),
@@ -33,6 +38,22 @@ const passwordResetSchema = z.object({
   accountType: z.enum(['reader', 'admin']).default('reader')
 });
 
+const publicPasswordChangeSchema = z.object({
+  currentPassword: z.string().min(1).max(200),
+  newPassword: strongPasswordSchema
+});
+
+const adminPasswordChangeSchema = z.object({
+  currentPassword: z.string().min(1).max(200),
+  newPassword: strongPasswordSchema
+});
+
+const adminPasswordResetCompleteSchema = z.object({
+  email: z.string().trim().email().max(255),
+  token: z.string().min(40).max(200),
+  newPassword: strongPasswordSchema
+});
+
 const loginSchema = z.object({
   email: z.string().trim().email().max(255),
   password: z.string().min(1).max(200)
@@ -51,6 +72,7 @@ const adminRegistrationSchema = adminInvitationSchema.extend({
 });
 
 const adminApprovalSchema = z.object({ status: z.enum(['ACTIVE', 'SUSPENDED']) });
+const userRoleSchema = z.object({ role: z.enum(['ADMIN', 'EDITOR', 'REVIEWER', 'READER']) });
 
 function validateBody(schema) {
   return (req, res, next) => {
@@ -71,8 +93,12 @@ module.exports = {
   passwordResetRequestSchema,
   passwordResetVerificationSchema,
   passwordResetSchema,
+  publicPasswordChangeSchema,
+  adminPasswordChangeSchema,
+  adminPasswordResetCompleteSchema,
   loginSchema,
   adminInvitationSchema,
   adminRegistrationSchema,
-  adminApprovalSchema
+  adminApprovalSchema,
+  userRoleSchema
 };

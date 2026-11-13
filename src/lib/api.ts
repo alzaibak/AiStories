@@ -1,7 +1,10 @@
-const API_BASE_URL = import.meta.env.DEV
+const IS_ADMIN_APP = import.meta.env.VITE_APP_TARGET === 'admin';
+const CLIENT_API_BASE_URL = import.meta.env.DEV
   ? '/api/v1'
   : import.meta.env.VITE_API_URL ||
     `${window.location.protocol}//${window.location.hostname}:5000/api/v1`;
+const ADMIN_API_BASE_URL = import.meta.env.VITE_ADMIN_API_URL ||
+  (import.meta.env.DEV ? '/api/v1/admin' : `${window.location.origin}/api/admin`);
 const REQUEST_TIMEOUT_MS = 15000;
 const DUPLICATE_EMAIL_MESSAGES = {
   ar: 'هذا البريد الإلكتروني مرتبط بحساب بالفعل. سجّل الدخول أو استخدم بريدًا آخر.',
@@ -37,6 +40,7 @@ export interface PlatformUser {
   role: UserRole;
   status: 'ACTIVE' | 'PENDING' | 'SUSPENDED';
   emailVerifiedAt: string | null;
+  mustChangePassword?: boolean;
   language: 'fr' | 'en' | 'ar';
   subscriptions?: ReaderSubscription[];
 }
@@ -85,6 +89,13 @@ export function clearAuthToken() {
   localStorage.removeItem(LEGACY_AUTH_TOKEN_KEY);
 }
 
+function apiUrl(path: string) {
+  if (IS_ADMIN_APP && path.startsWith('/admin/')) {
+    return `${ADMIN_API_BASE_URL}${path.slice('/admin'.length)}`;
+  }
+  return `${CLIENT_API_BASE_URL}${path}`;
+}
+
 export async function request<T>(path: string, init: RequestInit = {}, bearerToken?: string): Promise<T> {
   const token = bearerToken || getAuthToken();
   const isFormData = typeof FormData !== 'undefined' && init.body instanceof FormData;
@@ -107,7 +118,7 @@ export async function request<T>(path: string, init: RequestInit = {}, bearerTok
     : path;
 
   try {
-    const response = await fetch(`${API_BASE_URL}${localizedPath}`, {
+    const response = await fetch(apiUrl(localizedPath), {
       ...init,
       headers,
       signal: controller.signal
@@ -146,7 +157,7 @@ async function requestBlob(path: string): Promise<Blob> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
-    const response = await fetch(`${API_BASE_URL}${path}`, { headers, signal: controller.signal });
+    const response = await fetch(apiUrl(path), { headers, signal: controller.signal });
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
       throw new ApiError(body.message || `Erreur API (${response.status}).`, body.code, body.fields, body.existingPart);

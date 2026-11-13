@@ -55,6 +55,18 @@ const paths = {
   '/payments/subscriptions/checkout': {
     post: operation('Créer une session de paiement pour un abonnement', { body: true })
   },
+  '/donation-campaigns/{id}/checkout': {
+    post: operation('Créer un don ponctuel ou mensuel via Stripe', { body: true, ids: ['id'] })
+  },
+  '/gift-codes/redeem': {
+    post: operation('Activer un code cadeau d’abonnement', { body: true })
+  },
+  '/donations/recurring': {
+    get: operation('Lister les dons mensuels du compte connecté')
+  },
+  '/donations/recurring/{id}/cancel': {
+    post: operation('Annuler le renouvellement d’un don mensuel', { ids: ['id'] })
+  },
   '/payments/session/{sessionId}': {
     get: operation('Consulter l’état d’un paiement du compte connecté', { params: [{ name: 'sessionId' }] })
   },
@@ -70,6 +82,20 @@ const paths = {
   },
   '/admin/plans/{id}': {
     patch: operation('Modifier une formule d’abonnement', { body: true, ids: ['id'] })
+  },
+  '/admin/money/promo-codes': {
+    get: operation('Lister et rechercher les codes promotionnels'),
+    post: operation('Créer un code promotionnel ou cadeau', { body: true })
+  },
+  '/admin/money/promo-codes/{id}': {
+    patch: operation('Modifier un code promotionnel', { body: true, ids: ['id'] }),
+    delete: operation('Supprimer un code sans utilisation', { ids: ['id'] })
+  },
+  '/admin/money/promo-codes/{id}/redemptions': {
+    get: operation('Consulter les utilisations d’un code promotionnel', { ids: ['id'] })
+  },
+  '/admin/money/recurring-donations': {
+    get: operation('Lister les dons mensuels')
   },
   '/admin/store-orders': {
     get: operation('Lister les commandes payées à traiter')
@@ -127,7 +153,7 @@ const paths = {
     })
   },
   '/stories/{slug}/parts/{partNumber}/quiz': {
-    get: operation('Lire un quiz validé sans exposer ses réponses', {
+    get: operation('Lire les questions publiques d’un quiz publié sans révéler les réponses', {
       publicAccess: true,
       params: [{ name: 'slug' }, { name: 'partNumber', type: 'integer' }]
     })
@@ -160,6 +186,7 @@ const paths = {
   '/quizzes/{id}/attempts': {
     post: operation('Soumettre les réponses et obtenir le score et les sources', { body: true, ids: ['id'] })
   },
+  '/quiz-attempts': { get: operation('Consulter l’historique personnel des quiz') },
   '/reading-progress': { get: operation('Lire la progression du lecteur') },
   '/reading-progress/{storyId}': {
     put: operation('Enregistrer la progression de lecture', { body: true, ids: ['storyId'] })
@@ -169,7 +196,8 @@ const paths = {
     post: operation('Créer une collection', { body: true })
   },
   '/admin/content/collections/{id}': {
-    patch: operation('Modifier une collection', { body: true, ids: ['id'] })
+    patch: operation('Modifier une collection', { body: true, ids: ['id'] }),
+    delete: operation('Supprimer une collection vide', { ids: ['id'] })
   },
   '/admin/content/stories': {
     get: operation('Lister les histoires dans l’administration'),
@@ -177,7 +205,8 @@ const paths = {
   },
   '/admin/content/review-queue': { get: operation('Lister la file de revue assignée') },
   '/admin/content/stories/{id}': {
-    patch: operation('Modifier une histoire', { body: true, ids: ['id'] })
+    patch: operation('Modifier une histoire', { body: true, ids: ['id'] }),
+    delete: operation('Supprimer une histoire jamais publiée', { ids: ['id'] })
   },
   '/admin/content/stories/{id}/reviewer': {
     put: operation('Assigner un réviseur', { body: true, ids: ['id'] })
@@ -190,6 +219,12 @@ const paths = {
   },
   '/admin/content/stories/{id}/publish': {
     post: operation('Publier une histoire approuvée', { ids: ['id'] })
+  },
+  '/admin/content/stories/{id}/unpublish': {
+    post: operation('Dépublier une histoire', { ids: ['id'] })
+  },
+  '/admin/content/stories/{id}/archive': {
+    post: operation('Archiver une histoire', { ids: ['id'] })
   },
   '/admin/content/stories/{id}/parts': {
     post: operation('Créer une partie d’histoire', { body: true, ids: ['id'] })
@@ -213,24 +248,46 @@ const paths = {
   '/admin/content/stories/{id}/quizzes': {
     post: operation('Créer un quiz brouillon', { body: true, ids: ['id'] })
   },
-  '/admin/content/quizzes/{id}/questions': {
-    post: operation('Ajouter une question à un quiz', { body: true, ids: ['id'] })
+  '/admin/content/quizzes': {
+    get: operation('Rechercher et paginer les quiz'),
+    post: operation('Créer un quiz complet en brouillon', { body: true })
   },
   '/admin/content/quizzes/{id}': {
-    patch: operation('Modifier un quiz et retirer sa validation', { body: true, ids: ['id'] })
+    get: operation('Lire un quiz pour l’administration', { ids: ['id'] }),
+    patch: operation('Modifier un quiz complet et le remettre en brouillon', { body: true, ids: ['id'] }),
+    delete: operation('Supprimer un quiz jamais publié et sans tentative', { ids: ['id'] })
   },
-  '/admin/content/questions/{id}': {
-    patch: operation('Modifier une question et retirer la validation de son quiz', { body: true, ids: ['id'] })
+  '/admin/content/quizzes/{id}/stats': {
+    get: operation('Consulter les statistiques et les questions les plus difficiles', { ids: ['id'] })
   },
-  '/admin/content/quizzes/{id}/validate': {
-    post: operation('Valider un quiz pour publication', { body: true, ids: ['id'] })
+  '/admin/content/quizzes/{id}/submit-review': {
+    post: operation('Soumettre un quiz complet à la révision', { ids: ['id'] })
+  },
+  '/admin/content/quizzes/{id}/review': {
+    post: operation('Approuver, rejeter ou renvoyer un quiz en brouillon', { body: true, ids: ['id'] })
+  },
+  '/admin/content/quizzes/{id}/unpublish': {
+    post: operation('Dépublier un quiz', { ids: ['id'] })
+  },
+  '/admin/content/quizzes/{id}/duplicate': {
+    post: operation('Dupliquer un quiz en brouillon', { ids: ['id'] })
   },
   '/admin/content/books': {
     get: operation('Lister et gérer les livres'),
     post: operation('Créer un livre papier ou numérique', { body: true })
   },
   '/admin/content/books/{id}': {
-    patch: operation('Modifier un livre', { body: true, ids: ['id'] })
+    patch: operation('Modifier un livre', { body: true, ids: ['id'] }),
+    delete: operation('Supprimer un livre jamais publié sans commande', { ids: ['id'] })
+  },
+  '/admin/content/books/{id}/publish': {
+    post: operation('Publier un livre', { ids: ['id'] })
+  },
+  '/admin/content/books/{id}/unpublish': {
+    post: operation('Dépublier un livre', { ids: ['id'] })
+  },
+  '/admin/content/books/{id}/archive': {
+    post: operation('Archiver un livre', { ids: ['id'] })
   },
   '/admin/content/media': {
     get: operation('Lister les médias'),

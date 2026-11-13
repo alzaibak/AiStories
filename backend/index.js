@@ -7,24 +7,41 @@ const { apiErrorResponse, requestLanguage } = require('./utils/apiErrors');
 require('./config/environment').loadEnvironment();
 const sequelize = require('./config/database');
 const runMigrations = require('./migrate');
+const { processDueReminders } = require('./utils/reminders');
 
 const app = express();
+let reminderTimer;
 app.disable('x-powered-by');
 
-const defaultAllowedOrigins = [
-  'http://localhost:8080',
-  'http://127.0.0.1:8080'
-];
-const allowedOrigins = [...new Set([
-  ...defaultAllowedOrigins,
-  ...(process.env.CLIENT_DOMAIN || '').split(',').map((origin) => origin.trim()).filter(Boolean)
+const clientDevelopmentOrigins = ['http://localhost:8080', 'http://127.0.0.1:8080'];
+const adminDevelopmentOrigins = ['http://localhost:8081', 'http://127.0.0.1:8081'];
+const clientOrigins = [...new Set([
+  ...clientDevelopmentOrigins,
+  ...(process.env.CLIENT_URL || process.env.CLIENT_DOMAIN || '').split(',').map((origin) => origin.trim()).filter(Boolean)
+])];
+const adminOrigins = [...new Set([
+  ...adminDevelopmentOrigins,
+  ...(process.env.ADMIN_URL || '').split(',').map((origin) => origin.trim()).filter(Boolean)
 ])];
 app.use(helmet());
-app.use(cors({
-  origin(origin, callback) {
-    callback(null, !origin || allowedOrigins.includes(origin));
-  }
+app.use(cors((req, callback) => {
+  const requestOrigin = req.header('Origin');
+  if (!requestOrigin) return callback(null, { origin: true });
+  const isAdminApi = req.path.startsWith('/api/admin') || req.path.startsWith('/api/v1/admin');
+  const isIdentity = req.path === '/api/v1/auth/me';
+  const allowed = isAdminApi
+    ? adminOrigins.includes(requestOrigin)
+    : isIdentity
+      ? clientOrigins.includes(requestOrigin) || adminOrigins.includes(requestOrigin)
+      : clientOrigins.includes(requestOrigin);
+  callback(null, { origin: allowed ? requestOrigin : false });
 }));
+app.use((req, res, next) => {
+  if (req.url === '/api/admin' || req.url.startsWith('/api/admin/')) {
+    req.url = req.url.replace(/^\/api\/admin(?=\/|$)/, '/api/v1/admin');
+  }
+  next();
+});
 app.use('/api/v1', rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 300,
@@ -91,7 +108,32 @@ async function startServer() {
   await sequelize.authenticate();
   await runMigrations('up');
   const port = Number(process.env.PORT) || 5000;
-  return app.listen(port, '0.0.0.0', () => console.info(`API Islamic Stories à l’écoute sur le port ${port}.`));
+  const server = app.listen(port, '0.0.0.0', () => console.info(`API Islamic Stories à l’écoute sur le port ${port}.`));
+  startReminderScheduler();
+  return server;
+}
+
+function startReminderScheduler() {
+  if (reminderTimer) return reminderTimer;
+  const interval = Number(process.env.REMINDER_POLL_INTERVAL_MS || 60000);
+  if (!Number.isInteger(interval) || interval < 5000 || interval > 3600000) {
+    throw new Error('REMINDER_POLL_INTERVAL_MS must be between 5000 and 3600000.');
+  }
+  let running = false;
+  reminderTimer = setInterval(async () => {
+    if (running) return;
+    running = true;
+    try {
+      const { processed, sent } = await processDueReminders();
+      if (processed) console.info(`Rappels traités : ${processed}; e-mails envoyés : ${sent}.`);
+    } catch (error) {
+      console.error('Échec du traitement automatique des rappels :', error);
+    } finally {
+      running = false;
+    }
+  }, interval);
+  reminderTimer.unref();
+  return reminderTimer;
 }
 
 if (require.main === module) {
@@ -101,4 +143,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, startServer };
+module.exports = { app, startServer, startReminderScheduler };

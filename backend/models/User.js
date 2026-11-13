@@ -45,6 +45,11 @@ const User = sequelize.define('User', {
         allowNull: false,
         defaultValue: 'ar'
     },
+    emailPreferences: {
+        type: DataTypes.JSON,
+        allowNull: false,
+        defaultValue: { marketing: true, reminders: true }
+    },
     status: {
         type: DataTypes.ENUM('ACTIVE', 'PENDING', 'SUSPENDED'),
         allowNull: false,
@@ -56,6 +61,25 @@ const User = sequelize.define('User', {
         defaultValue: false
     },
     emailVerifiedAt: {
+        type: DataTypes.DATE,
+        allowNull: true
+    },
+    mustChangePassword: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: false
+    },
+    tokenVersion: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        defaultValue: 0
+    },
+    adminLoginFailedAttempts: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        defaultValue: 0
+    },
+    adminLockedUntil: {
         type: DataTypes.DATE,
         allowNull: true
     }

@@ -28,4 +28,11 @@ describe('traduction de l’interface', () => {
       }
     });
   });
+
+  it('traduit les nouvelles commandes promotionnelles et les dons mensuels', () => {
+    expect(translateText('رموز الخصم والهدايا', 'en')).toBe('Discount and gift codes');
+    expect(translateText('رموز الخصم والهدايا', 'fr')).toBe('Codes de réduction et cadeaux');
+    expect(translateText('اجعل التبرع شهريًا متكررًا', 'en')).toBe('Make this a monthly recurring donation');
+    expect(translateText('اجعل التبرع شهريًا متكررًا', 'fr')).toBe('Faire un don mensuel récurrent');
+  });
 });

@@ -25,15 +25,32 @@ test('les modèles de contenu, boutique et abonnements exposent les workflows re
   assert.deepEqual(models.Story.rawAttributes.sourceBadge.values, [
     'quran_verse', 'authentic_hadith', 'historical_source', 'inspired_story'
   ]);
-  assert.deepEqual(models.Story.rawAttributes.status.values, ['draft', 'in_review', 'published']);
+  assert.deepEqual(models.Story.rawAttributes.status.values, ['draft', 'in_review', 'published', 'rejected', 'archived']);
   assert.ok(models.Story.rawAttributes.reviewerId);
+  assert.ok(models.Story.rawAttributes.authorId);
+  assert.ok(models.Story.rawAttributes.publishedAt);
+  assert.ok(models.Story.rawAttributes.reviewedBy);
+  assert.ok(models.Story.rawAttributes.reviewedAt);
+  assert.ok(models.Story.rawAttributes.rejectionReason);
   assert.ok(models.StoryPart.rawAttributes.endingHook);
   assert.ok(models.StoryPart.rawAttributes.earlyAccessUntil);
   assert.ok(models.StoryVideo.rawAttributes.depictionPolicyConfirmed);
-  assert.deepEqual(models.Quiz.rawAttributes.validationStatus.values, ['draft', 'validated']);
+  assert.deepEqual(models.Quiz.rawAttributes.status.values, ['draft', 'in_review', 'published', 'rejected', 'archived']);
+  assert.ok(models.Quiz.rawAttributes.slug);
+  assert.ok(models.Quiz.rawAttributes.authorId);
+  assert.ok(models.Quiz.rawAttributes.reviewedBy);
+  assert.ok(models.Quiz.rawAttributes.publishedAt);
+  assert.ok(models.QuizOption.rawAttributes.isCorrect);
+  assert.ok(models.Question.rawAttributes.points);
   assert.ok(models.QuizAttempt.rawAttributes.startedAt);
+  assert.ok(models.QuizAttempt.rawAttributes.finishedAt);
+  assert.ok(models.QuizAttempt.rawAttributes.passed);
   assert.equal(models.QuizAttempt.rawAttributes.score.allowNull, true);
   assert.deepEqual(models.Book.rawAttributes.format.values, ['print', 'ebook']);
+  assert.deepEqual(models.Book.rawAttributes.status.values, ['draft', 'published', 'archived']);
+  assert.ok(models.Book.rawAttributes.publishedAt);
+  assert.ok(models.SlugRedirect.rawAttributes.oldSlug);
+  assert.ok(models.AdminPasswordReset.rawAttributes.tokenHash);
   assert.ok(models.Book.rawAttributes.price);
   assert.ok(models.MediaAsset.rawAttributes.depictionPolicyConfirmed);
   assert.ok(models.StyleGuide.rawAttributes.referenceImages);

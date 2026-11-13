@@ -7,7 +7,7 @@ test('la documentation OpenAPI décrit chaque opération active de l’API', () 
     .reduce((count, path) => count + Object.keys(path).length, 0);
 
   assert.equal(openApiDocument.openapi, '3.0.3');
-  assert.equal(operationCount, 87);
+  assert.equal(operationCount, 112);
   assert.ok(openApiDocument.paths['/auth/password/request-code']);
   assert.ok(openApiDocument.paths['/auth/password/verify-code']);
   assert.ok(openApiDocument.paths['/auth/password/reset']);
@@ -17,6 +17,9 @@ test('la documentation OpenAPI décrit chaque opération active de l’API', () 
   assert.ok(openApiDocument.paths['/reader/auth/register/verify-code']);
   assert.deepEqual(openApiDocument.paths['/stories/{slug}'].get.security, []);
   assert.ok(openApiDocument.paths['/admin/content/stories/{id}/publish']);
+  assert.ok(openApiDocument.paths['/admin/content/stories/{id}'].delete);
+  assert.ok(openApiDocument.paths['/admin/content/collections/{id}'].delete);
+  assert.ok(openApiDocument.paths['/admin/content/books/{id}'].delete);
   assert.ok(openApiDocument.paths['/admin/content/media/upload-url']);
   assert.ok(openApiDocument.paths['/admin/content/media/{id}/upload']);
   assert.ok(openApiDocument.paths['/admin/content/parts/{id}/move']);
@@ -28,6 +31,10 @@ test('la documentation OpenAPI décrit chaque opération active de l’API', () 
   assert.ok(openApiDocument.paths['/payments/webhook']);
   assert.ok(openApiDocument.paths['/payments/books/checkout']);
   assert.ok(openApiDocument.paths['/payments/subscriptions/checkout']);
+  assert.ok(openApiDocument.paths['/donation-campaigns/{id}/checkout']);
+  assert.ok(openApiDocument.paths['/donations/recurring/{id}/cancel']);
+  assert.ok(openApiDocument.paths['/admin/money/promo-codes/{id}/redemptions']);
+  assert.ok(openApiDocument.paths['/admin/money/recurring-donations']);
   assert.ok(openApiDocument.paths['/admin/plans']);
   assert.ok(openApiDocument.paths['/admin/subscriptions/{id}/cancel']);
   assert.ok(openApiDocument.paths['/admin/store-orders']);

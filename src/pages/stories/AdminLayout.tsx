@@ -45,10 +45,10 @@ const navigation = [
     links: [
       { label: 'المجموعات', to: 'content/collections', icon: Library },
       { label: 'القصص', to: 'content/stories', icon: BookOpen },
-      { label: 'الاختبارات', to: 'content/quizzes', icon: CircleHelp, disabled: true },
-      { label: 'الفيديوهات', to: 'content/videos', icon: Video, disabled: true },
-      { label: 'مكتبة الوسائط', to: 'content/media', icon: Image, disabled: true },
-      { label: 'طلبات القصص', to: 'content/requests', icon: MessageSquare, disabled: true },
+      { label: 'الاختبارات', to: 'content/quizzes', icon: CircleHelp },
+      { label: 'الفيديوهات', to: 'content/videos', icon: Video },
+      { label: 'مكتبة الوسائط', to: 'content/media', icon: Image },
+      { label: 'طلبات القصص', to: 'content/requests', icon: MessageSquare },
       { label: 'قائمة المراجعة', to: 'content/review-queue', icon: ShieldCheck }
     ]
   },
@@ -62,28 +62,28 @@ const navigation = [
   {
     title: 'المجتمع',
     links: [
-      { label: 'المسابقات والفعاليات', to: 'community/events', icon: CalendarDays, disabled: true },
-      { label: 'الفرق', to: 'community/teams', icon: Users, disabled: true },
-      { label: 'الشارات والشهادات', to: 'community/badges', icon: Award, disabled: true },
-      { label: 'مراجعة التقييمات', to: 'community/reviews', icon: MessageSquare, disabled: true }
+      { label: 'المسابقات والفعاليات', to: 'community/events', icon: CalendarDays },
+      { label: 'الفرق', to: 'community/teams', icon: Users },
+      { label: 'الشارات والشهادات', to: 'community/badges', icon: Award },
+      { label: 'مراجعة التقييمات', to: 'community/reviews', icon: MessageSquare }
     ]
   },
   {
     title: 'المال',
     links: [
       { label: 'الباقات والمشتركون', to: 'subscriptions', icon: CircleDollarSign },
-      { label: 'مدفوعات Stripe', to: 'money/payments', icon: CreditCard, disabled: true },
-      { label: 'التبرعات والحملات', to: 'money/donations', icon: Heart, disabled: true },
-      { label: 'الرموز الترويجية والهدايا', to: 'money/codes', icon: Tag, disabled: true }
+      { label: 'مدفوعات Stripe', to: 'money/payments', icon: CreditCard },
+      { label: 'التبرعات والحملات', to: 'money/donations', icon: Heart },
+      { label: 'الرموز الترويجية والهدايا', to: 'money/promo-codes', icon: Tag }
     ]
   },
   {
     title: 'النظام',
     links: [
-      { label: 'المستخدمون والأدوار', to: 'system/users', icon: Users, disabled: true },
-      { label: 'التذكيرات والقوالب', to: 'system/emails', icon: Mail, disabled: true },
+      { label: 'المستخدمون والأدوار', to: 'system/users', icon: Users },
+      { label: 'التذكيرات والقوالب', to: 'system/emails', icon: Mail },
       { label: 'إعدادات النظام', to: 'system', icon: Settings },
-      { label: 'سياسة التصوير والمراجعة', to: 'system/policy', icon: ScrollText, disabled: true }
+      { label: 'سياسة التصوير والمراجعة', to: 'system/policy', icon: ScrollText }
     ]
   }
 ];
@@ -93,10 +93,25 @@ const knownRoutes: Array<{ path: string; label: string }> = [
   { path: '/admin/content', label: 'المحتوى' },
   { path: '/admin/content/collections', label: 'المجموعات' },
   { path: '/admin/content/stories', label: 'القصص' },
+  { path: '/admin/content/quizzes', label: 'الاختبارات' },
+  { path: '/admin/content/videos', label: 'الفيديوهات' },
+  { path: '/admin/content/media', label: 'مكتبة الوسائط' },
   { path: '/admin/content/review-queue', label: 'قائمة المراجعة' },
+  { path: '/admin/content/requests', label: 'طلبات القصص' },
+  { path: '/admin/community/badges', label: 'الشارات والشهادات' },
+  { path: '/admin/community/reviews', label: 'مراجعة التقييمات' },
+  { path: '/admin/community/events', label: 'المسابقات والفعاليات' },
+  { path: '/admin/community/teams', label: 'الفرق' },
   { path: '/admin/shop/books', label: 'الكتب والكتب الإلكترونية' },
   { path: '/admin/orders', label: 'الطلبات' },
+  { path: '/admin/money/payments', label: 'مدفوعات Stripe' },
+  { path: '/admin/money/donations', label: 'التبرعات والحملات' },
+  { path: '/admin/money/promo-codes', label: 'رموز الخصم والهدايا' },
   { path: '/admin/subscriptions', label: 'المشتركون والاشتراكات' },
+  { path: '/admin/system/users', label: 'المستخدمون والأدوار' },
+  { path: '/admin/system/change-password', label: 'تغيير كلمة المرور' },
+  { path: '/admin/system/emails', label: 'التذكيرات والقوالب' },
+  { path: '/admin/system/policy', label: 'سياسة التصوير والمراجعة' },
   { path: '/admin/system', label: 'إعدادات النظام' }
 ];
 
@@ -115,6 +130,7 @@ export default function AdminLayout() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [search, setSearch] = useState('');
   const basePath = `/${language}/admin`;
+  const clientUrl = import.meta.env.VITE_CLIENT_URL || '/';
 
   useEffect(() => {
     if (!mobileMenuOpen) return;
@@ -130,19 +146,26 @@ export default function AdminLayout() {
   }
   if (!user) return <Navigate to={`/${language}/admin/login`} replace />;
   if (!['ADMIN', 'SUPER_ADMIN', 'EDITOR', 'REVIEWER'].includes(user.role)) {
-    return <Navigate to={`/${language}/account`} replace />;
+    return <Navigate to={`/${language}/admin/login`} replace />;
   }
 
   const pathWithoutLocale = location.pathname.replace(/^\/(ar|en|fr)/, '') || '/admin';
   const isReviewer = user.role === 'REVIEWER';
   const isEditor = user.role === 'EDITOR';
+  const isSuperAdmin = user.role === 'SUPER_ADMIN';
+  if (user.mustChangePassword && pathWithoutLocale !== '/admin/system/change-password') {
+    return <Navigate to={`${basePath}/system/change-password`} replace />;
+  }
+  if (!isSuperAdmin && pathWithoutLocale === '/admin/system/change-password') {
+    return <Navigate to={basePath} replace />;
+  }
   if (isReviewer && !['/admin', '/admin/content/review-queue'].includes(pathWithoutLocale)) {
     return <Navigate to={`${basePath}/content/review-queue`} replace />;
   }
   if (user.role === 'SUPER_ADMIN' && pathWithoutLocale === '/admin/content/review-queue') {
     return <Navigate to={basePath} replace />;
   }
-  if (isEditor && ['/admin/orders', '/admin/subscriptions', '/admin/system'].some((path) => pathWithoutLocale.startsWith(path))) {
+  if (isEditor && ['/admin/orders', '/admin/subscriptions', '/admin/system', '/admin/money', '/admin/community'].some((path) => pathWithoutLocale.startsWith(path))) {
     return <Navigate to={basePath} replace />;
   }
   const matchedRoute = [...knownRoutes]
@@ -172,6 +195,9 @@ export default function AdminLayout() {
       }
       if (isEditor && group.title === 'المحتوى') {
         return { ...group, links: group.links.filter(({ to }) => to !== 'content/review-queue') };
+      }
+      if (!isSuperAdmin && group.title === 'النظام') {
+        return { ...group, links: group.links.filter(({ to }) => to !== 'system/users' && to !== 'system/change-password') };
       }
       if (user.role === 'SUPER_ADMIN' && group.title === 'المحتوى') {
         return { ...group, links: group.links.filter(({ to }) => to !== 'content/review-queue') };
@@ -226,10 +252,10 @@ export default function AdminLayout() {
       </section>)}
     </nav>
     <div className="border-t border-white/10 p-3">
-      <Link to={`/${language}`} className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-white/80 hover:bg-white/10 ${sidebarCollapsed ? 'justify-center' : ''}`}>
+      <a href={clientUrl} className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-white/80 hover:bg-white/10 ${sidebarCollapsed ? 'justify-center' : ''}`}>
         <ArrowUpRight size={18} aria-hidden="true" />
         {!sidebarCollapsed && <span>{localizedText('عرض الموقع', language)}</span>}
-      </Link>
+      </a>
     </div>
   </div>;
 
@@ -262,9 +288,9 @@ export default function AdminLayout() {
               <Search size={16} className="shrink-0 text-slate-400" />
               <input value={search} onChange={(event) => setSearch(event.target.value)} aria-label={localizedText('البحث في القصص', language)} placeholder={localizedText('البحث في القصص', language)} className="min-w-0 flex-1 bg-transparent text-sm outline-none" />
             </form>}
-            <Link to={`/${language}`} className="hidden items-center gap-1 whitespace-nowrap rounded-lg px-2 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-50 xl:inline-flex">
+            <a href={clientUrl} className="hidden items-center gap-1 whitespace-nowrap rounded-lg px-2 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-50 xl:inline-flex">
               <ArrowUpRight size={16} aria-hidden="true" /> {localizedText('عرض الموقع', language)}
-            </Link>
+            </a>
             <label className="sr-only" htmlFor="admin-language">{localizedText('اللغة', language)}</label>
             <select id="admin-language" value={language} onChange={(event) => changeLanguage(event.target.value as AdminLanguage)} className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-sm">
               <option value="ar">AR</option>

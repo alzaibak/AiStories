@@ -1,5 +1,5 @@
 # حكايات إسلامية
-
+admin dashborad (npm run dev:admin)
 Plateforme de récits islamiques disponible en français, anglais et arabe. Elle propose des histoires sourcées, une lecture par épisodes, des quiz et une bibliothèque de livres pour toute la famille.
 
 ## Architecture
@@ -9,7 +9,7 @@ Plateforme de récits islamiques disponible en français, anglais et arabe. Elle
 - Base de données : MySQL.
 - Histoires, révisions éditoriales, abonnements, droits d’accès et livres : modèles Sequelize dans `backend/models/`.
 
-Chaque préfixe de langue expose les mêmes routes, par exemple `/fr/stories`, `/en/books` et `/ar/login`. Les formulaires d’inscription et de mot de passe oublié sont disponibles dans chaque langue. Le tableau d’administration (`/fr/admin`, `/en/admin` ou `/ar/admin`) réunit la navigation, la recherche et les pages séparées pour les collections, histoires, épisodes, livres, commandes et abonnements. Les textes de contenu se saisissent manuellement dans des onglets AR/EN/FR : l’arabe est requis, l’anglais et le français sont facultatifs et les champs vides s’affichent en arabe ; aucune traduction automatique n’est faite. Les modules sans routes ou opérations API sont indiqués comme bientôt disponibles. La page `/fr/pricing` (également disponible en anglais et en arabe) compare les prix et les avantages. Les ebooks peuvent être achetés séparément ; le téléchargement est réservé aux acheteurs autorisés. Le mode clair/sombre de lecture est mémorisé sur l’appareil. L’inscription lecteur vérifie l’adresse e-mail par OTP. Les états d’abonnement par utilisateur sont consultables dans son compte. Les paiements passent par Stripe Checkout; configurez les clés et le tarif d’expédition avant de les activer.
+Chaque préfixe de langue expose les routes publiques, par exemple `/fr/stories`, `/en/books` et `/ar/login`. L’administration utilise un build séparé (`npm run dev:admin`, port 8081 en développement) et doit être hébergée sur `ADMIN_URL`; le site public reste sur `CLIENT_URL`. Les textes de contenu se saisissent manuellement dans des onglets AR/EN/FR : l’arabe est requis, l’anglais et le français sont facultatifs et aucune traduction automatique n’est faite. Les histoires suivent le flux brouillon → révision → publication, avec approbation/réjection réservée aux administrateurs et aux super-administrateurs. Les livres peuvent être publiés et les ebooks sont téléchargeables uniquement par les acheteurs autorisés. Les paiements passent par Stripe Checkout; configurez les clés et le tarif d’expédition avant de les activer.
 
 ## Démarrage local
 
@@ -20,7 +20,7 @@ Chaque préfixe de langue expose les mêmes routes, par exemple `/fr/stories`, `
    npm ci --prefix backend
    ```
 
-2. Copier `backend/.env.example` vers `backend/.env`, puis configurer MySQL, des secrets aléatoires distincts `JWT_SECRET_KEY`/`OTP_HASH_SECRET` (au moins 64 caractères chacun; ne jamais réutiliser une clé exposée) et le relais SMTP (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`).
+2. Copier `backend/.env.example` vers `backend/.env`, puis configurer MySQL, des secrets aléatoires distincts `JWT_SECRET_KEY`/`OTP_HASH_SECRET` (au moins 64 caractères chacun; ne jamais réutiliser une clé exposée) et le relais SMTP (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`). Définir les origines distinctes `CLIENT_URL` et `ADMIN_URL`.
 3. Appliquer les migrations :
 
    ```powershell
@@ -34,8 +34,64 @@ Chaque préfixe de langue expose les mêmes routes, par exemple `/fr/stories`, `
    npm run dev
    ```
 
-   L’API écoute sur `http://localhost:5000/api/v1`. Le front peut utiliser une autre adresse via `VITE_API_URL`.
+   L’API écoute sur `http://localhost:5000/api/v1`. Dans deux autres terminaux, lancer `npm run dev` (site public, port 8080) et `npm run dev:admin` (administration, port 8081).
    La documentation interactive de l’API est disponible sur `http://localhost:5000/api/v1/docs`.
+
+### Déploiement de l’administration
+
+Exemple complet pour le domaine `dipahnt.fr` : le site public, l’administration et l’API ont chacun leur adresse. Les noms DNS ci-dessous sont des exemples; remplacez les destinations par celles fournies par votre hébergeur.
+
+| Service | Adresse publique | Destination à configurer |
+|---|---|---|
+| Site public | `https://www.dipahnt.fr` | Hébergement statique du dossier `dist/` |
+| Administration | `https://admin.dipahnt.fr` | Hébergement statique du dossier `dist-admin/` |
+| API | `https://api.dipahnt.fr` | Serveur backend; le reverse proxy HTTPS transmet les requêtes à Node.js sur le port `5000` |
+
+1. **DNS et HTTPS :** chez le fournisseur DNS, créez un `CNAME` (ou l’enregistrement demandé par l’hébergeur) pour `www` vers l’hébergement public, un pour `admin` vers l’hébergement admin, et un `A`/`AAAA` ou `CNAME` pour `api` vers le serveur ou reverse proxy de l’API. Vous pouvez faire rediriger `dipahnt.fr` vers `www.dipahnt.fr`. Activez un certificat HTTPS pour les trois hôtes. Les valeurs de destination DNS dépendent de l’hébergeur : ne copiez pas une adresse IP d’exemple.
+2. **Backend :** dans `backend/.env`, définissez les origines exactes, sans chemin ni barre oblique finale. L’API doit avoir la configuration MySQL, les secrets, SMTP et, pour les paiements, Stripe nécessaires :
+
+   ```dotenv
+   CLIENT_URL=https://www.dipahnt.fr
+   ADMIN_URL=https://admin.dipahnt.fr
+   CLIENT_APP_URL=https://www.dipahnt.fr
+   PORT=5000
+   ```
+
+   Démarrez l’API derrière le reverse proxy HTTPS de `api.dipahnt.fr`; le port `5000` reste le port interne de Node.js. Appliquez d’abord les migrations sur la base de production après en avoir fait une sauvegarde : `npm run migrate --prefix backend`.
+3. **Builds frontend :** définissez les variables dans l’environnement de build de l’hébergeur, puis déployez les deux dossiers générés. Les valeurs `VITE_*` sont intégrées au build : les changer exige de reconstruire le frontend.
+
+   Build public :
+
+   ```powershell
+   $env:VITE_CLIENT_URL = "https://www.dipahnt.fr"
+   $env:VITE_ADMIN_URL = "https://admin.dipahnt.fr"
+   $env:VITE_API_URL = "https://api.dipahnt.fr/api/v1"
+   npm run build
+   ```
+
+   Publiez le contenu de `dist/` sur l’hôte `www.dipahnt.fr`.
+
+   Build admin :
+
+   ```powershell
+   $env:VITE_CLIENT_URL = "https://www.dipahnt.fr"
+   $env:VITE_ADMIN_API_URL = "https://api.dipahnt.fr/api/admin"
+   npm run build:admin
+   ```
+
+   Publiez le contenu de `dist-admin/` sur `admin.dipahnt.fr`. Configurez cet hébergement pour servir `index.admin.html` à la racine et le réutiliser comme fallback SPA pour les routes telles que `/ar/admin/login`. Pour le site public, configurez le fallback SPA vers `index.html`.
+
+4. **Connexion admin :** ouvrez `https://admin.dipahnt.fr/ar/admin/login` (ou remplacez `ar` par `en` ou `fr`). Connectez-vous avec un compte administrateur actif et le code reçu par e-mail. `http://localhost:8081` est uniquement l’adresse de développement locale; il ne faut pas utiliser `:8081` en production.
+
+Le backend CORS autorise `CLIENT_URL` pour le site public et `ADMIN_URL` pour l’administration. Si vous choisissez le domaine racine `https://dipahnt.fr` plutôt que `www`, utilisez exactement cette même origine dans `CLIENT_URL`, `CLIENT_APP_URL` et `VITE_CLIENT_URL`, et configurez le DNS et HTTPS pour ce nom. La configuration des domaines personnalisés et des fallbacks SPA varie selon l’hébergeur; ne rendez pas le serveur Vite de développement accessible publiquement.
+
+Pour créer le super-administrateur initial, définir `SUPERADMIN_EMAIL` et un mot de passe initial robuste dans `backend/.env`, puis exécuter `npm run seed:superadmin --prefix backend`. Le script hache le mot de passe, impose son changement à la première connexion et retire la ligne `SUPERADMIN_INITIAL_PASSWORD` du fichier après création. La récupération doit être lancée dans une console du serveur de production :
+
+```powershell
+$env:SUPERADMIN_RECOVERY_PASSWORD = "<mot-de-passe-temporaire-robuste>"
+npm run reset:superadmin --prefix backend
+Remove-Item Env:\SUPERADMIN_RECOVERY_PASSWORD
+```
 
 ## Données de démonstration
 
@@ -53,13 +109,15 @@ Les migrations sont versionnées et exécutées par `npm run migrate --prefix ba
 
 La migration `004-remove-legacy-user-fields` convertit les anciens mots de passe chiffrés AES en hashes avant de supprimer les champs de compatibilité. Si la base contient d’anciens comptes sans `passwordHash`, renseigner `SECRET_PASSWORD` dans `backend/.env` avant la migration. La migration `005-private-document-storage` prépare les métadonnées du stockage privé S3-compatible. Les migrations n’ont pas été exécutées sur une base de données dans cet environnement.
 
+Les migrations `019` à `021` ajoutent la modération communautaire, les vidéos avec sous-titres AR/EN/FR, la checklist de sources avant publication, les événements, équipes, campagnes de dons, modèles d’e-mail et pages de politique. Les migrations `022` et `023` ajoutent les codes promotionnels/cadeaux, les annonces des gagnants, les reçus de dons et les dons mensuels récurrents. Les lecteurs peuvent annuler leurs dons mensuels depuis leur compte; les codes promotionnels se gèrent dans l’administration. Les rappels dus sont traités automatiquement par le processus API (`REMINDER_POLL_INTERVAL_MS`) et peuvent aussi être lancés manuellement depuis l’administration. Configurez Stripe en mode test, les webhooks signés et SMTP avant les essais; les migrations n’ont pas été exécutées sur une base réelle dans cet environnement. Une sauvegarde de MySQL est recommandée avant de les appliquer.
+
 ### Stockage privé des ebooks et médias
 
 En développement, `STORAGE_DRIVER=local` conserve les fichiers dans `backend/private_uploads`, hors des dossiers statiques. Les téléchargements passent par l’API authentifiée et les contrôles d’accès; aucun lien public vers le fichier local n’est créé. `STORAGE_MAX_UPLOAD_BYTES` règle la taille maximale (20 MiB par défaut). Le nom de fichier est généré par le serveur, et le type réel est vérifié à partir de la signature du fichier.
 
 En production, configurez `STORAGE_DRIVER=s3` et `S3_BUCKET`. `S3_REGION` est facultatif (par défaut `us-east-1`); `S3_ENDPOINT` est facultatif pour AWS et doit être renseigné pour Cloudflare R2 ou MinIO; `S3_ACCESS_KEY_ID` et `S3_SECRET_ACCESS_KEY` sont facultatives ensemble si un rôle de service est disponible; `S3_FORCE_PATH_STYLE` est facultatif et activé automatiquement avec un endpoint personnalisé. Gardez le bucket privé. Les formulaires présignés et liens de lecture expirent après cinq minutes. Consultez [backend/.env.example](./backend/.env.example) pour la configuration complète.
 
-La migration `006-role-email-authentication` ajoute la vérification e-mail et les défis OTP. Les migrations `009-create-story-platform`, `010-add-quiz-attempt-timer`, `011-add-payment-workflow`, `012-add-book-translations`, `013-align-email-challenge-roles`, `014-convert-legacy-buyers-to-readers` et `015-add-plan-translations` créent le schéma éditorial, les quiz chronométrés, le flux Stripe, les traductions manuelles, l’alignement des rôles et les formules multilingues. Les routes lecteur sont `/api/v1/reader/auth/register/request-code`, `/api/v1/reader/auth/register/verify-code` et `/api/v1/reader/auth/register`; la connexion utilise `/api/v1/auth/login`. Le paiement exige une configuration Stripe, une formule créée dans les trois langues et un tarif d’expédition explicite pour les livres papier. Les commandes papier payées et leurs adresses de livraison sont accessibles dans `/admin/orders`.
+La migration `006-role-email-authentication` ajoute la vérification e-mail et les défis OTP. Les migrations `009` à `015` créent le schéma éditorial, les quiz chronométrés, le flux Stripe, les traductions manuelles et les formules multilingues. La migration `016-publishing-auth-and-slugs` ajoute le workflow de publication, les métadonnées de revue, la version des sessions et les anciennes redirections de slug. La migration `017-repair-book-publication-date` répare de façon idempotente le champ `books.publishedAt` s’il manque dans une base existante. Les codes OTP lecteur expirent après 10 minutes, autorisent cinq tentatives et appliquent un délai de renvoi de 60 secondes. Les routes lecteur sont `/api/v1/reader/auth/register/request-code`, `/api/v1/reader/auth/register/verify-code` et `/api/v1/reader/auth/register`; la connexion utilise `/api/v1/auth/login`. Le paiement exige une configuration Stripe, une formule créée dans les trois langues et un tarif d’expédition explicite pour les livres papier.
 
 ## Vérification
 

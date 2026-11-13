@@ -3,6 +3,7 @@ import { Link, Navigate, useLocation, useNavigate, useParams } from 'react-route
 import { useStoryAuth } from '@/contexts/StoryAuthContext';
 import { ApiError, api } from '@/lib/api';
 import { translateText, translateTree } from '@/lib/localization';
+import { slugFromTitle } from '@/lib/slug';
 
 type Language = 'ar' | 'en' | 'fr';
 type LocalizedFields = Record<Language, Record<string, string>>;
@@ -31,10 +32,18 @@ type Story = {
   summary?: string;
   slug: string;
   status: string;
+  publishedAt?: string | null;
+  rejectionReason?: string | null;
   collectionId?: number;
   type?: string;
   sourceBadge?: string;
   sourceReferences?: Array<{ reference: string }>;
+  reviewChecklist?: {
+    sourcesProvided?: boolean;
+    reviewedBy?: string;
+    reviewedAt?: string | null;
+    representationConfirmed?: boolean;
+  };
   isFree?: boolean;
   translations?: Partial<Record<Language, Record<string, string>>>;
   parts: Part[];
@@ -48,7 +57,8 @@ type Book = {
   price: string | number;
   currency: string;
   stockQuantity: number | null;
-  isPublished: boolean;
+  status: 'draft' | 'published' | 'archived';
+  publishedAt?: string | null;
   fileStorageKey: string | null;
   translations: Partial<Record<Language, Record<string, string>>>;
 };
@@ -64,10 +74,11 @@ const languages: Array<{ code: Language; label: string }> = [
 ];
 const emptyFields = (keys: string[]): LocalizedFields =>
   Object.fromEntries(languages.map(({ code }) => [code, Object.fromEntries(keys.map((key) => [key, '']))])) as LocalizedFields;
-const slugFromTitle = (value: string) => value.normalize('NFKD').toLowerCase()
-  .replace(/[\u0300-\u036f]/g, '')
-  .replace(/[^a-z0-9]+/g, '-')
-  .replace(/^-|-$/g, '');
+const storyStatusLabels: Record<Language, Record<string, string>> = {
+  ar: { draft: 'مسودة', in_review: 'قيد المراجعة', published: 'منشورة', rejected: 'مرفوضة', archived: 'مؤرشفة' },
+  en: { draft: 'Draft', in_review: 'In review', published: 'Published', rejected: 'Rejected', archived: 'Archived' },
+  fr: { draft: 'Brouillon', in_review: 'En révision', published: 'Publiée', rejected: 'Rejetée', archived: 'Archivée' }
+};
 
 function LanguageFields({
   values,
@@ -77,7 +88,9 @@ function LanguageFields({
   errors = {},
   label,
   multiline = false,
-  disabled = false
+  disabled = false,
+  activeLanguage,
+  onActiveLanguageChange
 }: {
   values: LocalizedFields;
   onChange: (language: Language, value: string) => void;
@@ -87,9 +100,12 @@ function LanguageFields({
   label: string;
   multiline?: boolean;
   disabled?: boolean;
+  activeLanguage?: Language;
+  onActiveLanguageChange?: (language: Language) => void;
 }) {
-  const [activeLanguage, setActiveLanguage] = useState<Language>('ar');
-  const activeLabel = languages.find(({ code }) => code === activeLanguage)?.label;
+  const [localLanguage, setLocalLanguage] = useState<Language>('ar');
+  const selectedLanguage = activeLanguage || localLanguage;
+  const activeLabel = languages.find(({ code }) => code === selectedLanguage)?.label;
   const fieldId = useId();
   return <div>
     <div role="tablist" aria-label={`${label} — ${activeLabel}`} className="mb-3 flex gap-2 border-b border-emerald-950/10">
@@ -98,13 +114,16 @@ function LanguageFields({
         type="button"
         role="tab"
         id={`${fieldId}-${code}-tab`}
-        aria-selected={activeLanguage === code}
+        aria-selected={selectedLanguage === code}
         aria-controls={`${fieldId}-${code}-panel`}
-        onClick={() => setActiveLanguage(code)}
-        className={`border-b-2 px-3 py-2 text-sm font-bold ${activeLanguage === code ? 'border-emerald-800 text-emerald-900' : 'border-transparent text-slate-500'}`}
+        onClick={() => {
+          setLocalLanguage(code);
+          onActiveLanguageChange?.(code);
+        }}
+        className={`border-b-2 px-3 py-2 text-sm font-bold ${selectedLanguage === code ? 'border-emerald-800 text-emerald-900' : 'border-transparent text-slate-500'}`}
       >{languageLabel}{code === 'ar' ? ' *' : ''}</button>)}
     </div>
-    {languages.filter(({ code }) => code === activeLanguage).map(({ code, label: languageLabel }) => <div key={code} role="tabpanel" id={`${fieldId}-${code}-panel`} aria-labelledby={`${fieldId}-${code}-tab`}>
+    {languages.filter(({ code }) => code === selectedLanguage).map(({ code, label: languageLabel }) => <div key={code} role="tabpanel" id={`${fieldId}-${code}-panel`} aria-labelledby={`${fieldId}-${code}-tab`}>
       <label className="block text-sm font-semibold text-slate-700">
       {label} — {languageLabel}
       {multiline
@@ -147,9 +166,17 @@ export default function AdminContentPage() {
   const [collectionSlug, setCollectionSlug] = useState('');
   const [storyText, setStoryText] = useState(emptyFields(['title', 'summary']));
   const [storyForm, setStoryForm] = useState({ collectionId: '', slug: '', type: 'history', sourceBadge: 'historical_source', sourceReference: '', isFree: false });
+  const [reviewChecklist, setReviewChecklist] = useState({
+    sourcesProvided: false,
+    reviewedBy: '',
+    reviewedAt: '',
+    representationConfirmed: false
+  });
   const [partText, setPartText] = useState(emptyFields(['title', 'content', 'endingHook']));
   const [partForm, setPartForm] = useState({ storyId: '', partNumber: '1', estimatedReadingMinutes: '5', isFree: false });
+  const [partLanguage, setPartLanguage] = useState<Language>('ar');
   const [editingPartId, setEditingPartId] = useState<number | null>(null);
+  const [highlightedPartId, setHighlightedPartId] = useState<number | null>(null);
   const [bookText, setBookText] = useState(emptyFields(['title', 'description']));
   const [bookForm, setBookForm] = useState({ slug: '', format: 'ebook', price: '', currency: 'EUR', stockQuantity: '', isPublished: false });
   const [bookFile, setBookFile] = useState<File | null>(null);
@@ -230,7 +257,7 @@ export default function AdminContentPage() {
       price: String(book.price),
       currency: book.currency,
       stockQuantity: book.stockQuantity == null ? '' : String(book.stockQuantity),
-      isPublished: book.isPublished
+      isPublished: book.status === 'published'
     });
     setPendingBookId(book.id);
     setBookHasPdf(Boolean(book.fileStorageKey));
@@ -260,6 +287,12 @@ export default function AdminContentPage() {
         sourceBadge: story.sourceBadge || 'historical_source',
         sourceReference: story.sourceReferences?.[0]?.reference || '',
         isFree: Boolean(story.isFree)
+      });
+      setReviewChecklist({
+        sourcesProvided: Boolean(story.reviewChecklist?.sourcesProvided),
+        reviewedBy: story.reviewChecklist?.reviewedBy || '',
+        reviewedAt: story.reviewChecklist?.reviewedAt ? new Date(story.reviewChecklist.reviewedAt).toISOString().slice(0, 10) : '',
+        representationConfirmed: Boolean(story.reviewChecklist?.representationConfirmed)
       });
     }
   }, [stories, storyId, isPartForm, isStoryForm, location.pathname]);
@@ -344,14 +377,13 @@ export default function AdminContentPage() {
         format: bookForm.format,
         price: Number(bookForm.price),
         currency: bookForm.currency,
-        stockQuantity: bookForm.format === 'print' ? Number(bookForm.stockQuantity) : null,
-        isPublished: bookForm.format === 'ebook' && !bookId ? false : bookForm.isPublished
+        stockQuantity: bookForm.format === 'print' ? Number(bookForm.stockQuantity) : null
       };
+      let targetBookId = bookId ? Number(bookId) : pendingBookId;
       if (bookForm.format === 'ebook') {
         if (bookForm.isPublished && !bookFile && !bookHasPdf) {
           throw new Error(translateText('أضف ملف PDF للكتاب الإلكتروني.', locale as Language));
         }
-        let targetBookId = bookId ? Number(bookId) : pendingBookId;
         if (targetBookId) {
           await api.patch(`/admin/content/books/${targetBookId}`, details);
         } else {
@@ -359,16 +391,25 @@ export default function AdminContentPage() {
           targetBookId = created.id;
           setPendingBookId(targetBookId);
         }
-        if (!bookFile && !bookHasPdf) return;
         if (bookFile) {
           await uploadBookPdf(targetBookId, bookFile);
           setBookHasPdf(true);
         }
-        if (bookForm.isPublished) await api.patch(`/admin/content/books/${targetBookId}`, { isPublished: true });
       } else {
-        if (bookId) await api.patch(`/admin/content/books/${bookId}`, details);
-        else await api.post('/admin/content/books', details);
+        if (targetBookId) await api.patch(`/admin/content/books/${targetBookId}`, details);
+        else {
+          const created = await api.post<{ id: number }>('/admin/content/books', details);
+          targetBookId = created.id;
+        }
       }
+      if (!targetBookId) throw new Error(translateText('Impossible d’enregistrer le livre.', locale as Language));
+      const currentBook = books.find((book) => book.id === targetBookId);
+      if (bookForm.isPublished && currentBook?.status !== 'published') {
+        await api.post(`/admin/content/books/${targetBookId}/publish`, {});
+      } else if (!bookForm.isPublished && currentBook?.status === 'published') {
+        await api.post(`/admin/content/books/${targetBookId}/unpublish`, {});
+      }
+      if (bookForm.format === 'ebook' && !bookFile && !bookHasPdf && !bookForm.isPublished) return;
       setPendingBookId(null);
       setBookHasPdf(false);
       setBookFile(null);
@@ -417,7 +458,7 @@ export default function AdminContentPage() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
-  async function runPartAction(action: () => Promise<unknown>, successMessage: string) {
+  async function runPartAction<T>(action: () => Promise<T>, successMessage: string, onComplete?: (result: T) => void) {
     setBusy(true);
     setError(null);
     setFieldErrors({});
@@ -425,9 +466,10 @@ export default function AdminContentPage() {
     setConflictingPart(null);
     setNotice(null);
     try {
-      await action();
+      const result = await action();
       await loadContent();
       setNotice(successMessage);
+      onComplete?.(result);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'تعذر تحديث الجزء.');
       if (caught instanceof ApiError) {
@@ -439,10 +481,48 @@ export default function AdminContentPage() {
     }
   }
 
+  async function storyTransition(action: 'submit' | 'approve' | 'reject' | 'return' | 'unpublish') {
+    if (!storyId) return;
+    if (hasUnsavedChanges) {
+      setError(translateText('احفظ التعديلات قبل تغيير الحالة.', locale as Language));
+      return;
+    }
+    let comments = '';
+    if (action === 'reject') {
+      comments = window.prompt(translateText('أدخل سبب الرفض الإلزامي.', locale as Language))?.trim() || '';
+      if (!comments) return;
+    }
+    if (action === 'unpublish' && !window.confirm(translateText('إزالة القصة من الموقع العام؟', locale as Language))) return;
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      if (action === 'submit') {
+        await api.post(`/admin/content/stories/${storyId}/submit-review`, {});
+      } else if (action === 'approve' || action === 'reject' || action === 'return') {
+        await api.post(`/admin/content/stories/${storyId}/review`, {
+          decision: action === 'approve' ? 'approved' : action === 'reject' ? 'rejected' : 'return_to_draft',
+          comments
+        });
+      } else {
+        await api.post(`/admin/content/stories/${storyId}/unpublish`, {});
+      }
+      await loadContent();
+      setNotice(translateText('تم تحديث حالة القصة.', locale as Language));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : translateText('Impossible de changer le statut.', locale as Language));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const inputClass = 'mt-2 w-full rounded-xl border border-emerald-950/15 px-3 py-2.5';
   const selectClass = 'mt-2 w-full rounded-xl border border-emerald-950/15 bg-white px-3 py-2.5';
   const submitClass = 'rounded-full bg-emerald-900 px-5 py-3 font-bold text-white disabled:opacity-50';
   const selectedStory = stories.find((story) => String(story.id) === partForm.storyId);
+  const editingStory = stories.find((story) => String(story.id) === storyId);
+  const editingBook = books.find((book) => String(book.id) === bookId);
+  const isPublisher = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN';
   const errorsFor = (scope: 'collection' | 'story' | 'part' | 'book') =>
     fieldErrorScope === scope ? fieldErrors : {};
 
@@ -461,7 +541,12 @@ export default function AdminContentPage() {
       {(isStoryForm || isPartForm) && <nav aria-label={translateText('أقسام محرر القصة', locale as Language)} className="flex flex-wrap gap-2 border-b border-emerald-950/10">
         <Link aria-current={isStoryForm ? 'page' : undefined} to={storyEditorBase ? `${storyEditorBase}/edit` : `/${locale}/admin/content/stories/new`} className={`rounded-t-xl px-4 py-2 text-sm font-bold ${isStoryForm ? 'bg-white text-emerald-900' : 'text-slate-500'}`}>{translateText('عام', locale as Language)}</Link>
         {storyEditorBase ? <Link aria-current={isPartForm ? 'page' : undefined} to={`${storyEditorBase}/parts/new`} className={`rounded-t-xl px-4 py-2 text-sm font-bold ${isPartForm ? 'bg-white text-emerald-900' : 'text-slate-500'}`}>{translateText('الأجزاء', locale as Language)}</Link> : <button type="button" disabled className="rounded-t-xl px-4 py-2 text-sm font-bold text-slate-400">{translateText('الأجزاء', locale as Language)}</button>}
-        {['الاختبارات', 'الفيديو', 'المصدر والمراجعة', 'الوصول والأسعار'].map((tab) => <button key={tab} type="button" disabled className="rounded-t-xl px-4 py-2 text-sm font-bold text-slate-400">{translateText(tab, locale as Language)} · {translateText('قريبًا', locale as Language)}</button>)}
+        {storyEditorBase
+          ? <Link to={`/${locale}/admin/content/quizzes/new?storyId=${storyId}`} className="rounded-t-xl bg-white px-4 py-2 text-sm font-bold text-emerald-900">{translateText('الاختبارات', locale as Language)}</Link>
+          : <button type="button" disabled className="rounded-t-xl px-4 py-2 text-sm font-bold text-slate-400">{translateText('الاختبارات', locale as Language)} · {translateText('احفظ القصة أولًا', locale as Language)}</button>}
+        {storyEditorBase && <Link to={`/${locale}/admin/content/videos?storyId=${storyId}`} className="rounded-t-xl bg-white px-4 py-2 text-sm font-bold text-emerald-900">{translateText('الفيديو', locale as Language)}</Link>}
+        <a href="#source-review-checklist" className="rounded-t-xl bg-white px-4 py-2 text-sm font-bold text-emerald-900">{translateText('المصدر والمراجعة', locale as Language)}</a>
+        <a href="#access-pricing" className="rounded-t-xl bg-white px-4 py-2 text-sm font-bold text-emerald-900">{translateText('الوصول والأسعار', locale as Language)}</a>
       </nav>}
       {loadError && <p role="alert" className="rounded-xl bg-red-50 p-4 text-red-800">{loadError}</p>}
       {error && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-red-800" aria-live="assertive">
@@ -492,15 +577,23 @@ export default function AdminContentPage() {
           }, 'تم إنشاء المجموعة باللغات التي أدخلتها.', 'collection');
           if (saved) navigate(`/${locale}/admin/content/collections`);
         }} className="space-y-5">
-          <LanguageFields values={collectionTitle} onChange={(lang, value) => updateFields(setCollectionTitle, 'title', lang, value)} field="title" label="عنوان المجموعة" errors={errorsFor('collection')} />
+          <LanguageFields values={collectionTitle} onChange={(lang, value) => {
+            const previous = slugFromTitle(collectionTitle.en.title || collectionTitle.ar.title);
+            updateFields(setCollectionTitle, 'title', lang, value);
+            const preferredTitle = lang === 'en' ? value : collectionTitle.en.title || (lang === 'ar' ? value : collectionTitle.ar.title);
+            const suggested = slugFromTitle(preferredTitle);
+            if (!collectionId && suggested && (!collectionSlug || collectionSlug === previous)) setCollectionSlug(suggested);
+          }} field="title" label="عنوان المجموعة" errors={errorsFor('collection')} />
           <LanguageFields values={collectionTitle} onChange={(lang, value) => updateFields(setCollectionTitle, 'description', lang, value)} field="description" label="الوصف" multiline errors={errorsFor('collection')} />
           <label className="block max-w-md text-sm font-semibold">الرابط المختصر (slug)<input required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" value={collectionSlug} onChange={(event) => setCollectionSlug(event.target.value)} dir="ltr" className={inputClass} /><FieldError errors={errorsFor('collection')} field="slug" /></label>
+          <p className="text-sm text-slate-600">{translateText('Aperçu de l’URL', locale as Language)}: <a className="font-semibold text-emerald-800 underline" dir="ltr" href={`${import.meta.env.VITE_CLIENT_URL || ''}/${locale}/collections/${collectionSlug}`}>{`/${locale}/collections/${collectionSlug || 'slug'}`}</a></p>
           <button disabled={busy} className={submitClass}>{translateText(collectionId ? 'حفظ التعديلات' : 'إنشاء المجموعة', locale as Language)}</button>
         </form>
       </section>}
 
       {isStoryForm && <section className="rounded-3xl border border-emerald-950/10 bg-white p-6 sm:p-8">
-        <h2 className="mb-5 text-xl font-extrabold text-emerald-950">إضافة قصة مستقلة بلغاتها</h2>
+        <h2 className="mb-5 text-xl font-extrabold text-emerald-950">{translateText(storyId ? 'تعديل القصة' : 'إنشاء قصة', locale as Language)}</h2>
+        {editingStory?.status === 'rejected' && editingStory.rejectionReason && <p role="status" className="mb-5 rounded-xl bg-red-50 p-4 text-sm text-red-900">{translateText('سبب الرفض', locale as Language)}: {editingStory.rejectionReason}</p>}
         <form onChange={() => setHasUnsavedChanges(true)} onSubmit={async (event) => {
           let createdStoryId: number | null = null;
           const saved = await submit(event, async () => {
@@ -513,6 +606,10 @@ export default function AdminContentPage() {
             type: storyForm.type,
             sourceBadge: storyForm.sourceBadge,
             sourceReferences: storyForm.sourceReference ? [{ reference: storyForm.sourceReference }] : [],
+            reviewChecklist: {
+              ...reviewChecklist,
+              reviewedAt: reviewChecklist.reviewedAt ? new Date(`${reviewChecklist.reviewedAt}T00:00:00.000Z`).toISOString() : null
+            },
             isFree: storyForm.isFree
           };
           if (storyId) {
@@ -525,9 +622,10 @@ export default function AdminContentPage() {
           if (saved && createdStoryId) navigate(`/${locale}/admin/content/stories/${createdStoryId}/edit`, { replace: true });
         }} className="space-y-5">
           <LanguageFields values={storyText} onChange={(lang, value) => {
-            const previousSuggestedSlug = slugFromTitle(storyText[lang].title);
+            const previousSuggestedSlug = slugFromTitle(storyText.en.title || storyText.ar.title);
             updateFields(setStoryText, 'title', lang, value);
-            const suggestedSlug = slugFromTitle(value);
+            const preferredTitle = lang === 'en' ? value : storyText.en.title || (lang === 'ar' ? value : storyText.ar.title);
+            const suggestedSlug = slugFromTitle(preferredTitle);
             if (!storyId && (!storyForm.slug || storyForm.slug === previousSuggestedSlug) && suggestedSlug) {
               setStoryForm((current) => ({ ...current, slug: suggestedSlug }));
             }
@@ -535,17 +633,37 @@ export default function AdminContentPage() {
           <LanguageFields values={storyText} onChange={(lang, value) => updateFields(setStoryText, 'summary', lang, value)} field="summary" label="الملخص" multiline errors={errorsFor('story')} />
           <div className="grid gap-4 md:grid-cols-2">
             <label className="text-sm font-semibold">المجموعة<select required value={storyForm.collectionId} onChange={(event) => setStoryForm({ ...storyForm, collectionId: event.target.value })} className={selectClass}><option value="">اختر مجموعة</option>{collections.map((collection) => <option key={collection.id} value={collection.id}>{collection.title}</option>)}</select><FieldError errors={errorsFor('story')} field="collectionId" /></label>
-            <label className="text-sm font-semibold">الرابط المختصر (slug)<input required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" value={storyForm.slug} onChange={(event) => setStoryForm({ ...storyForm, slug: event.target.value })} dir="ltr" className={inputClass} /><FieldError errors={errorsFor('story')} field="slug" /></label>
+            <label className="text-sm font-semibold">الرابط المختصر (slug)<input required disabled={Boolean(editingStory?.publishedAt)} pattern="[a-z0-9]+(?:-[a-z0-9]+)*" value={storyForm.slug} onChange={(event) => setStoryForm({ ...storyForm, slug: event.target.value })} dir="ltr" className={inputClass} /><FieldError errors={errorsFor('story')} field="slug" /></label>
             <label className="text-sm font-semibold">نوع القصة<select value={storyForm.type} onChange={(event) => setStoryForm({ ...storyForm, type: event.target.value })} className={selectClass}><option value="quran">قرآنية</option><option value="sunnah">من السنة</option><option value="history">تاريخية</option><option value="new">جديدة</option></select><FieldError errors={errorsFor('story')} field="type" /></label>
             <label className="text-sm font-semibold">نوع المصدر<select value={storyForm.sourceBadge} onChange={(event) => setStoryForm({ ...storyForm, sourceBadge: event.target.value })} className={selectClass}><option value="quran_verse">آية قرآنية</option><option value="authentic_hadith">حديث صحيح</option><option value="historical_source">مصدر تاريخي</option><option value="inspired_story">قصة مستوحاة</option></select><FieldError errors={errorsFor('story')} field="sourceBadge" /></label>
             <label className="text-sm font-semibold md:col-span-2">مرجع المصدر<input value={storyForm.sourceReference} onChange={(event) => setStoryForm({ ...storyForm, sourceReference: event.target.value })} className={inputClass} /><FieldError errors={errorsFor('story')} field="sourceReferences.0.reference" /></label>
           </div>
-          <label className="inline-flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={storyForm.isFree} onChange={(event) => setStoryForm({ ...storyForm, isFree: event.target.checked })} /> قصة مجانية</label>
+          <p className="text-sm text-slate-600">{translateText('معاينة الرابط', locale as Language)}: <a className="font-semibold text-emerald-800 underline" dir="ltr" href={`${import.meta.env.VITE_CLIENT_URL || ''}/${locale}/histoires/${storyForm.slug}`}>{`/${locale}/histoires/${storyForm.slug || 'slug'}`}</a></p>
+            <section id="source-review-checklist" className="space-y-4 rounded-2xl bg-slate-50 p-5">
+              <h3 className="font-bold text-emerald-950">{translateText('مصدر ومراجعة النشر', locale as Language)}</h3>
+              <label className="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={reviewChecklist.sourcesProvided} onChange={(event) => setReviewChecklist({ ...reviewChecklist, sourcesProvided: event.target.checked })} /> {translateText('تم إدخال المصادر والتحقق منها', locale as Language)}</label>
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="text-sm font-semibold">{translateText('اسم المراجع', locale as Language)}<input value={reviewChecklist.reviewedBy} onChange={(event) => setReviewChecklist({ ...reviewChecklist, reviewedBy: event.target.value })} className={inputClass} /></label>
+                <label className="text-sm font-semibold">{translateText('تاريخ المراجعة', locale as Language)}<input type="date" value={reviewChecklist.reviewedAt} onChange={(event) => setReviewChecklist({ ...reviewChecklist, reviewedAt: event.target.value })} className={inputClass} /></label>
+              </div>
+              <label className="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={reviewChecklist.representationConfirmed} onChange={(event) => setReviewChecklist({ ...reviewChecklist, representationConfirmed: event.target.checked })} /> {translateText('تم احترام سياسة التمثيل والمراجعة', locale as Language)}</label>
+            </section>
+            <label id="access-pricing" className="inline-flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={storyForm.isFree} onChange={(event) => setStoryForm({ ...storyForm, isFree: event.target.checked })} /> قصة مجانية</label>
           <div className="flex flex-wrap gap-3">
             <button disabled={busy || !collections.length} className={submitClass}>{busy ? translateText('جارٍ الحفظ…', locale as Language) : translateText(storyId ? 'حفظ المسودة' : 'حفظ كمسودة', locale as Language)}</button>
             {storyId && <button type="button" onClick={() => navigate(`/${locale}/admin/content/stories/${storyId}/parts/new`)} className="rounded-full border border-emerald-950/15 px-5 py-3 font-bold">{translateText('إضافة جزء', locale as Language)}</button>}
             <button type="button" onClick={() => setPreviewVisible((visible) => !visible)} className="rounded-full border border-emerald-950/15 px-5 py-3 font-bold">{translateText(previewVisible ? 'إغلاق المعاينة' : 'معاينة', locale as Language)}</button>
           </div>
+          {storyId && editingStory && <div className="flex flex-wrap items-center gap-3 border-t border-slate-200 pt-4">
+            <span className="rounded-full bg-slate-100 px-3 py-1.5 text-sm font-bold">{storyStatusLabels[locale as Language][editingStory.status] || editingStory.status}</span>
+            {['draft', 'rejected'].includes(editingStory.status) && <button type="button" disabled={busy || hasUnsavedChanges} onClick={() => void storyTransition('submit')} className="rounded-full bg-emerald-800 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">{translateText(editingStory.status === 'rejected' ? 'إعادة الإرسال للمراجعة' : 'إرسال للمراجعة', locale as Language)}</button>}
+            {editingStory.status === 'in_review' && isPublisher && <>
+              <button type="button" disabled={busy || hasUnsavedChanges} onClick={() => void storyTransition('approve')} className="rounded-full bg-emerald-800 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">{translateText('اعتماد ونشر', locale as Language)}</button>
+              <button type="button" disabled={busy || hasUnsavedChanges} onClick={() => void storyTransition('reject')} className="rounded-full bg-red-700 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">{translateText('رفض', locale as Language)}</button>
+              <button type="button" disabled={busy || hasUnsavedChanges} onClick={() => void storyTransition('return')} className="rounded-full border border-slate-300 px-4 py-2.5 text-sm font-bold disabled:opacity-50">{translateText('إعادة إلى المسودة', locale as Language)}</button>
+            </>}
+            {editingStory.status === 'published' && isPublisher && <button type="button" disabled={busy || hasUnsavedChanges} onClick={() => void storyTransition('unpublish')} className="rounded-full border border-red-300 px-4 py-2.5 text-sm font-bold text-red-700 disabled:opacity-50">{translateText('إلغاء النشر', locale as Language)}</button>}
+          </div>}
         </form>
         {previewVisible && <div role="region" aria-label={translateText('معاينة', locale as Language)} className="mt-6 rounded-2xl bg-slate-50 p-5">
           <p className="text-sm font-bold text-emerald-700">{translateText('معاينة', locale as Language)}</p>
@@ -585,10 +703,10 @@ export default function AdminContentPage() {
               const story = stories.find((candidate) => String(candidate.id) === storyId);
               const nextNumber = story ? Math.max(0, ...story.parts.map((part) => part.partNumber)) + 1 : 1;
               setPartForm({ ...partForm, storyId, partNumber: String(nextNumber) });
-            }} className={selectClass}><option value="">اختر قصة</option>{stories.map((story) => <option key={story.id} value={story.id}>{story.title} — {story.status}</option>)}</select><FieldError errors={errorsFor('part')} field="storyId" /></label>
-            <LanguageFields values={partText} onChange={(lang, value) => updateFields(setPartText, 'title', lang, value)} field="title" label="عنوان الجزء" errors={errorsFor('part')} />
-            <LanguageFields values={partText} onChange={(lang, value) => updateFields(setPartText, 'content', lang, value)} field="content" label="النص" multiline errors={errorsFor('part')} />
-            <LanguageFields values={partText} onChange={(lang, value) => updateFields(setPartText, 'endingHook', lang, value)} field="endingHook" label="نهاية الجزء" multiline errors={errorsFor('part')} />
+            }} className={selectClass}><option value="">اختر قصة</option>{stories.map((story) => <option key={story.id} value={story.id}>{story.title} — {storyStatusLabels[locale as Language][story.status] || storyStatusLabels.en[story.status] || story.status}</option>)}</select><FieldError errors={errorsFor('part')} field="storyId" /></label>
+            <LanguageFields values={partText} activeLanguage={partLanguage} onActiveLanguageChange={setPartLanguage} onChange={(lang, value) => updateFields(setPartText, 'title', lang, value)} field="title" label="عنوان الجزء" errors={errorsFor('part')} />
+            <LanguageFields values={partText} activeLanguage={partLanguage} onActiveLanguageChange={setPartLanguage} onChange={(lang, value) => updateFields(setPartText, 'content', lang, value)} field="content" label="النص" multiline errors={errorsFor('part')} />
+            <LanguageFields values={partText} activeLanguage={partLanguage} onActiveLanguageChange={setPartLanguage} onChange={(lang, value) => updateFields(setPartText, 'endingHook', lang, value)} field="endingHook" label="نهاية الجزء" multiline errors={errorsFor('part')} />
             <div className="grid gap-4 md:grid-cols-2">
               <label className="text-sm font-semibold">رقم الجزء<input required type="number" min="1" value={partForm.partNumber} onChange={(event) => setPartForm({ ...partForm, partNumber: event.target.value })} className={inputClass} />
                 {errorsFor('part').partNumber && <span className="mt-1 block text-xs text-red-700">{errorsFor('part').partNumber}</span>}
@@ -613,9 +731,9 @@ export default function AdminContentPage() {
             {!partForm.storyId && <p className="mt-3 text-sm text-slate-600">اختر قصة لعرض أجزائها.</p>}
             {partForm.storyId && !selectedStory?.parts?.length && <p className="mt-3 text-sm text-slate-600">لا توجد أجزاء بعد.</p>}
             <ol className="mt-3 space-y-3">
-              {[...(selectedStory?.parts || [])].sort((a, b) => a.partNumber - b.partNumber).map((part, index, parts) => <li key={part.id} className="rounded-xl border border-emerald-950/10 bg-white p-3">
+              {[...(selectedStory?.parts || [])].sort((a, b) => a.partNumber - b.partNumber).map((part, index, parts) => <li key={part.id} className={`rounded-xl border p-3 transition-colors ${highlightedPartId === part.id ? 'border-emerald-700 bg-emerald-100 ring-2 ring-emerald-300' : 'border-emerald-950/10 bg-white'}`}>
                 <p className="font-semibold">{part.partNumber}. {part.title}</p>
-                <p className="mt-1 text-xs text-slate-500">{part.estimatedReadingMinutes} د · {part.isFree ? 'مجاني' : 'مميز'}</p>
+                <p className="mt-1 text-xs text-slate-500">{part.estimatedReadingMinutes} {locale === 'ar' ? 'د' : 'min'} · {part.isFree ? 'مجاني' : 'مميز'}</p>
                 <div className="mt-3 flex flex-wrap gap-2 text-xs">
                   <button type="button" onClick={() => editPart(part, selectedStory!.id)} className="font-bold text-emerald-800 underline">تعديل</button>
                   <button type="button" disabled={busy || index === 0} onClick={() => runPartAction(
@@ -627,8 +745,12 @@ export default function AdminContentPage() {
                     'تم تغيير ترتيب الأجزاء.'
                   )} className="font-bold text-emerald-800 underline disabled:opacity-40">↓</button>
                   <button type="button" disabled={busy} onClick={() => runPartAction(
-                    () => api.post(`/admin/content/parts/${part.id}/duplicate`, {}),
-                    'تم نسخ الجزء إلى نهاية القصة.'
+                    () => api.post<Part>(`/admin/content/parts/${part.id}/duplicate`, {}),
+                    'تم نسخ الجزء إلى نهاية القصة.',
+                    (duplicate) => {
+                      setHighlightedPartId(duplicate.id);
+                      editPart(duplicate, selectedStory!.id);
+                    }
                   )} className="font-bold text-emerald-800 underline">نسخ</button>
                   <button type="button" disabled={busy} onClick={() => {
                     if (window.confirm(translateText('هل تريد حذف هذا الجزء؟', locale as Language))) {
@@ -648,20 +770,29 @@ export default function AdminContentPage() {
       {isBookForm && <section className="rounded-3xl border border-emerald-950/10 bg-white p-6 sm:p-8">
         <h2 className="mb-5 text-xl font-extrabold text-emerald-950">{bookId ? 'تعديل الكتاب' : pendingBookId ? 'استكمال رفع ملف PDF' : 'إضافة كتاب بلغاته'}</h2>
         <form onChange={() => setHasUnsavedChanges(true)} onSubmit={saveBook} className="space-y-5">
-          <LanguageFields values={bookText} onChange={(lang, value) => updateFields(setBookText, 'title', lang, value)} field="title" label="عنوان الكتاب" disabled={bookDraftLocked} errors={errorsFor('book')} />
+          <LanguageFields values={bookText} onChange={(lang, value) => {
+            const previous = slugFromTitle(bookText.en.title || bookText.ar.title);
+            updateFields(setBookText, 'title', lang, value);
+            const preferredTitle = lang === 'en' ? value : bookText.en.title || (lang === 'ar' ? value : bookText.ar.title);
+            const suggested = slugFromTitle(preferredTitle);
+            if (!bookDraftLocked && !bookId && suggested && (!bookForm.slug || bookForm.slug === previous)) {
+              setBookForm((current) => ({ ...current, slug: suggested }));
+            }
+          }} field="title" label="عنوان الكتاب" disabled={bookDraftLocked} errors={errorsFor('book')} />
           <LanguageFields values={bookText} onChange={(lang, value) => updateFields(setBookText, 'description', lang, value)} field="description" label="الوصف" multiline disabled={bookDraftLocked} errors={errorsFor('book')} />
           <div className="grid gap-4 md:grid-cols-2">
-            <label className="text-sm font-semibold">الرابط المختصر<input required disabled={bookDraftLocked} pattern="[a-z0-9]+(?:-[a-z0-9]+)*" value={bookForm.slug} onChange={(event) => setBookForm({ ...bookForm, slug: event.target.value })} dir="ltr" className={inputClass} /><FieldError errors={errorsFor('book')} field="slug" /></label>
+            <label className="text-sm font-semibold">الرابط المختصر<input required disabled={bookDraftLocked || Boolean(editingBook?.publishedAt)} pattern="[a-z0-9]+(?:-[a-z0-9]+)*" value={bookForm.slug} onChange={(event) => setBookForm({ ...bookForm, slug: event.target.value })} dir="ltr" className={inputClass} /><FieldError errors={errorsFor('book')} field="slug" /></label>
             <label className="text-sm font-semibold">النوع<select disabled={bookDraftLocked} value={bookForm.format} onChange={(event) => setBookForm({ ...bookForm, format: event.target.value })} className={selectClass}><option value="ebook">إلكتروني</option><option value="print">ورقي</option></select><FieldError errors={errorsFor('book')} field="format" /></label>
             <label className="text-sm font-semibold">السعر<input required disabled={bookDraftLocked} type="number" min="0" step="0.01" value={bookForm.price} onChange={(event) => setBookForm({ ...bookForm, price: event.target.value })} className={inputClass} /><FieldError errors={errorsFor('book')} field="price" /></label>
             <label className="text-sm font-semibold">العملة<input required disabled={bookDraftLocked} minLength={3} maxLength={3} value={bookForm.currency} onChange={(event) => setBookForm({ ...bookForm, currency: event.target.value.toUpperCase() })} className={inputClass} /><FieldError errors={errorsFor('book')} field="currency" /></label>
             {bookForm.format === 'print' && <label className="text-sm font-semibold">المخزون<input required disabled={bookDraftLocked} type="number" min="0" value={bookForm.stockQuantity} onChange={(event) => setBookForm({ ...bookForm, stockQuantity: event.target.value })} className={inputClass} /><FieldError errors={errorsFor('book')} field="stockQuantity" /></label>}
           </div>
+          <p className="text-sm text-slate-600">{translateText('معاينة الرابط', locale as Language)}: <a className="font-semibold text-emerald-800 underline" dir="ltr" href={`${import.meta.env.VITE_CLIENT_URL || ''}/${locale}/livres/${bookForm.slug}`}>{`/${locale}/livres/${bookForm.slug || 'slug'}`}</a></p>
           {bookForm.format === 'ebook' && <label className="block text-sm font-semibold">ملف الكتاب الإلكتروني (PDF)<input key={fileInputKey} type="file" accept="application/pdf,.pdf" onChange={(event) => setBookFile(event.target.files?.[0] || null)} className={`${inputClass} file:mr-3 file:rounded-lg file:border-0 file:bg-emerald-50 file:px-3 file:py-2`} /><span className="mt-1 block text-xs font-normal text-slate-500">{bookHasPdf ? 'يمكنك اختيار ملف جديد لاستبدال PDF الحالي.' : 'يمكن حفظ الكتاب كمسودة وإرفاق PDF لاحقًا.'} يُرفع الملف إلى التخزين الخاص، ولا يُتاح إلا بعد الشراء.</span>
             {(errorsFor('book').file || errorsFor('book').mimeType) && <span className="mt-1 block text-xs text-red-700">{errorsFor('book').file || errorsFor('book').mimeType}</span>}
           </label>}
           {pendingBookId && !bookHasPdf && <p role="status" className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">تم حفظ مسودة الكتاب رقم {pendingBookId}. أعد اختيار ملف PDF لإكمال الرفع.</p>}
-          <label className="inline-flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={bookForm.isPublished} onChange={(event) => setBookForm({ ...bookForm, isPublished: event.target.checked })} /> نشر الكتاب الآن<FieldError errors={errorsFor('book')} field="isPublished" /></label>
+          <label className="inline-flex items-center gap-2 text-sm font-semibold"><input type="checkbox" disabled={!isPublisher} checked={bookForm.isPublished} onChange={(event) => setBookForm({ ...bookForm, isPublished: event.target.checked })} /> نشر الكتاب الآن<FieldError errors={errorsFor('book')} field="isPublished" /></label>
           <button disabled={busy || bookForm.format === 'ebook' && bookForm.isPublished && !bookFile && !bookHasPdf} className={submitClass}>{translateText(bookId ? 'حفظ التعديلات' : 'حفظ الكتاب', locale as Language)}</button>
         </form>
       </section>}

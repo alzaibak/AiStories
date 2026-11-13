@@ -11,8 +11,10 @@ const {
 const {
   adminSubscriptionUpdateSchema,
   bookCheckoutSchema,
+  donationCheckoutSchema,
   planSchema,
   planUpdateSchema,
+  promoCodeSchema,
   subscriptionCheckoutSchema
 } = require('../middleware/storyValidation');
 const { localizePlan } = require('../utils/planLocalization');
@@ -22,6 +24,37 @@ test('Stripe prices are converted to currency minor units without rounding inval
   assert.equal(toMinorUnits('0', 'EUR', { allowZero: true }), 0);
   assert.throws(() => toMinorUnits('12.345', 'EUR'), /positive amount/);
   assert.throws(() => toMinorUnits('-1.00', 'EUR'), /positive amount/);
+});
+
+test('donation and promotion schemas accept monthly donations and reject invalid discounts', () => {
+  assert.equal(donationCheckoutSchema.safeParse({ amount: 5, recurring: true, language: 'ar' }).success, true);
+  assert.equal(donationCheckoutSchema.safeParse({ amount: 5, recurring: 'monthly' }).success, false);
+  assert.equal(promoCodeSchema.safeParse({
+    code: 'READ10',
+    kind: 'percentage',
+    appliesTo: 'plans',
+    value: 10,
+    currency: 'EUR',
+    isActive: true
+  }).success, true);
+  assert.equal(promoCodeSchema.safeParse({
+    code: 'TOO-MUCH',
+    kind: 'percentage',
+    value: 101
+  }).success, false);
+  assert.equal(promoCodeSchema.safeParse({
+    code: 'GIFT30',
+    kind: 'gift',
+    appliesTo: 'plans',
+    value: 0,
+    giftPlanId: 2,
+    giftDurationDays: 30
+  }).success, true);
+  assert.equal(promoCodeSchema.safeParse({
+    code: 'GIFT30',
+    kind: 'gift',
+    value: 0
+  }).success, false);
 });
 
 test('Stripe subscription states map to persisted subscription states', () => {
@@ -231,5 +264,42 @@ test('payment migration resumes safely when a column already exists', async () =
     ['store_orders', 'trackingNumber'],
     ['subscriptions', 'stripeCheckoutSessionId'],
     ['entitlements', 'orderItemId']
+  ]);
+});
+
+test('recurring donation migration creates its table and resumes safely', async () => {
+  const migration = require('../migrations/023-recurring-donations');
+  const tables = new Set(['donations']);
+  const columns = { donations: {} };
+  const calls = [];
+  const queryInterface = {
+    showAllTables: async () => [...tables],
+    describeTable: async (table) => columns[table],
+    createTable: async (table, definition) => {
+      calls.push(['createTable', table, definition]);
+      tables.add(table);
+      columns[table] = Object.fromEntries(Object.keys(definition).map((column) => [column, {}]));
+    },
+    addColumn: async (table, column, definition) => {
+      calls.push(['addColumn', table, column, definition]);
+      columns[table][column] = {};
+    }
+  };
+  const Sequelize = {
+    INTEGER: 'INTEGER',
+    STRING: (length) => `STRING(${length})`,
+    DECIMAL: (precision, scale) => `DECIMAL(${precision},${scale})`,
+    ENUM: (...values) => values,
+    BOOLEAN: 'BOOLEAN',
+    DATE: 'DATE',
+    fn: (value) => value
+  };
+
+  await migration.up({ queryInterface, Sequelize });
+  await migration.up({ queryInterface, Sequelize });
+  assert.equal(calls.filter(([kind]) => kind === 'createTable').length, 1);
+  assert.deepEqual(calls.filter(([kind]) => kind === 'addColumn').map(([, table, column]) => [table, column]), [
+    ['donations', 'recurringDonationId'],
+    ['donations', 'stripeInvoiceId']
   ]);
 });

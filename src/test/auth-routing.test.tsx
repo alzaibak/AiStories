@@ -17,10 +17,13 @@ vi.mock('@/pages/stories/StoryPlatform', async () => {
   return {
     LandingPage: () => <div>home-view</div>,
     StoriesPage: () => <div>stories-view</div>,
+    CollectionDetailPage: () => <div>collection-view</div>,
     StoryDetailPage: () => <div>story-view</div>,
     ReaderPage: () => <div>reader-view</div>,
     BooksPage: () => <div>books-view</div>,
     BookDetailPage: () => <div>book-view</div>,
+    DonationsPage: () => <div>donations-view</div>,
+    EventsPage: () => <div>events-view</div>,
     ReaderAuthPage: ({ mode }: { mode: string }) => {
       const [email, setEmail] = useState('');
       return <div>
@@ -32,6 +35,7 @@ vi.mock('@/pages/stories/StoryPlatform', async () => {
     AdminLoginPage: () => <div>admin-login-view</div>,
     AdminStoreOrdersPage: () => <div>admin-orders-view</div>,
     AdminSubscriptionsPage: () => <div>admin-subscriptions-view</div>,
+    StoryRequestPage: () => <div>story-request-view</div>,
     AccountPage: () => <div>account-view</div>,
     MembershipPage: () => <div>membership-view</div>,
     PricingPage: () => <div>pricing-view</div>,
@@ -55,18 +59,19 @@ vi.mock('@/pages/stories/AdminDashboardPages', () => ({
 }));
 
 import App from '@/App';
+import AdminApp from '@/AdminApp';
 
 let root: Root | undefined;
 let container: HTMLDivElement | undefined;
 
-async function renderAt(path: string) {
+async function renderAt(path: string, AppComponent = App) {
   if (root) await act(async () => root?.unmount());
   container?.remove();
   window.history.replaceState({}, '', path);
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
-  await act(async () => root?.render(<App />));
+  await act(async () => root?.render(<AppComponent />));
 }
 
 afterEach(async () => {
@@ -83,6 +88,8 @@ describe('routes de la plateforme de récits', () => {
     expect(container?.textContent).toContain('home-view');
     await renderAt('/fr/stories');
     expect(container?.textContent).toContain('stories-view');
+    await renderAt('/fr/collections/example');
+    expect(container?.textContent).toContain('collection-view');
     await renderAt('/en/stories/histoire-exemple');
     expect(container?.textContent).toContain('story-view');
     await renderAt('/ar/stories/histoire-exemple/read/1');
@@ -96,19 +103,34 @@ describe('routes de la plateforme de récits', () => {
     expect(container?.textContent).toContain('book-view');
   });
 
-  it('monte les pages admin dans le tableau de bord localisé', async () => {
+  it('monte les pages publiques des événements et dons', async () => {
+    await renderAt('/ar/events');
+    expect(container?.textContent).toContain('events-view');
+    await renderAt('/fr/donations');
+    expect(container?.textContent).toContain('donations-view');
+  });
+
+  it('isole le tableau de bord admin dans son application dédiée', async () => {
     await renderAt('/fr/admin');
+    expect(container?.textContent).toContain('not-found-view');
+    await renderAt('/ar/', AdminApp);
+    expect(window.location.pathname).toBe('/ar/admin/login');
+    expect(container?.textContent).toContain('admin-login-view');
+    await renderAt('/', AdminApp);
+    expect(window.location.pathname).toBe('/ar/admin/login');
+    expect(container?.textContent).toContain('admin-login-view');
+    await renderAt('/fr/admin', AdminApp);
     expect(container?.textContent).toContain('admin-shell');
     expect(container?.textContent).toContain('admin-dashboard-view');
-    await renderAt('/en/admin/content/stories');
+    await renderAt('/en/admin/content/stories', AdminApp);
     expect(container?.textContent).toContain('admin-stories-view');
-    await renderAt('/ar/admin/content/stories/12/parts/new');
+    await renderAt('/ar/admin/content/stories/12/parts/new', AdminApp);
     expect(container?.textContent).toContain('admin-content-form-view');
-    await renderAt('/fr/admin/content/collections/2/edit');
+    await renderAt('/fr/admin/content/collections/2/edit', AdminApp);
     expect(container?.textContent).toContain('admin-content-form-view');
-    await renderAt('/fr/admin/shop/books');
+    await renderAt('/fr/admin/shop/books', AdminApp);
     expect(container?.textContent).toContain('admin-books-view');
-    await renderAt('/fr/admin/shop/books/new');
+    await renderAt('/fr/admin/shop/books/new', AdminApp);
     expect(container?.textContent).toContain('admin-content-form-view');
   });
 
