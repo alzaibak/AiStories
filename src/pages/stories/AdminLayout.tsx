@@ -35,7 +35,15 @@ import { translateText, type SiteLanguage } from '@/lib/localization';
 
 type AdminLanguage = SiteLanguage;
 
-const navigation = [
+const navigation: Array<{
+  title: string;
+  links: Array<{
+    label: string;
+    to: string;
+    icon: typeof Home;
+    disabled?: boolean;
+  }>;
+}> = [
   {
     title: 'لوحة الإدارة',
     links: [{ label: 'نظرة عامة', to: '', icon: Home }]

@@ -89,6 +89,11 @@ export function clearAuthToken() {
   localStorage.removeItem(LEGACY_AUTH_TOKEN_KEY);
 }
 
+function notifyExpiredSession() {
+  clearAuthToken();
+  window.dispatchEvent(new CustomEvent('story-auth:expired'));
+}
+
 function apiUrl(path: string) {
   if (IS_ADMIN_APP && path.startsWith('/admin/')) {
     return `${ADMIN_API_BASE_URL}${path.slice('/admin'.length)}`;
@@ -126,6 +131,7 @@ export async function request<T>(path: string, init: RequestInit = {}, bearerTok
     if (response.status === 204) return undefined as T;
     const body = await response.json().catch(() => ({}));
     if (!response.ok) {
+      if (response.status === 401 && token && !bearerToken) notifyExpiredSession();
       if (
         response.status === 409 &&
         typeof body.message === 'string' &&
@@ -160,6 +166,7 @@ async function requestBlob(path: string): Promise<Blob> {
     const response = await fetch(apiUrl(path), { headers, signal: controller.signal });
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
+      if (response.status === 401 && getAuthToken()) notifyExpiredSession();
       throw new ApiError(body.message || `Erreur API (${response.status}).`, body.code, body.fields, body.existingPart);
     }
     return await response.blob();

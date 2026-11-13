@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { api, clearAuthToken, getAuthToken, setAuthToken, type PlatformUser, type ReaderSubscription } from '@/lib/api';
 
 interface AuthContextValue {
@@ -21,6 +22,8 @@ interface AuthContextValue {
 const StoryAuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function StoryAuthProvider({ children }: { children: ReactNode }) {
+  const navigate = useNavigate();
+  const location = useLocation();
   const [user, setUser] = useState<PlatformUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -48,6 +51,20 @@ export function StoryAuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void refreshUser();
   }, []);
+
+  useEffect(() => {
+    const handleExpiredSession = () => {
+      clearAuthToken();
+      setUser(null);
+      setError(null);
+      setIsLoading(false);
+      const language = location.pathname.match(/^\/(ar|en|fr)(?:\/|$)/)?.[1] || 'ar';
+      const isAdminApp = import.meta.env.VITE_APP_TARGET === 'admin';
+      navigate(`/${language}/${isAdminApp ? 'admin/login' : 'login'}`, { replace: true });
+    };
+    window.addEventListener('story-auth:expired', handleExpiredSession);
+    return () => window.removeEventListener('story-auth:expired', handleExpiredSession);
+  }, [location.pathname, navigate]);
 
   const login = async (email: string, password: string) => {
     const response = await api.post<{ user: PlatformUser; token: string }>('/auth/login', { email, password });
