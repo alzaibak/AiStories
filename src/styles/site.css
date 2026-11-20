@@ -1,0 +1,494 @@
+@import './fonts.css';
+
+/* =============================================================================
+   حكايات إسلامية — Public site design system
+   Tokens are defined on :root (safe: admin uses its own legacy palette) and
+   overridden per theme through [data-site-theme]. Any subtree can preview a
+   theme by setting data-site-theme on a wrapper.
+   ============================================================================= */
+
+:root {
+  /* --- Surfaces & ink (light "paper") ------------------------------------- */
+  --ds-canvas-rgb: 251 247 239;
+  --ds-surface-rgb: 255 253 248;
+  --ds-surface-soft-rgb: 245 239 227;
+  --ds-surface-sunken-rgb: 240 232 216;
+
+  --ds-ink-rgb: 26 38 33;
+  --ds-ink-muted-rgb: 88 105 96;
+  --ds-ink-faint-rgb: 128 143 134;
+
+  --ds-line-rgb: 232 223 205;
+  --ds-line-strong-rgb: 214 201 175;
+
+  /* --- Brand -------------------------------------------------------------- */
+  --ds-brand-rgb: 16 82 60;
+  --ds-brand-strong-rgb: 12 64 47;
+  --ds-brand-soft-rgb: 226 241 232;
+  --ds-brand-ink-rgb: 10 71 52;
+  --ds-on-brand-rgb: 255 251 242;
+
+  --ds-gold-rgb: 197 162 90;
+  --ds-gold-soft-rgb: 247 236 209;
+  --ds-gold-ink-rgb: 122 86 24;
+
+  --ds-danger-rgb: 168 58 48;
+  --ds-danger-soft-rgb: 250 233 230;
+  --ds-success-rgb: 22 112 78;
+  --ds-success-soft-rgb: 226 243 234;
+
+  --ds-focus-rgb: 16 82 60;
+
+  /* --- Source badges ------------------------------------------------------ */
+  --ds-src-quran-bg: 227 242 234;
+  --ds-src-quran-ink: 15 88 63;
+  --ds-src-quran-line: 186 222 205;
+  --ds-src-hadith-bg: 250 238 214;
+  --ds-src-hadith-ink: 116 79 16;
+  --ds-src-hadith-line: 232 209 164;
+  --ds-src-history-bg: 231 238 245;
+  --ds-src-history-ink: 38 74 106;
+  --ds-src-history-line: 195 213 231;
+  --ds-src-inspired-bg: 248 234 226;
+  --ds-src-inspired-ink: 120 55 37;
+  --ds-src-inspired-line: 234 209 196;
+
+  /* --- Typography --------------------------------------------------------- */
+  --font-ui: 'IBM Plex Sans Arabic', 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-reading: 'Lora', 'Noto Naskh Arabic', Georgia, 'Times New Roman', serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --text-display: clamp(2.6rem, 4.6vw + 1rem, 4.4rem);
+  --text-h1: clamp(2rem, 2.6vw + 1.1rem, 3.1rem);
+  --text-h2: clamp(1.5rem, 1.5vw + 1.05rem, 2.2rem);
+  --text-h3: clamp(1.15rem, 0.5vw + 1rem, 1.4rem);
+  --text-reading: clamp(1.0625rem, 0.35vw + 1rem, 1.1875rem);
+  --leading-reading: 2.05;
+  --measure-reading: 36rem;
+  --tracking-ui: -0.011em;
+
+  /* --- Shape & depth ------------------------------------------------------ */
+  --radius-xs: 8px;
+  --radius-sm: 12px;
+  --radius-md: 16px;
+  --radius-lg: 22px;
+  --radius-xl: 28px;
+  --radius-2xl: 36px;
+  --radius-pill: 999px;
+
+  --shadow-soft: 0 1px 2px rgb(62 47 24 / 0.04), 0 8px 24px -12px rgb(62 47 24 / 0.16);
+  --shadow-lift: 0 2px 4px rgb(62 47 24 / 0.05), 0 22px 48px -20px rgb(62 47 24 / 0.28);
+  --shadow-glow: 0 18px 60px -24px rgb(16 82 60 / 0.55);
+  --hairline: color-mix(in srgb, rgb(var(--ds-ink-rgb)) 12%, transparent);
+
+  /* --- Motion ------------------------------------------------------------- */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.22, 1.35, 0.36, 1);
+  --duration-fast: 140ms;
+  --duration-base: 240ms;
+  --duration-slow: 420ms;
+
+  /* --- Layout ------------------------------------------------------------- */
+  --space-section: clamp(3.5rem, 6vw, 6.5rem);
+  --header-height: 72px;
+  --page-max: 80rem;
+  color-scheme: light;
+}
+
+/* --- Dark: deep night blue ------------------------------------------------ */
+[data-site-theme='dark'] {
+  --ds-canvas-rgb: 11 26 36;
+  --ds-surface-rgb: 16 37 50;
+  --ds-surface-soft-rgb: 21 46 60;
+  --ds-surface-sunken-rgb: 8 20 29;
+
+  --ds-ink-rgb: 234 240 235;
+  --ds-ink-muted-rgb: 168 187 178;
+  --ds-ink-faint-rgb: 124 146 137;
+
+  --ds-line-rgb: 34 60 73;
+  --ds-line-strong-rgb: 51 83 97;
+
+  --ds-brand-rgb: 96 196 160;
+  --ds-brand-strong-rgb: 130 214 183;
+  --ds-brand-soft-rgb: 21 55 49;
+  --ds-brand-ink-rgb: 150 220 192;
+  --ds-on-brand-rgb: 5 34 26;
+
+  --ds-gold-rgb: 230 202 145;
+  --ds-gold-soft-rgb: 48 42 27;
+  --ds-gold-ink-rgb: 240 214 160;
+
+  --ds-danger-rgb: 236 141 130;
+  --ds-danger-soft-rgb: 56 30 29;
+  --ds-success-rgb: 118 214 168;
+  --ds-success-soft-rgb: 22 50 43;
+
+  --ds-focus-rgb: 120 210 176;
+
+  --ds-src-quran-bg: 20 54 46;
+  --ds-src-quran-ink: 155 224 195;
+  --ds-src-quran-line: 40 84 71;
+  --ds-src-hadith-bg: 56 46 28;
+  --ds-src-hadith-ink: 240 209 150;
+  --ds-src-hadith-line: 88 72 40;
+  --ds-src-history-bg: 26 44 60;
+  --ds-src-history-ink: 160 197 228;
+  --ds-src-history-line: 46 71 94;
+  --ds-src-inspired-bg: 56 34 30;
+  --ds-src-inspired-ink: 234 178 158;
+  --ds-src-inspired-line: 88 58 48;
+
+  --shadow-soft: 0 1px 2px rgb(0 0 0 / 0.3), 0 10px 30px -14px rgb(0 0 0 / 0.6);
+  --shadow-lift: 0 2px 6px rgb(0 0 0 / 0.35), 0 26px 56px -24px rgb(0 0 0 / 0.7);
+  --shadow-glow: 0 18px 60px -24px rgb(96 196 160 / 0.45);
+  color-scheme: dark;
+}
+
+/* --- Sepia: aged reading paper ------------------------------------------- */
+[data-site-theme='sepia'] {
+  --ds-canvas-rgb: 242 229 205;
+  --ds-surface-rgb: 249 240 222;
+  --ds-surface-soft-rgb: 235 218 185;
+  --ds-surface-sunken-rgb: 227 208 173;
+
+  --ds-ink-rgb: 56 44 30;
+  --ds-ink-muted-rgb: 104 86 62;
+  --ds-ink-faint-rgb: 138 118 90;
+
+  --ds-line-rgb: 219 200 165;
+  --ds-line-strong-rgb: 199 176 135;
+
+  --ds-brand-rgb: 45 85 66;
+  --ds-brand-strong-rgb: 33 68 52;
+  --ds-brand-soft-rgb: 223 231 214;
+  --ds-brand-ink-rgb: 39 78 56;
+  --ds-on-brand-rgb: 255 250 240;
+
+  --ds-gold-rgb: 173 130 60;
+  --ds-gold-soft-rgb: 240 224 190;
+  --ds-gold-ink-rgb: 108 74 18;
+
+  --ds-danger-rgb: 152 62 44;
+  --ds-danger-soft-rgb: 242 226 218;
+  --ds-success-rgb: 49 100 71;
+  --ds-success-soft-rgb: 226 236 220;
+
+  --ds-focus-rgb: 45 85 66;
+
+  --ds-src-quran-bg: 224 232 214;
+  --ds-src-quran-ink: 52 82 48;
+  --ds-src-quran-line: 190 205 176;
+  --ds-src-hadith-bg: 244 226 191;
+  --ds-src-hadith-ink: 104 72 18;
+  --ds-src-hadith-line: 222 200 158;
+  --ds-src-history-bg: 226 231 234;
+  --ds-src-history-ink: 52 72 88;
+  --ds-src-history-line: 194 204 212;
+  --ds-src-inspired-bg: 241 222 205;
+  --ds-src-inspired-ink: 112 58 38;
+  --ds-src-inspired-line: 224 196 173;
+
+  --shadow-soft: 0 1px 2px rgb(88 60 24 / 0.08), 0 10px 26px -14px rgb(88 60 24 / 0.24);
+  --shadow-lift: 0 2px 4px rgb(88 60 24 / 0.1), 0 24px 50px -22px rgb(88 60 24 / 0.32);
+  --shadow-glow: 0 18px 60px -24px rgb(45 85 66 / 0.5);
+  color-scheme: light;
+}
+
+/* =============================================================================
+   Base layer for the public site only. Admin is untouched.
+   ============================================================================= */
+.site-root {
+  min-height: 100vh;
+  background-color: rgb(var(--ds-canvas-rgb));
+  color: rgb(var(--ds-ink-rgb));
+  font-family: var(--font-ui);
+  font-synthesis-weight: none;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  --tw-gradient-from: rgb(var(--ds-canvas-rgb));
+}
+
+html[lang='ar'] .site-root,
+.site-root[lang='ar'] {
+  --font-reading: 'Noto Naskh Arabic', 'Lora', Georgia, serif;
+  --tracking-ui: 0;
+}
+
+.site-root ::selection {
+  background: rgb(var(--ds-brand-rgb) / 0.2);
+  color: rgb(var(--ds-ink-rgb));
+}
+
+.site-root :focus-visible {
+  outline: 2px solid rgb(var(--ds-focus-rgb));
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+.site-root h1,
+.site-root h2,
+.site-root h3,
+.site-root h4 {
+  letter-spacing: var(--tracking-ui);
+  text-wrap: balance;
+}
+
+.site-root p {
+  text-wrap: pretty;
+}
+
+.site-root[data-site-theme='dark'] {
+  color-scheme: dark;
+}
+
+/* Logical helpers ---------------------------------------------------------- */
+.ds-container {
+  width: 100%;
+  max-width: var(--page-max);
+  margin-inline: auto;
+  padding-inline: clamp(1.15rem, 4vw, 2.5rem);
+}
+
+.ds-section {
+  padding-block: var(--space-section);
+}
+
+.ds-measure {
+  max-inline-size: var(--measure-reading);
+}
+
+.ds-rule {
+  height: 1px;
+  border: 0;
+  background: linear-gradient(
+    to right,
+    transparent,
+    rgb(var(--ds-line-strong-rgb)),
+    transparent
+  );
+}
+
+.flip-rtl {
+  transform: scaleX(1);
+}
+[dir='rtl'] .flip-rtl {
+  transform: scaleX(-1);
+}
+
+/* Typography utilities ---------------------------------------------------- */
+.ds-eyebrow {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgb(var(--ds-gold-ink-rgb));
+}
+
+.ds-display {
+  font-family: var(--font-ui);
+  font-size: var(--text-display);
+  font-weight: 700;
+  line-height: 1.18;
+}
+
+.ds-reading {
+  font-family: var(--font-reading);
+  font-size: var(--text-reading);
+  line-height: var(--leading-reading);
+  letter-spacing: 0;
+  color: rgb(var(--ds-ink-rgb));
+}
+
+.ds-reading p + p {
+  margin-block-start: 1.1em;
+}
+
+.ds-source-serif {
+  font-family: var(--font-reading);
+}
+
+/* Reading column (used from Phase 3 on) ----------------------------------- */
+.ds-prose {
+  font-family: var(--font-reading);
+  font-size: var(--text-reading);
+  line-height: var(--leading-reading);
+  color: rgb(var(--ds-ink-rgb));
+  hanging-punctuation: first;
+}
+.ds-prose p {
+  margin-block: 0 1.15em;
+}
+.ds-prose p:first-of-type::first-letter {
+  font-size: 2.6em;
+  line-height: 0.9;
+  float: inline-start;
+  margin-inline-end: 0.12em;
+  margin-block-start: 0.08em;
+  color: rgb(var(--ds-brand-ink-rgb));
+  font-weight: 600;
+}
+[dir='rtl'] .ds-prose p:first-of-type::first-letter {
+  float: inline-end;
+}
+
+/* Cards ------------------------------------------------------------------- */
+.ds-card {
+  background-color: rgb(var(--ds-surface-rgb));
+  border: 1px solid rgb(var(--ds-line-rgb));
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-soft);
+}
+
+.ds-surface {
+  background-color: rgb(var(--ds-surface-rgb));
+}
+
+.ds-hairline {
+  border-color: rgb(var(--ds-line-rgb));
+}
+
+/* Source badge ------------------------------------------------------------ */
+.source-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border-radius: var(--radius-pill);
+  border: 1px solid transparent;
+  background-color: rgb(var(--ds-src-quran-bg));
+  color: rgb(var(--ds-src-quran-ink));
+  border-color: rgb(var(--ds-src-quran-line));
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+.source-badge[data-source='authentic_hadith'] {
+  background-color: rgb(var(--ds-src-hadith-bg));
+  color: rgb(var(--ds-src-hadith-ink));
+  border-color: rgb(var(--ds-src-hadith-line));
+}
+.source-badge[data-source='historical_source'] {
+  background-color: rgb(var(--ds-src-history-bg));
+  color: rgb(var(--ds-src-history-ink));
+  border-color: rgb(var(--ds-src-history-line));
+}
+.source-badge[data-source='inspired_story'] {
+  background-color: rgb(var(--ds-src-inspired-bg));
+  color: rgb(var(--ds-src-inspired-ink));
+  border-color: rgb(var(--ds-src-inspired-line));
+}
+
+/* Skeleton ---------------------------------------------------------------- */
+.ds-skeleton {
+  position: relative;
+  overflow: hidden;
+  background-color: rgb(var(--ds-surface-soft-rgb));
+  border-radius: var(--radius-sm);
+}
+.ds-skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgb(var(--ds-surface-rgb) / 0.65),
+    transparent
+  );
+  animation: ds-shimmer 1.6s infinite;
+}
+
+@keyframes ds-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes ds-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes ds-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  60% {
+    transform: scale(1.02);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes ds-draw {
+  from {
+    stroke-dashoffset: var(--dash-from, 240);
+  }
+}
+
+.ds-rise {
+  animation: ds-rise var(--duration-slow) var(--ease-out) both;
+}
+.ds-pop {
+  animation: ds-pop var(--duration-slow) var(--ease-spring) both;
+}
+
+/* Scrollbars & misc ------------------------------------------------------- */
+.site-root .ds-scroll-x {
+  overflow-x: auto;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+}
+.site-root .ds-scroll-x::-webkit-scrollbar {
+  display: none;
+}
+
+/* Header glass */
+.ds-glass {
+  background-color: rgb(var(--ds-canvas-rgb) / 0.86);
+  backdrop-filter: saturate(140%) blur(14px);
+  -webkit-backdrop-filter: saturate(140%) blur(14px);
+}
+
+/* Compatibility bridge for pages not yet migrated (phases 2–5).
+   Keeps them readable in dark/sepia while they await their redesign. */
+[data-site-theme='dark'] .site-root .bg-white,
+[data-site-theme='dark'] .site-root .bg-\[\#fbfaf6\],
+[data-site-theme='dark'] .site-root .bg-\[\#f3f1e9\] {
+  background-color: rgb(var(--ds-surface-rgb));
+}
+[data-site-theme='dark'] .site-root .text-slate-900,
+[data-site-theme='dark'] .site-root .text-emerald-950,
+[data-site-theme='dark'] .site-root .text-emerald-900 {
+  color: rgb(var(--ds-ink-rgb));
+}
+[data-site-theme='dark'] .site-root .text-slate-600,
+[data-site-theme='dark'] .site-root .text-slate-500 {
+  color: rgb(var(--ds-ink-muted-rgb));
+}
+[data-site-theme='dark'] .site-root .border-emerald-950\/10,
+[data-site-theme='dark'] .site-root .border-emerald-950\/15 {
+  border-color: rgb(var(--ds-line-rgb));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .site-root *,
+  .site-root *::before,
+  .site-root *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

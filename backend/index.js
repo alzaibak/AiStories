@@ -8,9 +8,14 @@ require('./config/environment').loadEnvironment();
 const sequelize = require('./config/database');
 const runMigrations = require('./migrate');
 const { processDueReminders } = require('./utils/reminders');
+const {
+  refreshMysteryBoxStatuses,
+  releaseExpiredMysteryBoxReservations
+} = require('./utils/mysteryBoxService');
 
 const app = express();
 let reminderTimer;
+let mysteryBoxTimer;
 app.disable('x-powered-by');
 
 const clientDevelopmentOrigins = ['http://localhost:8080', 'http://127.0.0.1:8080'];
@@ -93,6 +98,7 @@ app.get('/api/v1/health', (req, res) => res.json({ status: 'ok', service: 'islam
 
 app.use('/api/v1', require('./routes/roleAuthentication'));
 app.use('/api/v1', paymentRoutes.router);
+app.use('/api/v1', require('./routes/mysteryBox'));
 app.use('/api/v1', require('./routes/storyPlatform'));
 
 app.use((req, res) => res.status(404).json({ message: 'Route API introuvable.' }));
@@ -110,6 +116,7 @@ async function startServer() {
   const port = Number(process.env.PORT) || 5000;
   const server = app.listen(port, '0.0.0.0', () => console.info(`API Islamic Stories à l’écoute sur le port ${port}.`));
   startReminderScheduler();
+  startMysteryBoxScheduler();
   return server;
 }
 
@@ -136,6 +143,33 @@ function startReminderScheduler() {
   return reminderTimer;
 }
 
+function startMysteryBoxScheduler() {
+  if (mysteryBoxTimer) return mysteryBoxTimer;
+  const interval = Number(process.env.MYSTERY_BOX_POLL_INTERVAL_MS || 60000);
+  if (!Number.isInteger(interval) || interval < 5000 || interval > 3600000) {
+    throw new Error('MYSTERY_BOX_POLL_INTERVAL_MS must be between 5000 and 3600000.');
+  }
+  let running = false;
+  mysteryBoxTimer = setInterval(async () => {
+    if (running) return;
+    running = true;
+    try {
+      const transitions = await refreshMysteryBoxStatuses();
+      const released = await releaseExpiredMysteryBoxReservations();
+      if (transitions.activated || transitions.ended) {
+        console.info(`Mystery Box : ${transitions.activated} activée(s), ${transitions.ended} terminée(s).`);
+      }
+      if (released) console.info(`Mystery Box : ${released} réservation(s) libérée(s).`);
+    } catch (error) {
+      console.error('Échec du traitement automatique des Mystery Box :', error);
+    } finally {
+      running = false;
+    }
+  }, interval);
+  mysteryBoxTimer.unref();
+  return mysteryBoxTimer;
+}
+
 if (require.main === module) {
   startServer().catch((error) => {
     console.error('Impossible de démarrer l’API :', error);
@@ -143,4 +177,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, startServer, startReminderScheduler };
+module.exports = { app, startServer, startReminderScheduler, startMysteryBoxScheduler };

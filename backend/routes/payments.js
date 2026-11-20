@@ -31,6 +31,11 @@ const { recordAudit } = require('../utils/audit');
 const { requestedLanguage } = require('../utils/contentLocalization');
 const { localizePlan } = require('../utils/planLocalization');
 const { sendTemplateEmail } = require('../utils/email');
+const {
+  refundMysteryBoxPurchase,
+  sendMysteryBoxPurchaseEmail,
+  settleMysteryBoxPurchase
+} = require('../utils/mysteryBoxService');
 
 const router = express.Router();
 const readers = [authenticate, allowRoles('READER')];
@@ -599,6 +604,15 @@ async function handleStripeEvent(event, transaction, postCommitActions = []) {
         if (object.metadata?.promoRedemptionId) {
           await finalizePromoRedemption(Number(object.metadata.promoRedemptionId), object.id, transaction);
         }
+      } else if (object.mode === 'payment' && object.metadata?.mysteryBoxPurchaseId &&
+        ['paid', 'no_payment_required'].includes(object.payment_status)) {
+        const purchase = await settleMysteryBoxPurchase(object, 'paid', transaction);
+        if (purchase) {
+          const purchaseId = purchase.id;
+          postCommitActions.push(['mystery box confirmation', async () => {
+            await sendMysteryBoxPurchaseEmail(purchaseId);
+          }]);
+        }
       } else if (object.mode === 'payment' && object.metadata?.donationId &&
         ['paid', 'no_payment_required'].includes(object.payment_status)) {
         const donationId = Number(object.metadata.donationId);
@@ -659,6 +673,9 @@ async function handleStripeEvent(event, transaction, postCommitActions = []) {
       break;
     case 'checkout.session.expired':
       if (object.mode === 'payment' && object.metadata?.orderId) await settleStoreOrder(object, 'cancelled', transaction);
+      if (object.mode === 'payment' && object.metadata?.mysteryBoxPurchaseId) {
+        await settleMysteryBoxPurchase(object, 'cancelled', transaction);
+      }
       if (object.mode === 'payment' && object.metadata?.donationId) {
         await Donation.update({ status: 'failed' }, {
           where: { id: Number(object.metadata.donationId), status: 'pending' },
@@ -681,6 +698,9 @@ async function handleStripeEvent(event, transaction, postCommitActions = []) {
       break;
     case 'checkout.session.async_payment_failed':
       if (object.mode === 'payment' && object.metadata?.orderId) await settleStoreOrder(object, 'failed', transaction);
+      if (object.mode === 'payment' && object.metadata?.mysteryBoxPurchaseId) {
+        await settleMysteryBoxPurchase(object, 'cancelled', transaction);
+      }
       if (object.mode === 'payment' && object.metadata?.donationId) {
         await Donation.update({ status: 'failed' }, {
           where: { id: Number(object.metadata.donationId), status: 'pending' },
@@ -757,6 +777,7 @@ async function handleStripeEvent(event, transaction, postCommitActions = []) {
       break;
     case 'charge.refunded':
       await refundStoreOrder(object, transaction);
+      await refundMysteryBoxPurchase(object, transaction);
       break;
     default:
       break;

@@ -11,6 +11,7 @@ import {
   CircleDollarSign,
   ClipboardList,
   CreditCard,
+  Gift,
   Heart,
   Home,
   Image,
@@ -64,6 +65,7 @@ const navigation: Array<{
     title: 'التجارة',
     links: [
       { label: 'الكتب والكتب الإلكترونية', to: 'shop/books', icon: ShoppingBag },
+      { label: 'صناديق الغموض', to: 'shop/mystery-boxes', icon: Gift },
       { label: 'الطلبات', to: 'orders', icon: ClipboardList }
     ]
   },
@@ -111,6 +113,7 @@ const knownRoutes: Array<{ path: string; label: string }> = [
   { path: '/admin/community/events', label: 'المسابقات والفعاليات' },
   { path: '/admin/community/teams', label: 'الفرق' },
   { path: '/admin/shop/books', label: 'الكتب والكتب الإلكترونية' },
+  { path: '/admin/shop/mystery-boxes', label: 'صناديق الغموض' },
   { path: '/admin/orders', label: 'الطلبات' },
   { path: '/admin/money/payments', label: 'مدفوعات Stripe' },
   { path: '/admin/money/donations', label: 'التبرعات والحملات' },
@@ -173,7 +176,7 @@ export default function AdminLayout() {
   if (user.role === 'SUPER_ADMIN' && pathWithoutLocale === '/admin/content/review-queue') {
     return <Navigate to={basePath} replace />;
   }
-  if (isEditor && ['/admin/orders', '/admin/subscriptions', '/admin/system', '/admin/money', '/admin/community'].some((path) => pathWithoutLocale.startsWith(path))) {
+  if (isEditor && ['/admin/orders', '/admin/subscriptions', '/admin/system', '/admin/money', '/admin/community', '/admin/shop/mystery-boxes'].some((path) => pathWithoutLocale.startsWith(path))) {
     return <Navigate to={basePath} replace />;
   }
   const matchedRoute = [...knownRoutes]
@@ -183,7 +186,9 @@ export default function AdminLayout() {
   const routeRemainder = pathWithoutLocale.slice(matchedRoute.path.length);
   const routeAction = routeRemainder.includes('/parts/')
     ? 'الأجزاء'
-    : routeRemainder.endsWith('/edit')
+    : routeRemainder.endsWith('/purchases')
+      ? 'الشحنات'
+      : routeRemainder.endsWith('/edit')
       ? 'تعديل'
       : routeRemainder.endsWith('/new')
         ? 'إنشاء'

@@ -57,7 +57,8 @@ const sampleStories = [
     type: 'history',
     sourceBadge: 'quran_verse',
     sourceReferences: [{ reference: 'القرآن الكريم، التوبة 9:40' }],
-    isFree: false,
+    isFree: true,
+    published: true,
     partTitle: 'لا تحزن إن الله معنا',
     partContent: 'تذكر سورة التوبة موقف الغار بعبارات موجزة، وتعرض قول النبي لصاحبه: لا تحزن إن الله معنا. يركز هذا الجزء على النص القرآني ومعنى الثقة بالله.',
     endingHook: 'كيف يجتمع الأخذ بالأسباب مع التوكل؟',
@@ -127,7 +128,35 @@ const sampleStories = [
   }
 ];
 
-async function seedStories() {
+const DEMO_REVIEWER_NAME = 'Administration Plateforme';
+
+function storySeedDefaults(sample, { reviewer, now = new Date() } = {}) {
+  const published = Boolean(sample.published);
+  const reviewerId = published && reviewer ? reviewer.id : null;
+  return {
+    // The public demo is seeded already reviewed so a fresh local database matches the site.
+    status: published ? 'published' : 'draft',
+    isFree: Boolean(sample.isFree),
+    ageGroup: 'all',
+    authorId: reviewerId,
+    reviewerId,
+    reviewerName: published ? DEMO_REVIEWER_NAME : null,
+    reviewedBy: reviewerId,
+    reviewedAt: published ? now : null,
+    approvedAt: published ? now : null,
+    publishedAt: published ? now : null,
+    publishAt: published ? now : null,
+    reviewChecklist: published ? {
+      sourcesProvided: true,
+      reviewedBy: DEMO_REVIEWER_NAME,
+      reviewedAt: now.toISOString(),
+      representationConfirmed: true
+    } : {}
+  };
+}
+
+async function seedStories({ reviewer } = {}) {
+  const now = new Date();
   for (const sample of sampleStories) {
     const [collection] = await Collection.findOrCreate({
       where: { slug: sample.collection.slug },
@@ -143,9 +172,7 @@ async function seedStories() {
         type: sample.type,
         sourceBadge: sample.sourceBadge,
         sourceReferences: sample.sourceReferences,
-        status: 'draft',
-        isFree: sample.isFree,
-        ageGroup: 'all'
+        ...storySeedDefaults(sample, { reviewer, now })
       }
     });
     const [part] = await StoryPart.findOrCreate({
@@ -275,4 +302,4 @@ async function seedStories() {
   });
 }
 
-module.exports = { seedStories };
+module.exports = { seedStories, sampleStories, storySeedDefaults, DEMO_REVIEWER_NAME };

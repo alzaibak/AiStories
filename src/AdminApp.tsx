@@ -14,6 +14,7 @@ import {
   AdminTeamsPage
 } from '@/pages/stories/AdminOperationsPages';
 import AdminLayout from '@/pages/stories/AdminLayout';
+import { AdminMysteryBoxEditorPage, AdminMysteryBoxesPage, AdminMysteryBoxPurchasesPage } from '@/pages/stories/AdminMysteryBoxPages';
 import {
   AdminBooksPage,
   AdminCollectionsPage,
@@ -73,6 +74,10 @@ export default function AdminApp() {
               <Route path="shop/books" element={<AdminBooksPage />} />
               <Route path="shop/books/new" element={<AdminContentPage />} />
               <Route path="shop/books/:bookId/edit" element={<AdminContentPage />} />
+              <Route path="shop/mystery-boxes" element={<AdminMysteryBoxesPage />} />
+              <Route path="shop/mystery-boxes/new" element={<AdminMysteryBoxEditorPage />} />
+              <Route path="shop/mystery-boxes/:boxId/edit" element={<AdminMysteryBoxEditorPage />} />
+              <Route path="shop/mystery-boxes/:boxId/purchases" element={<AdminMysteryBoxPurchasesPage />} />
               <Route path="orders" element={<AdminStoreOrdersPage />} />
               <Route path="money/payments" element={<AdminStoreOrdersPage />} />
               <Route path="money/donations" element={<AdminDonationsPage />} />

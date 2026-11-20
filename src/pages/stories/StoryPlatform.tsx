@@ -13,14 +13,18 @@ import {
 } from 'react-router-dom';
 import {
   ArrowLeft, ArrowUpLeft, BookOpen, Bookmark, Check, ChevronLeft,
-  ChevronRight, CircleHelp, Clock3, CreditCard, Headphones, Heart,
+  ChevronRight, ChevronDown, CircleHelp, Clock3, CreditCard, Globe, Heart, LogOut,
   LockKeyhole, LogIn, MapPin, Menu, Moon, RefreshCw, Search, ShieldCheck, Sun,
-  ShoppingBag, Sparkles, Star, UserRound, X
+  Gift, ShoppingBag, Sparkles, Star, UserRound, X
 } from 'lucide-react';
 import { useStoryAuth } from '@/contexts/StoryAuthContext';
 import { ApiError, api, type ReaderSubscription } from '@/lib/api';
 import { translateText, translateTree } from '@/lib/localization';
 import { localizeAuthError } from '@/lib/authErrors';
+import { useSiteTheme } from '@/contexts/SiteThemeContext';
+import { BrandMark } from '@/components/ui/BrandMark';
+import { buttonClasses } from '@/components/ui/Button';
+import { StoryCard } from '@/components/ui/StoryCard';
 
 type SiteLanguage = 'ar' | 'en' | 'fr';
 const siteLanguages: SiteLanguage[] = ['ar', 'en', 'fr'];
@@ -131,6 +135,25 @@ type BookSummary = {
   stockQuantity?: number | null;
 };
 
+type MysteryBoxHeader = {
+  slug: string;
+  label: string;
+  seasonLabel: string;
+  icon: string;
+  colorFrom: string;
+  colorTo: string;
+  accentColor: string;
+  animationStyle: 'shimmer' | 'pulse' | 'sparkle' | 'none';
+  showCountdownInHeader: boolean;
+  startsAt: string;
+  endsAt: string;
+  serverTime: string;
+  remaining: number | null;
+  almostSoldOut: boolean;
+  price: { amount: string; currency: string; tier: 'standard' | 'early_bird' };
+  itemCount: number;
+};
+
 type PlanTranslation = { name: string; features: string[] };
 type PlanTranslations = Partial<Record<SiteLanguage, PlanTranslation>>;
 type PlanDraft = {
@@ -201,88 +224,349 @@ function Container({ children, className = '' }: { children: ReactNode; classNam
 
 function Header() {
   const { user, logout } = useStoryAuth();
+  const { theme, setTheme } = useSiteTheme();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [openMenu, setOpenMenu] = useState<'theme' | 'language' | 'profile' | null>(null);
   const language = useSiteLanguage();
   const location = useLocation();
+  const navigate = useLocalizedNavigate();
+
   useEffect(() => {
     document.documentElement.lang = language;
     document.documentElement.dir = language === 'ar' ? 'rtl' : 'ltr';
   }, [language]);
+
+  useEffect(() => {
+    setMenuOpen(false);
+    setOpenMenu(null);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    const locked = menuOpen || searchOpen;
+    document.body.style.overflow = locked ? 'hidden' : '';
+    return () => { document.body.style.overflow = ''; };
+  }, [menuOpen, searchOpen]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      setMenuOpen(false);
+      setSearchOpen(false);
+      setOpenMenu(null);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
   const languagePath = (nextLanguage: SiteLanguage) =>
     `/${nextLanguage}${location.pathname.replace(/^\/(fr|en|ar)(?=\/|$)/, '')}`;
+  const submitSearch = (event: FormEvent) => {
+    event.preventDefault();
+    const query = searchQuery.trim();
+    setSearchOpen(false);
+    setMenuOpen(false);
+    setSearchQuery('');
+    navigate(`/stories${query ? `?q=${encodeURIComponent(query)}` : ''}`);
+  };
+
+  const path = location.pathname.replace(/^\/(fr|en|ar)(?=\/|$)/, '') || '/';
+  const navItems: Array<{ href: string; label: string }> = [
+    { href: '/stories', label: 'القصص' },
+    { href: '/books', label: 'الكتب' },
+    { href: '/pricing', label: 'الاشتراكات' },
+    { href: '/events', label: 'الفعاليات' },
+    { href: '/donations', label: 'ادعمنا' },
+    { href: '/policy', label: 'منهجنا' }
+  ];
+  const isActive = (href: string) =>
+    href === '/stories'
+      ? path.startsWith('/stories') || path.startsWith('/collections')
+      : path === href || path.startsWith(`${href}/`);
+
+  const appearances: Array<{ value: 'light' | 'sepia' | 'dark'; label: string; Icon: typeof Sun }> = [
+    { value: 'light', label: 'فاتح', Icon: Sun },
+    { value: 'sepia', label: 'وضع ورقي', Icon: BookOpen },
+    { value: 'dark', label: 'داكن', Icon: Moon }
+  ];
+  const currentAppearance = appearances.find((item) => item.value === theme) || appearances[0];
+  const CurrentAppearanceIcon = currentAppearance.Icon;
+
+  const iconButton = 'grid h-10 w-10 place-items-center rounded-full text-ink-muted transition hover:bg-surface-soft hover:text-ink';
 
   return (
-    <header className="sticky top-0 z-30 border-b border-emerald-950/10 bg-[#fbfaf6]/95 backdrop-blur">
-      <Container className="flex h-[76px] items-center justify-between gap-5">
-        <Link to="/" className="flex shrink-0 items-center gap-3" aria-label={t('الصفحة الرئيسية', language)}>
-          <span className="grid h-11 w-11 place-items-center rounded-2xl bg-emerald-900 text-amber-200">
-            <BookOpen size={22} />
-          </span>
-          <span className="text-lg font-extrabold tracking-tight text-emerald-950">{t('حكايات إسلامية', language)}</span>
+    <header className="ds-glass sticky top-0 z-40 border-b border-line/80">
+      <Container className="flex h-[var(--header-height)] items-center gap-2">
+        <Link to="/" className="me-2 flex shrink-0 items-center gap-2.5" aria-label={`${t('حكايات إسلامية', language)} — ${t('الصفحة الرئيسية', language)}`}>
+          <BrandMark size={40} />
+          <span className="text-[1.0625rem] font-bold tracking-tight text-ink">{t('حكايات إسلامية', language)}</span>
         </Link>
-        <nav className="hidden items-center gap-8 text-sm font-semibold text-slate-600 md:flex">
-          <Link className="transition hover:text-emerald-800" to="/stories">{t('القصص', language)}</Link>
-          <Link className="transition hover:text-emerald-800" to="/books">{t('المتجر', language)}</Link>
-          <Link className="transition hover:text-emerald-800" to="/pricing">{t('الأسعار والباقات', language)}</Link>
-          <Link className="transition hover:text-emerald-800" to="/donations">{t('التبرعات', language)}</Link>
-          <Link className="transition hover:text-emerald-800" to="/events">{t('الفعاليات', language)}</Link>
-          <Link className="transition hover:text-emerald-800" to="/story-request">{t('اقتراح قصة', language)}</Link>
-          <Link className="transition hover:text-emerald-800" to="/policy">{t('منهجنا', language)}</Link>
+
+        <nav className="ms-2 hidden items-center gap-0.5 xl:flex" aria-label={t('القائمة', language)}>
+          {navItems.map((item) => (
+            <Link
+              key={item.href}
+              to={item.href}
+              aria-current={isActive(item.href) ? 'page' : undefined}
+              className={`whitespace-nowrap rounded-full px-2.5 py-2 text-sm font-semibold transition ${
+                isActive(item.href)
+                  ? 'bg-brand-soft text-brand-ink'
+                  : 'text-ink-muted hover:bg-surface-soft hover:text-ink'
+              }`}
+            >
+              {t(item.label, language)}
+            </Link>
+          ))}
         </nav>
-        <div className="hidden items-center gap-3 md:flex">
-          <nav aria-label="Language" className="flex items-center gap-1 text-xs font-bold">
-            {siteLanguages.map((item) => <RouterLink
-              key={item}
-              to={`${languagePath(item)}${location.search}${location.hash}`}
-              lang={item}
-              aria-current={language === item ? 'page' : undefined}
-              className={`rounded-full px-2 py-1 uppercase ${language === item ? 'bg-emerald-100 text-emerald-950' : 'text-slate-500 hover:text-emerald-900'}`}
-            >{item}</RouterLink>)}
-          </nav>
-          {user ? (
-            <>
-              <Link to={`/${language}/account`} className="inline-flex items-center gap-2 rounded-full border border-emerald-950/15 px-4 py-2 text-sm font-semibold text-emerald-950 hover:bg-emerald-50">
-                <UserRound size={16} /> {t('حسابي', language)}
-              </Link>
-              <button onClick={logout} className="px-2 py-2 text-sm font-semibold text-slate-500 hover:text-emerald-900">{t('خروج', language)}</button>
-            </>
-          ) : (
-            <>
-              <Link to="/login" className="px-3 py-2 text-sm font-semibold text-emerald-950 hover:text-emerald-700">{t('دخول', language)}</Link>
-              <Link to="/register" className="rounded-full bg-emerald-900 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-emerald-800">{t('ابدأ رحلتك', language)}</Link>
-            </>
-          )}
+
+        <div className="ms-auto flex items-center gap-1">
+          <button type="button" className={iconButton} onClick={() => setSearchOpen(true)} aria-label={t('بحث', language)}>
+            <Search size={19} strokeWidth={1.9} />
+          </button>
+
+          <div className="relative hidden sm:block">
+            <button
+              type="button"
+              className={`${iconButton} flex w-auto items-center gap-1 px-2.5`}
+              aria-label={t('المظهر', language)}
+              aria-expanded={openMenu === 'theme'}
+              aria-haspopup="menu"
+              onClick={() => setOpenMenu(openMenu === 'theme' ? null : 'theme')}
+            >
+              <CurrentAppearanceIcon size={19} strokeWidth={1.9} />
+              <ChevronDown size={13} aria-hidden="true" />
+            </button>
+            {openMenu === 'theme' && (
+              <>
+                <button type="button" tabIndex={-1} aria-hidden="true" className="fixed inset-0 z-30 cursor-default" onClick={() => setOpenMenu(null)} />
+                <div role="menu" aria-label={t('المظهر', language)} className="ds-pop absolute end-0 top-full z-40 mt-2 w-44 rounded-2xl border border-line bg-surface p-1.5 shadow-lift">
+                  {appearances.map(({ value, label, Icon }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={theme === value}
+                      onClick={() => { setTheme(value); setOpenMenu(null); }}
+                      className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-semibold transition ${
+                        theme === value ? 'bg-brand-soft text-brand-ink' : 'text-ink-muted hover:bg-surface-soft hover:text-ink'
+                      }`}
+                    >
+                      <Icon size={16} aria-hidden="true" />
+                      {t(label, language)}
+                      {theme === value && <Check size={14} className="ms-auto" aria-hidden="true" />}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+
+          <div className="relative hidden md:block">
+            <button
+              type="button"
+              className={`${iconButton} flex w-auto items-center gap-1.5 px-2.5`}
+              aria-label={t('اللغة', language)}
+              aria-expanded={openMenu === 'language'}
+              aria-haspopup="menu"
+              onClick={() => setOpenMenu(openMenu === 'language' ? null : 'language')}
+            >
+              <Globe size={18} strokeWidth={1.9} aria-hidden="true" />
+              <span className="text-xs font-bold uppercase">{language}</span>
+            </button>
+            {openMenu === 'language' && (
+              <>
+                <button type="button" tabIndex={-1} aria-hidden="true" className="fixed inset-0 z-30 cursor-default" onClick={() => setOpenMenu(null)} />
+                <div role="menu" aria-label={t('اللغة', language)} className="ds-pop absolute end-0 top-full z-40 mt-2 w-44 rounded-2xl border border-line bg-surface p-1.5 shadow-lift">
+                  {planLanguages.map((item) => (
+                    <RouterLink
+                      key={item.code}
+                      to={`${languagePath(item.code)}${location.search}${location.hash}`}
+                      lang={item.code}
+                      role="menuitemradio"
+                      aria-checked={language === item.code}
+                      className={`flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-semibold transition ${
+                        language === item.code ? 'bg-brand-soft text-brand-ink' : 'text-ink-muted hover:bg-surface-soft hover:text-ink'
+                      }`}
+                    >
+                      {item.label}
+                      {language === item.code && <Check size={14} className="ms-auto" aria-hidden="true" />}
+                    </RouterLink>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+
+          <div className="hidden items-center gap-2 md:flex">
+            {user ? (
+              <div className="relative">
+                <button
+                  type="button"
+                  className="flex h-10 items-center gap-2 rounded-full border border-line bg-surface ps-1 pe-3 text-sm font-semibold text-ink transition hover:border-line-strong"
+                  aria-expanded={openMenu === 'profile'}
+                  aria-haspopup="menu"
+                  onClick={() => setOpenMenu(openMenu === 'profile' ? null : 'profile')}
+                >
+                  <span className="grid h-8 w-8 place-items-center rounded-full bg-brand text-xs font-bold uppercase text-brand-on">
+                    {user.email?.charAt(0) || <UserRound size={15} />}
+                  </span>
+                  <span className="max-w-24 truncate">{t('حسابي', language)}</span>
+                  <ChevronDown size={13} aria-hidden="true" />
+                </button>
+                {openMenu === 'profile' && (
+                  <>
+                    <button type="button" tabIndex={-1} aria-hidden="true" className="fixed inset-0 z-30 cursor-default" onClick={() => setOpenMenu(null)} />
+                    <div role="menu" className="ds-pop absolute end-0 top-full z-40 mt-2 w-56 rounded-2xl border border-line bg-surface p-1.5 shadow-lift">
+                      <p className="truncate px-3 pb-1.5 pt-2 text-xs text-ink-faint">{user.email}</p>
+                      <Link role="menuitem" to="/account" className="flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-semibold text-ink hover:bg-surface-soft">
+                        <UserRound size={16} aria-hidden="true" /> {t('حسابي والاشتراك', language)}
+                      </Link>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => { logout(); setOpenMenu(null); }}
+                        className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-semibold text-ink-muted hover:bg-surface-soft hover:text-ink"
+                      >
+                        <LogOut size={16} aria-hidden="true" /> {t('خروج', language)}
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            ) : (
+              <>
+                <Link to="/login" className="rounded-full px-3 py-2 text-sm font-semibold text-ink-muted transition hover:text-ink">
+                  {t('دخول', language)}
+                </Link>
+                <Link to="/stories" className={buttonClasses({ size: 'sm', className: 'px-4' })}>
+                  {t('ابدأ القراءة', language)}
+                </Link>
+              </>
+            )}
+          </div>
+
+          <button
+            type="button"
+            className={`${iconButton} xl:hidden`}
+            aria-label={t(menuOpen ? 'إغلاق القائمة' : 'فتح القائمة', language)}
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen((open) => !open)}
+          >
+            {menuOpen ? <X size={21} /> : <Menu size={21} />}
+          </button>
         </div>
-        <button
-          type="button"
-          className="grid h-10 w-10 place-items-center rounded-full border border-emerald-950/10 text-emerald-950 md:hidden"
-          aria-label={t(menuOpen ? 'إغلاق القائمة' : 'فتح القائمة', language)}
-          onClick={() => setMenuOpen((open) => !open)}
-        >
-          {menuOpen ? <X size={20} /> : <Menu size={20} />}
-        </button>
-        <nav aria-label="Language" className="flex items-center justify-center gap-2 pb-3 text-xs font-bold md:hidden">
-          {siteLanguages.map((item) => <RouterLink
-            key={item}
-            to={`${languagePath(item)}${location.search}${location.hash}`}
-            lang={item}
-            aria-current={language === item ? 'page' : undefined}
-            className={`rounded-full px-2 py-1 uppercase ${language === item ? 'bg-emerald-100 text-emerald-950' : 'text-slate-500 hover:text-emerald-900'}`}
-          >{item}</RouterLink>)}
-        </nav>
       </Container>
+
       {menuOpen && (
-        <div className="border-t border-emerald-950/10 bg-[#fbfaf6] px-5 py-4 md:hidden">
-          <nav className="mx-auto flex max-w-7xl flex-col gap-4 text-sm font-semibold text-emerald-950">
-            <Link onClick={() => setMenuOpen(false)} to="/stories">{t('القصص', language)}</Link>
-            <Link onClick={() => setMenuOpen(false)} to="/books">{t('المتجر', language)}</Link>
-            <Link onClick={() => setMenuOpen(false)} to="/pricing">{t('الأسعار والباقات', language)}</Link>
-            <Link onClick={() => setMenuOpen(false)} to="/donations">{t('التبرعات', language)}</Link>
-            <Link onClick={() => setMenuOpen(false)} to="/events">{t('الفعاليات', language)}</Link>
-            <Link onClick={() => setMenuOpen(false)} to="/story-request">{t('اقتراح قصة', language)}</Link>
-            <Link onClick={() => setMenuOpen(false)} to="/policy">{t('منهجنا', language)}</Link>
-            {user ? <Link onClick={() => setMenuOpen(false)} to={`/${language}/account`}>{t('حسابي والاشتراك', language)}</Link> : <Link onClick={() => setMenuOpen(false)} to={`/${language}/login`}>{t('تسجيل الدخول', language)}</Link>}
-          </nav>
+        <div className="fixed inset-x-0 bottom-0 top-[var(--header-height)] z-30 overflow-y-auto border-t border-line bg-paper xl:hidden">
+          <div className="ds-container flex flex-col gap-6 py-6">
+            <nav className="grid gap-1" aria-label={t('القائمة', language)}>
+              {navItems.map((item) => (
+                <Link
+                  key={item.href}
+                  to={item.href}
+                  onClick={() => setMenuOpen(false)}
+                  className={`flex items-center justify-between rounded-2xl px-4 py-3.5 text-base font-semibold ${
+                    isActive(item.href) ? 'bg-brand-soft text-brand-ink' : 'text-ink hover:bg-surface-soft'
+                  }`}
+                >
+                  {t(item.label, language)}
+                  <ArrowLeft size={16} className="text-ink-faint ltr:rotate-180" aria-hidden="true" />
+                </Link>
+              ))}
+            </nav>
+
+            <div className="rounded-3xl border border-line bg-surface p-4">
+              <p className="text-xs font-bold text-ink-faint">{t('المظهر', language)}</p>
+              <div className="mt-2.5 grid grid-cols-3 gap-2">
+                {appearances.map(({ value, label, Icon }) => (
+                  <button
+                    key={value}
+                    type="button"
+                    aria-pressed={theme === value}
+                    onClick={() => setTheme(value)}
+                    className={`flex min-h-14 flex-col items-center justify-center gap-1.5 rounded-2xl border text-xs font-semibold transition ${
+                      theme === value ? 'border-brand bg-brand-soft text-brand-ink' : 'border-line text-ink-muted'
+                    }`}
+                  >
+                    <Icon size={17} aria-hidden="true" />
+                    {t(label, language)}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-3xl border border-line bg-surface p-4">
+              <p className="text-xs font-bold text-ink-faint">{t('اللغة', language)}</p>
+              <div className="mt-2.5 grid grid-cols-3 gap-2">
+                {planLanguages.map((item) => (
+                  <RouterLink
+                    key={item.code}
+                    to={`${languagePath(item.code)}${location.search}${location.hash}`}
+                    lang={item.code}
+                    aria-current={language === item.code ? 'page' : undefined}
+                    className={`grid min-h-12 place-items-center rounded-2xl border text-sm font-semibold ${
+                      language === item.code ? 'border-brand bg-brand-soft text-brand-ink' : 'border-line text-ink-muted'
+                    }`}
+                  >
+                    {item.label}
+                  </RouterLink>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid gap-2">
+              {user ? (
+                <>
+                  <Link to="/account" onClick={() => setMenuOpen(false)} className={buttonClasses({ size: 'md', block: true })}>
+                    {t('حسابي والاشتراك', language)}
+                  </Link>
+                  <button type="button" onClick={() => { logout(); setMenuOpen(false); }} className={buttonClasses({ variant: 'secondary', size: 'md', block: true })}>
+                    {t('خروج', language)}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <Link to="/stories" onClick={() => setMenuOpen(false)} className={buttonClasses({ size: 'md', block: true })}>
+                    {t('ابدأ القراءة', language)}
+                  </Link>
+                  <Link to="/login" onClick={() => setMenuOpen(false)} className={buttonClasses({ variant: 'secondary', size: 'md', block: true })}>
+                    {t('تسجيل الدخول', language)}
+                  </Link>
+                  <Link to="/register" onClick={() => setMenuOpen(false)} className="pt-1 text-center text-sm font-semibold text-ink-muted underline decoration-line-strong underline-offset-4 hover:text-ink">
+                    {t('إنشاء حساب مجاني', language)}
+                  </Link>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {searchOpen && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center bg-[#0a1712]/45 px-4 pt-24 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={t('بحث في الحكايات', language)}>
+          <button type="button" tabIndex={-1} aria-hidden="true" className="absolute inset-0 cursor-default" onClick={() => setSearchOpen(false)} />
+          <form onSubmit={submitSearch} className="ds-pop relative z-10 w-full max-w-xl rounded-3xl border border-line bg-surface p-3 shadow-lift">
+            <div className="flex items-center gap-2">
+              <Search size={20} className="ms-2 shrink-0 text-ink-faint" aria-hidden="true" />
+              <input
+                autoFocus
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder={t('ابحث في الحكايات…', language)}
+                aria-label={t('بحث في الحكايات', language)}
+                className="h-12 w-full bg-transparent text-base text-ink outline-none placeholder:text-ink-faint"
+              />
+              <button type="button" onClick={() => setSearchOpen(false)} className={iconButton} aria-label={t('إغلاق', language)}>
+                <X size={19} />
+              </button>
+            </div>
+            <div className="flex items-center justify-between gap-3 border-t border-line px-2 pt-2.5">
+              <p className="text-xs text-ink-faint">{t('ابحث عن قصة أو موضوع', language)}</p>
+              <button type="submit" className={buttonClasses({ size: 'sm' })}>{t('بحث', language)}</button>
+            </div>
+          </form>
         </div>
       )}
     </header>
@@ -291,29 +575,119 @@ function Header() {
 
 function Footer() {
   const language = useSiteLanguage();
+  const { theme, setTheme } = useSiteTheme();
+  const year = new Date().getFullYear();
+  const linkClass = 'text-sm text-ink-muted transition hover:text-brand-ink';
+  const columnTitle = 'text-xs font-bold tracking-wide text-ink-faint';
+
   return (
-    <footer className="mt-20 border-t border-emerald-950/10 bg-[#f3f1e9] py-10">
-      <Container className="flex flex-col gap-5 text-sm text-slate-600 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="font-bold text-emerald-950">{t('حكايات إسلامية', language)}</p>
-          <p className="mt-1">{t('قصص موثوقة، تُروى بمحبة للأجيال القادمة.', language)}</p>
+    <footer className="mt-[var(--space-section)] border-t border-line bg-surface-soft/50">
+      <Container className="grid gap-10 py-14 sm:grid-cols-2 lg:grid-cols-[1.6fr_1fr_1fr_1fr]">
+        <div className="max-w-sm">
+          <Link to="/" className="flex w-fit items-center gap-2.5" aria-label={t('الصفحة الرئيسية', language)}>
+            <BrandMark size={38} />
+            <span className="text-base font-bold text-ink">{t('حكايات إسلامية', language)}</span>
+          </Link>
+          <p className="mt-4 text-sm leading-7 text-ink-muted">{t('قصص موثوقة، تُروى بمحبة للأجيال القادمة.', language)}</p>
+          <div className="mt-5 flex flex-wrap gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface px-3 py-1.5 text-[0.6875rem] font-semibold text-ink-muted">
+              <ShieldCheck size={13} className="text-brand-ink" aria-hidden="true" /> {t('مراجعة وتوثيق', language)}
+            </span>
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface px-3 py-1.5 text-[0.6875rem] font-semibold text-ink-muted">
+              <Heart size={13} className="text-brand-ink" aria-hidden="true" /> {t('محتوى عائلي', language)}
+            </span>
+          </div>
         </div>
-        <div className="flex flex-wrap gap-x-6 gap-y-2">
-          <Link to="/policy/sources" className="hover:text-emerald-900">{t('المصادر والتوثيق', language)}</Link>
-          <Link to="/policy/depiction" className="hover:text-emerald-900">{t('سياسة التصوير', language)}</Link>
-          <Link to="/books" className="hover:text-emerald-900">{t('المتجر', language)}</Link>
-          <Link to="/donations" className="hover:text-emerald-900">{t('التبرعات', language)}</Link>
-          <Link to="/pricing" className="hover:text-emerald-900">{t('الأسعار والباقات', language)}</Link>
-          <Link to="/story-request" className="hover:text-emerald-900">{t('اقتراح قصة', language)}</Link>
-        </div>
+
+        <nav className="space-y-3" aria-label={t('روابط سريعة', language)}>
+          <p className={columnTitle}>{t('روابط سريعة', language)}</p>
+          <div className="grid gap-2.5">
+            <Link to="/stories" className={linkClass}>{t('القصص', language)}</Link>
+            <Link to="/books" className={linkClass}>{t('المتجر', language)}</Link>
+            <Link to="/events" className={linkClass}>{t('الفعاليات', language)}</Link>
+            <Link to="/story-request" className={linkClass}>{t('اقتراح قصة', language)}</Link>
+          </div>
+        </nav>
+
+        <nav className="space-y-3" aria-label={t('الثقة والمصادر', language)}>
+          <p className={columnTitle}>{t('الثقة والمصادر', language)}</p>
+          <div className="grid gap-2.5">
+            <Link to="/policy" className={linkClass}>{t('منهجنا', language)}</Link>
+            <Link to="/policy/sources" className={linkClass}>{t('المصادر والتوثيق', language)}</Link>
+            <Link to="/policy/depiction" className={linkClass}>{t('سياسة التصوير', language)}</Link>
+            <Link to="/donations" className={linkClass}>{t('التبرعات', language)}</Link>
+          </div>
+        </nav>
+
+        <nav className="space-y-3" aria-label={t('الحساب', language)}>
+          <p className={columnTitle}>{t('الحساب', language)}</p>
+          <div className="grid gap-2.5">
+            <Link to="/pricing" className={linkClass}>{t('الأسعار والباقات', language)}</Link>
+            <Link to="/account" className={linkClass}>{t('حسابي', language)}</Link>
+            <Link to="/login" className={linkClass}>{t('تسجيل الدخول', language)}</Link>
+            <Link to="/register" className={linkClass}>{t('إنشاء حساب مجاني', language)}</Link>
+          </div>
+        </nav>
       </Container>
+
+      <div className="border-t border-line">
+        <Container className="flex flex-col gap-4 py-5 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs text-ink-faint">© {year} {t('حكايات إسلامية', language)} · {t('جميع الحقوق محفوظة', language)}</p>
+          <div className="flex flex-wrap items-center gap-3">
+            <nav aria-label={t('اللغة', language)} className="flex items-center gap-1 rounded-full border border-line bg-surface p-1">
+              {planLanguages.map((item) => (
+                <RouterLink
+                  key={item.code}
+                  to={`/${item.code}`}
+                  lang={item.code}
+                  className={`rounded-full px-2.5 py-1 text-[0.6875rem] font-bold uppercase transition ${
+                    language === item.code ? 'bg-brand-soft text-brand-ink' : 'text-ink-faint hover:text-ink'
+                  }`}
+                >
+                  {item.code}
+                </RouterLink>
+              ))}
+            </nav>
+            <div className="flex items-center gap-1 rounded-full border border-line bg-surface p-1" role="group" aria-label={t('المظهر', language)}>
+              {([['light', Sun, 'فاتح'], ['sepia', BookOpen, 'وضع ورقي'], ['dark', Moon, 'داكن']] as const).map(([value, Icon, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setTheme(value)}
+                  aria-pressed={theme === value}
+                  aria-label={t(label, language)}
+                  title={t(label, language)}
+                  className={`grid h-7 w-7 place-items-center rounded-full transition ${
+                    theme === value ? 'bg-brand-soft text-brand-ink' : 'text-ink-faint hover:text-ink'
+                  }`}
+                >
+                  <Icon size={14} aria-hidden="true" />
+                </button>
+              ))}
+            </div>
+            <Link to="/design" className="text-xs font-semibold text-ink-faint hover:text-brand-ink">{t('دليل التصميم', language)}</Link>
+          </div>
+        </Container>
+      </div>
     </footer>
   );
 }
 
-function SiteLayout({ children }: { children: ReactNode }) {
+export function SiteLayout({ children }: { children: ReactNode }) {
   const language = useSiteLanguage();
-  return <div className="min-h-screen bg-[#fbfaf6] text-slate-900"><Header />{translateTree(children, language)}<Footer /></div>;
+  return (
+    <div className="site-root">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:start-4 focus:top-4 focus:z-50 focus:rounded-full focus:bg-brand focus:px-5 focus:py-3 focus:text-sm focus:font-semibold focus:text-brand-on"
+      >
+        {t('تخطي إلى المحتوى', language)}
+      </a>
+      <Header />
+      <div id="main-content">{translateTree(children, language)}</div>
+      <Footer />
+    </div>
+  );
 }
 
 function SectionHeading({ eyebrow, title, action }: { eyebrow?: string; title: string; action?: ReactNode }) {
@@ -339,26 +713,8 @@ function StoryArtwork({ story, className = '' }: { story: Pick<StorySummary, 'ti
           <Sparkles className="absolute bottom-5 left-5 text-amber-200/80" size={20} />
         </>
       )}
-      {!story.cover && <span className="absolute inset-x-5 bottom-5 line-clamp-2 text-lg font-bold leading-8 text-white">{story.title}</span>}
+      {!story.cover && <span dir="auto" className="absolute inset-x-5 bottom-5 line-clamp-2 text-lg font-bold leading-8 text-white">{story.title}</span>}
     </div>
-  );
-}
-
-function StoryCard({ story }: { story: StorySummary }) {
-  const language = useSiteLanguage();
-  return (
-    <Link to={`/stories/${story.slug}`} className="group overflow-hidden rounded-3xl border border-emerald-950/10 bg-white transition hover:-translate-y-1 hover:shadow-xl">
-      <StoryArtwork story={story} className="aspect-[1.25] transition duration-500 group-hover:scale-[1.02]" />
-      <div className="p-5">
-        <div className="flex items-center justify-between gap-3 text-xs font-semibold text-emerald-700">
-          <span>{story.collection?.title || t('حكاية إيمانية', language)}</span>
-          {story.isFree && <span className="rounded-full bg-emerald-50 px-2.5 py-1">{t('قراءة مجانية', language)}</span>}
-        </div>
-        <h3 className="mt-3 text-lg font-bold text-emerald-950 group-hover:text-emerald-700">{story.title}</h3>
-        <p className="mt-2 line-clamp-2 text-sm leading-7 text-slate-600">{story.summary}</p>
-        <span className="mt-4 inline-flex items-center gap-1 text-sm font-bold text-emerald-800">{t('اكتشف الحكاية', language)} <ChevronLeft size={16} /></span>
-      </div>
-    </Link>
   );
 }
 
@@ -387,6 +743,163 @@ function formatPrice(price: number | string, currency: string, language: SiteLan
   return new Intl.NumberFormat(language, { style: 'currency', currency }).format(Number(price));
 }
 
+function remainingUntil(endsAt?: string | null) {
+  if (!endsAt) return null;
+  const distance = new Date(endsAt).getTime() - Date.now();
+  if (!Number.isFinite(distance) || distance <= 0) return null;
+  return {
+    days: Math.floor(distance / 86_400_000),
+    hours: Math.floor((distance % 86_400_000) / 3_600_000),
+    minutes: Math.floor((distance % 3_600_000) / 60_000),
+    seconds: Math.floor((distance % 60_000) / 1_000)
+  };
+}
+
+function useRemainingTime(endsAt?: string | null) {
+  const [remaining, setRemaining] = useState(() => remainingUntil(endsAt));
+  useEffect(() => {
+    setRemaining(remainingUntil(endsAt));
+    if (!endsAt) return;
+    const timer = window.setInterval(() => setRemaining(remainingUntil(endsAt)), 1000);
+    return () => window.clearInterval(timer);
+  }, [endsAt]);
+  return remaining;
+}
+
+function HeroPanelSkeleton() {
+  return (
+    <div className="relative" aria-hidden="true">
+      <div className="absolute -inset-5 rounded-[3rem] border border-amber-100/20" />
+      <div className="relative min-h-[30rem] w-full overflow-hidden rounded-[2.5rem] border border-white/10 bg-gradient-to-br from-[#0d3026] via-[#155641] to-[#8b6b36] shadow-2xl">
+        <div className="absolute inset-0 opacity-40" style={{ backgroundImage: 'radial-gradient(circle at 18% 12%, rgba(243,227,184,.45) 0, transparent 34%), radial-gradient(circle at 88% 82%, rgba(0,0,0,.35) 0, transparent 42%)' }} />
+        <div className="pointer-events-none absolute -right-24 -top-20 h-72 w-72 rounded-full border border-amber-100/15" />
+        <div className="pointer-events-none absolute -right-8 -top-8 h-48 w-48 rounded-full border border-amber-100/15" />
+        <div className="pointer-events-none absolute inset-7 rounded-[2rem] border border-amber-100/10" />
+        <div className="relative flex h-full min-h-[30rem] animate-pulse flex-col justify-between p-7 sm:p-9">
+          <div className="flex items-center justify-between gap-3">
+            <div className="h-[58px] w-[58px] rounded-2xl border border-white/10 bg-white/10" />
+            <div className="h-3 w-32 rounded-full bg-white/10" />
+          </div>
+          <div>
+            <div className="mb-5 h-px w-16 bg-amber-100/20" />
+            <div className="h-9 w-4/5 rounded-xl bg-white/10" />
+            <div className="mt-4 h-4 w-full rounded bg-white/10" />
+            <div className="mt-2 h-4 w-2/3 rounded bg-white/10" />
+            <div className="mt-6 flex gap-2">
+              <div className="h-7 w-20 rounded-full bg-white/10" />
+              <div className="h-7 w-20 rounded-full bg-white/10" />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HeroBrandPanel({ language }: { language: SiteLanguage }) {
+  return (
+    <div className="relative">
+      <div className="absolute -inset-5 rounded-[3rem] border border-amber-100/20" aria-hidden="true" />
+      <div className="relative aspect-[4/4.5] overflow-hidden rounded-[2.5rem] border border-white/10 bg-gradient-to-br from-[#0d3026] via-[#155641] to-[#8b6b36] shadow-2xl">
+        <div className="absolute inset-0 opacity-40" style={{ backgroundImage: 'radial-gradient(circle at 18% 12%, rgba(243,227,184,.45) 0, transparent 34%), radial-gradient(circle at 88% 82%, rgba(0,0,0,.35) 0, transparent 42%)' }} />
+        <div className="pointer-events-none absolute -right-24 -top-20 h-72 w-72 rounded-full border border-amber-100/15" />
+        <div className="pointer-events-none absolute -right-8 -top-8 h-48 w-48 rounded-full border border-amber-100/15" />
+        <div className="pointer-events-none absolute inset-7 rounded-[2rem] border border-amber-100/10" />
+        <div className="relative flex h-full flex-col justify-between p-7 sm:p-9">
+          <div className="flex items-center justify-between gap-3">
+            <span className="rounded-2xl border border-white/15 bg-white/10 p-2 backdrop-blur"><BrandMark size={42} /></span>
+            <span className="text-[11px] font-bold uppercase tracking-[0.22em] text-amber-100/70">{t('مكتبة الحكايات', language)}</span>
+          </div>
+          <div>
+            <div className="mb-5 h-px w-16 bg-amber-100/40" />
+            <h2 className="max-w-xs text-3xl font-black leading-[1.45] text-white">{t('حكاية في كل مساء', language)}</h2>
+            <p className="mt-4 max-w-sm leading-8 text-emerald-50/75">{t('قصص موثّقة، بلغة هادئة، لكل أفراد الأسرة.', language)}</p>
+            <div className="mt-6 flex flex-wrap gap-2 text-xs font-semibold text-amber-50/85">
+              <span className="rounded-full border border-white/15 bg-white/5 px-3 py-1.5">{t('مراجعة علمية', language)}</span>
+              <span className="rounded-full border border-white/15 bg-white/5 px-3 py-1.5">{t('قراءة قصيرة', language)}</span>
+              <span className="rounded-full border border-white/15 bg-white/5 px-3 py-1.5">{t('محتوى عائلي', language)}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HeroMysteryBoxCard({ box, language }: { box: MysteryBoxHeader; language: SiteLanguage }) {
+  const countdown = useRemainingTime(box.showCountdownInHeader ? box.endsAt : null);
+  const accent = box.accentColor || '#F3E3B8';
+  const countdownUnits = [
+    { value: countdown?.days ?? 0, label: t('يوم', language) },
+    { value: countdown?.hours ?? 0, label: t('ساعة', language) },
+    { value: countdown?.minutes ?? 0, label: t('دقيقة', language) },
+    { value: countdown?.seconds ?? 0, label: t('ثانية', language) }
+  ];
+
+  return (
+    <div className="relative">
+      <div className="absolute -inset-5 rounded-[3rem] border border-amber-100/20" aria-hidden="true" />
+      <div className="relative overflow-hidden rounded-[2.5rem] border border-white/15 shadow-2xl">
+        <div className="absolute inset-0" style={{ backgroundImage: `linear-gradient(145deg, ${box.colorFrom} 0%, ${box.colorTo} 100%)` }} />
+        <div className="absolute inset-0 opacity-45" style={{ backgroundImage: 'radial-gradient(circle at 18% 10%, rgba(255,255,255,.38) 0, transparent 34%), radial-gradient(circle at 90% 85%, rgba(0,0,0,.4) 0, transparent 48%)' }} />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/5 to-transparent" />
+        <div className="relative flex min-h-[30rem] flex-col justify-between gap-8 p-6 sm:p-8">
+          <div className="flex items-start justify-between gap-3">
+            <span className={`grid h-14 w-14 shrink-0 place-items-center rounded-2xl border border-white/20 bg-white/10 text-2xl backdrop-blur ${box.animationStyle === 'pulse' ? 'animate-pulse' : ''}`} aria-hidden="true">
+              {box.icon || '🎁'}
+            </span>
+            <div className="flex flex-wrap justify-end gap-2">
+              {box.almostSoldOut && (
+                <span className="rounded-full border border-amber-200/40 bg-amber-200/15 px-3 py-1.5 text-[11px] font-bold text-amber-100 backdrop-blur">{t('اقترب النفاد', language)}</span>
+              )}
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-black/20 px-3 py-1.5 text-[11px] font-bold text-white/85 backdrop-blur">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-300" aria-hidden="true" />
+                {t('متاح الآن', language)}
+              </span>
+            </div>
+          </div>
+
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-[0.2em]" style={{ color: accent }}>
+              {box.seasonLabel || t('صندوق الغموض', language)}
+            </p>
+            <h2 className="mt-2 line-clamp-2 text-3xl font-black leading-[1.35] text-white">{box.label}</h2>
+            <div className="mt-4 flex flex-wrap items-end gap-x-3 gap-y-2">
+              <span className="text-2xl font-black text-white">{formatPrice(Number(box.price.amount), box.price.currency, language)}</span>
+              {box.price.tier === 'early_bird' && (
+                <span className="mb-1 rounded-full px-2.5 py-1 text-[10px] font-black" style={{ backgroundColor: accent, color: '#102f27' }}>{t('سعر مبكر', language)}</span>
+              )}
+            </div>
+            <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-semibold text-white/70">
+              {box.itemCount > 0 && <span>{box.itemCount} {t('عنصرًا داخل الصندوق', language)}</span>}
+              {typeof box.remaining === 'number' && <span>{box.itemCount > 0 ? '· ' : ''}{t('بقي', language)} {box.remaining}</span>}
+            </p>
+
+            {box.showCountdownInHeader && countdown && (
+              <div className="mt-5">
+                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/60">{t('ينتهي خلال', language)}</p>
+                <div className="mt-2 grid grid-cols-4 gap-2">
+                  {countdownUnits.map((unit) => (
+                    <div key={unit.label} className="rounded-xl border border-white/10 bg-black/20 px-1 py-2 text-center backdrop-blur">
+                      <p className="text-lg font-black leading-none text-white">{String(unit.value).padStart(2, '0')}</p>
+                      <p className="mt-1 text-[9px] font-semibold text-white/60">{unit.label}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <span className="mt-5 inline-flex items-center gap-2 rounded-full px-5 py-3 text-sm font-black shadow-soft" style={{ backgroundColor: accent, color: '#102f27' }}>
+              <Gift size={16} aria-hidden="true" />
+              {t('قريبًا', language)}
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function LoadingState() {
   const language = useSiteLanguage();
   return <div className="grid min-h-48 place-items-center text-sm text-slate-500" role="status">{t('جارٍ تحميل المحتوى…', language)}</div>;
@@ -402,9 +915,11 @@ function EmptyState({ children }: { children: ReactNode }) {
 }
 
 export function LandingPage() {
+  const language = useSiteLanguage();
   const { data: stories, loading, error } = useRemote<StorySummary[]>('/stories?limit=4');
   const { data: books } = useRemote<BookSummary[]>('/books?limit=3');
-  const featured = stories?.find((story) => story.isStoryOfTheWeek) || stories?.[0];
+  const { data: activeMysteryBox, loading: mysteryBoxLoading } = useRemote<{ box: MysteryBoxHeader | null }>(`/mystery-box/active?lang=${language}`);
+  const mysteryBox = activeMysteryBox?.box || null;
 
   return (
     <SiteLayout>
@@ -423,29 +938,65 @@ export function LandingPage() {
                 عِش مع قصص الأنبياء والصحابة ومحطات التاريخ الإسلامي، في تجربة قراءة ممتعة وموثوقة لكل أفراد الأسرة.
               </p>
               <div className="mt-9 flex flex-wrap gap-3">
-                <Link to="/stories" className="inline-flex items-center gap-2 rounded-full bg-amber-200 px-6 py-3.5 font-bold text-emerald-950 transition hover:bg-amber-100">اكتشف القصص <ChevronLeft size={18} /></Link>
-                <Link to="/story-request" className="rounded-full border border-white/30 px-6 py-3.5 font-semibold text-white hover:bg-white/10">اقتراح قصة جديدة</Link>
-                <Link to="/policy/sources" className="rounded-full border border-white/30 px-6 py-3.5 font-semibold text-white hover:bg-white/10">كيف نتحقق من مصادرنا؟</Link>
+                <Link to="/stories" className={buttonClasses({ variant: 'gold', size: 'lg' })}>
+                  {t('ابدأ القراءة', language)}
+                  <ChevronLeft size={18} />
+                </Link>
+                <a href="#start-journey" className={buttonClasses({ variant: 'secondary', size: 'lg', className: 'border-white/25 bg-white/5 text-white hover:border-white/40 hover:bg-white/10' })}>
+                  {t('كيف تعمل الحكايات؟', language)}
+                </a>
               </div>
-              <div className="mt-10 flex flex-wrap gap-x-7 gap-y-3 text-sm text-emerald-100/80">
-                <span className="inline-flex items-center gap-2"><ShieldCheck size={17} /> مراجعة وتوثيق</span>
-                <span className="inline-flex items-center gap-2"><Headphones size={17} /> قراءة ومشاهدة</span>
-                <span className="inline-flex items-center gap-2"><Heart size={17} /> محتوى عائلي</span>
+              <p className="mt-4 text-sm text-emerald-100/70">
+                {t('مجاني للبدء', language)} · {t('أجزاء قصيرة', language)} · {t('تقدّمك محفوظ', language)}
+              </p>
+              <div className="mt-8 flex flex-wrap gap-x-7 gap-y-3 text-sm text-emerald-100/80">
+                <span className="inline-flex items-center gap-2"><ShieldCheck size={17} /> {t('مراجعة وتوثيق', language)}</span>
+                <span className="inline-flex items-center gap-2"><BookOpen size={17} /> {t('أجزاء قصيرة', language)}</span>
+                <span className="inline-flex items-center gap-2"><Bookmark size={17} /> {t('تقدّمك محفوظ', language)}</span>
+                <span className="inline-flex items-center gap-2"><Heart size={17} /> {t('محتوى عائلي', language)}</span>
               </div>
             </div>
             <div className="relative mx-auto w-full max-w-md">
-              <div className="absolute -inset-5 rounded-[3rem] border border-amber-100/20" />
-              <div className="relative aspect-[4/4.5] overflow-hidden rounded-[2.5rem] bg-gradient-to-br from-emerald-700 to-[#bd8b51] shadow-2xl">
-                {featured?.cover && <img src={featured.cover} alt="" className="absolute inset-0 h-full w-full object-cover" />}
-                <div className="absolute inset-0 bg-gradient-to-t from-[#0c251f]/90 via-transparent to-transparent" />
-                <div className="absolute bottom-0 p-7 sm:p-9">
-                  <span className="rounded-full bg-amber-200 px-3 py-1.5 text-xs font-bold text-emerald-950">حكاية الأسبوع</span>
-                  <h2 className="mt-4 text-2xl font-extrabold leading-10">{featured?.title || 'حكايات تلهم القلب والعقل'}</h2>
-                  <p className="mt-2 line-clamp-2 leading-7 text-white/75">{featured?.summary || 'رحلة بين دروس الشجاعة والصبر والرحمة، كما حفظتها لنا مصادرنا.'}</p>
-                  {featured && <Link to={`/stories/${featured.slug}`} className="mt-5 inline-flex items-center gap-2 font-bold text-amber-200">تابع القراءة <ChevronLeft size={17} /></Link>}
-                </div>
-                <div className="absolute left-5 top-5 grid h-14 w-14 place-items-center rounded-2xl border border-white/20 bg-white/10 text-amber-100 backdrop-blur"><BookOpen size={25} /></div>
-              </div>
+              {mysteryBoxLoading
+                ? <HeroPanelSkeleton />
+                : mysteryBox
+                  ? <HeroMysteryBoxCard box={mysteryBox} language={language} />
+                  : <HeroBrandPanel language={language} />}
+            </div>
+          </Container>
+        </section>
+
+        <section id="start-journey" className="scroll-mt-24 border-b border-line bg-surface-soft py-14 sm:py-20">
+          <Container>
+            <div className="max-w-2xl">
+              <p className="text-sm font-bold tracking-[0.18em] text-brand-ink">{t('ابدأ من هنا', language)}</p>
+              <h2 className="mt-3 text-2xl font-black text-ink sm:text-3xl">{t('ثلاث خطوات، وحكاية تبدأ', language)}</h2>
+              <p className="mt-3 leading-8 text-ink-muted">{t('لا تحتاج إلى معرفة مسبقة. اختر حكاية، اقرأ جزءًا قصيرًا، وعد متى شئت.', language)}</p>
+            </div>
+            <ol className="mt-9 grid gap-4 md:grid-cols-3">
+              {[
+                { icon: Search, title: 'اختر حكاية', body: 'تصفح المكتبة حسب المجموعة، أو ابحث عن موضوع يناسب وقتك واهتمامك.' },
+                { icon: Clock3, title: 'اقرأ جزءًا قصيرًا', body: 'كل جزء مصمم لقراءة هادئة في نحو 5 إلى 8 دقائق، دون التزام طويل.' },
+                { icon: Bookmark, title: 'احفظ تقدّمك', body: 'أنشئ حسابًا مجانيًا لتحفظ مكانك وتتابع من حيث توقفت في أي وقت.' }
+              ].map((step, index) => (
+                <li key={step.title} className="ds-card relative flex flex-col gap-3 p-6">
+                  <div className="flex items-center justify-between">
+                    <span className="grid h-11 w-11 place-items-center rounded-2xl bg-brand-soft text-brand-ink"><step.icon size={20} aria-hidden="true" /></span>
+                    <span className="text-sm font-black text-ink-faint">{String(index + 1).padStart(2, '0')}</span>
+                  </div>
+                  <h3 className="text-lg font-bold text-ink">{t(step.title, language)}</h3>
+                  <p className="text-sm leading-7 text-ink-muted">{t(step.body, language)}</p>
+                </li>
+              ))}
+            </ol>
+            <div className="mt-7 flex flex-wrap items-center gap-3">
+              <Link to="/stories" className={buttonClasses({ size: 'md' })}>
+                {t('تصفح الحكايات', language)}
+                <ChevronLeft size={17} />
+              </Link>
+              <Link to="/pricing" className={buttonClasses({ variant: 'secondary', size: 'md' })}>
+                {t('ما الذي أحتاجه؟', language)}
+              </Link>
             </div>
           </Container>
         </section>
@@ -482,12 +1033,16 @@ export function LandingPage() {
 }
 
 export function StoriesPage() {
-  const [search, setSearch] = useState('');
+  const [searchParams] = useSearchParams();
+  const [search, setSearch] = useState(searchParams.get('q') || '');
   const { data: stories, loading, error } = useRemote<StorySummary[]>('/stories?limit=100');
   const { data: collections } = useRemote<CollectionSummary[]>('/collections');
   const filteredStories = useMemo(() => stories?.filter((story) =>
     `${story.title} ${story.summary} ${story.collection?.title || ''}`.toLocaleLowerCase('ar').includes(search.trim().toLocaleLowerCase('ar'))
   ) || [], [stories, search]);
+  const language = useSiteLanguage();
+  const recommended = stories?.find((story) => story.isStoryOfTheWeek) || stories?.[0];
+  const recommendedMinutes = recommended?.parts?.reduce((total, part) => total + (part.estimatedReadingMinutes || 0), 0) || 0;
 
   return (
     <SiteLayout>
@@ -500,6 +1055,25 @@ export function StoriesPage() {
             <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="ابحث عن قصة أو موضوع" className="w-full bg-transparent text-sm outline-none placeholder:text-slate-400" aria-label="ابحث عن قصة" />
           </label>
         </div>
+        {!search && recommended && (
+          <div className="mt-8 overflow-hidden rounded-3xl border border-brand/20 bg-brand-soft/60 p-6 sm:p-8">
+            <div className="flex flex-col justify-between gap-6 sm:flex-row sm:items-center">
+              <div className="max-w-2xl">
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-brand-ink">{t('ابدأ من هنا', language)}</p>
+                <h2 dir="auto" className="mt-2 text-2xl font-black text-ink">{recommended.title}</h2>
+                <p dir="auto" className="mt-2 line-clamp-2 leading-7 text-ink-muted">{recommended.summary}</p>
+                <p className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs font-semibold text-ink-muted">
+                  <span className="inline-flex items-center gap-1.5"><BookOpen size={14} /> {recommended.parts?.length || 0} {t('أجزاء', language)}</span>
+                  {recommendedMinutes > 0 && <span className="inline-flex items-center gap-1.5"><Clock3 size={14} /> {recommendedMinutes} {t('دقيقة', language)}</span>}
+                  <span>{t('حكاية مقترحة لتبدأ بها', language)}</span>
+                </p>
+              </div>
+              <Link to={`/stories/${recommended.slug}`} className={buttonClasses({ size: 'md', className: 'shrink-0' })}>
+                {t('افتح الحكاية', language)} <ChevronLeft size={17} />
+              </Link>
+            </div>
+          </div>
+        )}
         {!!collections?.length && <div className="mt-9 flex flex-wrap gap-2">{collections.map((collection) => <a key={collection.id} href={`#collection-${collection.id}`} className="rounded-full border border-emerald-950/15 bg-white px-4 py-2 text-sm font-semibold text-emerald-900 hover:border-emerald-700">{collection.title}</a>)}</div>}
         {loading && <LoadingState />}
         {error && <div className="mt-8"><ErrorState message={error} /></div>}
@@ -542,7 +1116,16 @@ export function CollectionDetailPage() {
 export function StoryDetailPage() {
   const { slug = '' } = useParams();
   const language = useSiteLanguage();
+  const { user } = useStoryAuth();
   const { data: story, loading, error } = useRemote<StorySummary>(`/stories/${encodeURIComponent(slug)}`);
+  const { data: readingProgress } = useRemote<Array<{ storyId: number; completedParts: number[]; lastPartId?: number | null }>>(user ? '/reading-progress' : '');
+  const parts = story?.parts || [];
+  const completedParts = readingProgress?.find((entry) => entry.storyId === story?.id)?.completedParts || [];
+  const readableParts = parts.filter((part) => part.accessible);
+  const nextPart = readableParts.find((part) => !completedParts.includes(part.id)) || readableParts[0];
+  const totalMinutes = parts.reduce((total, part) => total + (part.estimatedReadingMinutes || 0), 0);
+  const progressPercent = parts.length ? Math.round((completedParts.length / parts.length) * 100) : 0;
+  const started = completedParts.length > 0;
 
   return (
     <SiteLayout>
@@ -552,29 +1135,68 @@ export function StoryDetailPage() {
         {error && <div className="mt-8"><ErrorState message={error} /></div>}
         {story && (
           <div className="mt-7 grid gap-10 lg:grid-cols-[0.85fr_1.15fr]">
-            <StoryArtwork story={story} className="aspect-[0.9] rounded-[2rem] shadow-lg" />
+            <StoryArtwork story={story} className="aspect-[1.5] rounded-[2rem] shadow-lg sm:aspect-[1.2] lg:aspect-[0.9]" />
             <div>
               <p className="text-sm font-bold text-emerald-700">{story.collection?.title || 'حكاية إيمانية'} · {story.sourceBadge === 'quran_verse' ? 'من القرآن الكريم' : story.sourceBadge === 'authentic_hadith' ? 'من السنة النبوية' : 'قصة موثقة'}</p>
-              <h1 className="mt-4 text-3xl font-black leading-relaxed text-emerald-950 sm:text-4xl">{story.title}</h1>
-              <p className="mt-5 text-lg leading-9 text-slate-600">{story.summary}</p>
+              <h1 dir="auto" className="mt-4 text-3xl font-black leading-relaxed text-emerald-950 sm:text-4xl">{story.title}</h1>
+              <p dir="auto" className="mt-5 text-lg leading-9 text-slate-600">{story.summary}</p>
               <div className="mt-6 flex flex-wrap gap-2 text-sm text-slate-600">
                 <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-2"><BookOpen size={16} /> {story.parts?.length || 0} أجزاء</span>
                 <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-2"><ShieldCheck size={16} /> مراجعة موثوقة</span>
               </div>
+              <div className="mt-7 rounded-3xl border border-line bg-surface-soft p-5 sm:p-6">
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold uppercase tracking-[0.16em] text-brand-ink">{t(started ? 'تابع من حيث توقفت' : 'ابدأ من هنا', language)}</p>
+                    <p className="mt-1 text-lg font-bold leading-7 text-ink">{t(started ? 'خطوتك التالية قصيرة' : 'الحكاية جاهزة، والخطوة الأولى قصيرة', language)}</p>
+                    <p className="mt-1 text-sm text-ink-muted">
+                      {parts.length} {t('أجزاء', language)} · {totalMinutes} {t('دقيقة', language)} · {t('ابدأ بالجزء الأول ثم تابع بالترتيب', language)}
+                    </p>
+                  </div>
+                  {nextPart ? (
+                    <Link to={`/stories/${story.slug}/read/${nextPart.partNumber}`} className={buttonClasses({ size: 'md' })}>
+                      {t(started ? 'تابع القراءة' : 'ابدأ القراءة', language)}
+                      <ChevronLeft size={17} />
+                    </Link>
+                  ) : (
+                    <Link to="/membership" className={buttonClasses({ size: 'md' })}>
+                      <LockKeyhole size={16} /> {t('افتح الحكاية بالاشتراك', language)}
+                    </Link>
+                  )}
+                </div>
+                {started && (
+                  <div className="mt-4 flex items-center gap-3">
+                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-surface-sunken" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progressPercent} aria-label={t('تقدّم القراءة', language)}>
+                      <div className="h-full rounded-full bg-brand transition-[width] duration-500" style={{ width: `${progressPercent}%` }} />
+                    </div>
+                    <span className="shrink-0 text-xs font-bold text-ink-muted">{progressPercent}%</span>
+                  </div>
+                )}
+              </div>
               {story.reviewerName && <p className="mt-4 text-sm text-slate-500">راجَعها: {story.reviewerName}</p>}
               {!!story.sourceReferences?.length && <div className="mt-6 rounded-2xl border border-emerald-950/10 bg-white p-5"><h2 className="font-bold text-emerald-950">المصادر</h2><ul className="mt-3 list-inside list-disc space-y-2 text-sm leading-7 text-slate-600">{story.sourceReferences.map((source, index) => <li key={`${source.reference}-${index}`}>{source.reference}</li>)}</ul></div>}
               <div className="mt-8">
-                <h2 className="text-xl font-extrabold text-emerald-950">أجزاء الحكاية</h2>
+                <h2 className="text-xl font-extrabold text-emerald-950">{t('أجزاء الحكاية', language)}</h2>
+                <p className="mt-2 text-sm leading-7 text-slate-500">{t('كل جزء قصير، ويمكنك حفظ تقدّمك بعد كل جزء.', language)}</p>
                 <div className="mt-4 space-y-3">
-                  {story.parts?.map((part) => (
-                    <div key={part.id} className="flex items-center justify-between gap-4 rounded-2xl border border-emerald-950/10 bg-white p-4">
-                      <div className="flex min-w-0 items-center gap-3">
-                        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-emerald-50 font-bold text-emerald-800">{part.partNumber}</span>
-                        <div className="min-w-0"><p className="truncate font-bold text-emerald-950">{part.title}</p><p className="mt-1 flex items-center gap-1 text-xs text-slate-500"><Clock3 size={13} /> {formatReadingTime(part.estimatedReadingMinutes, language)}</p></div>
+                  {parts.map((part) => {
+                    const isDone = completedParts.includes(part.id);
+                    return (
+                      <div key={part.id} className={`flex items-center justify-between gap-4 rounded-2xl border p-4 ${isDone ? 'border-brand/25 bg-brand-soft/50' : 'border-emerald-950/10 bg-white'}`}>
+                        <div className="flex min-w-0 items-center gap-3">
+                          <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl font-bold ${isDone ? 'bg-brand text-brand-on' : 'bg-emerald-50 text-emerald-800'}`}>{isDone ? <Check size={18} /> : part.partNumber}</span>
+                          <div className="min-w-0">
+                            <p dir="auto" className="truncate font-bold text-emerald-950">{part.title}</p>
+                            <p className="mt-1 flex flex-wrap items-center gap-1 text-xs text-slate-500">
+                              <Clock3 size={13} /> {formatReadingTime(part.estimatedReadingMinutes, language)}
+                              {isDone && <span className="font-bold text-brand-ink">· {t('أكملت', language)}</span>}
+                            </p>
+                          </div>
+                        </div>
+                        {part.accessible ? <Link to={`/stories/${story.slug}/read/${part.partNumber}`} className="shrink-0 rounded-full bg-emerald-900 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-800">{t(isDone ? 'أعد القراءة' : 'اقرأ', language)}</Link> : <Link to="/membership" className="inline-flex shrink-0 items-center gap-2 text-sm font-semibold text-slate-500"><LockKeyhole size={15} /> {t('مقفل', language)}</Link>}
                       </div>
-                      {part.accessible ? <Link to={`/stories/${story.slug}/read/${part.partNumber}`} className="shrink-0 rounded-full bg-emerald-900 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-800">اقرأ</Link> : <Link to="/membership" className="inline-flex shrink-0 items-center gap-2 text-sm font-semibold text-slate-500"><LockKeyhole size={15} /> مقفل</Link>}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
               {!!story.videos?.length && <div className="mt-10"><h2 className="mb-4 text-xl font-extrabold text-emerald-950">شاهد الحكاية</h2><div className="grid gap-4 sm:grid-cols-2">{story.videos.map((video) => <StoryVideoPlayer key={video.id} video={video} language={language} />)}</div></div>}
@@ -770,6 +1392,13 @@ export function ReaderPage() {
   if (!story || !part) return <Navigate to="/stories" replace />;
   const previous = story.parts?.find((candidate) => candidate.partNumber === number - 1);
   const next = story.parts?.find((candidate) => candidate.partNumber === number + 1);
+  const totalParts = story.parts?.length || part.partNumber;
+  const readingPercent = totalParts ? Math.round((part.partNumber / totalParts) * 100) : 0;
+  const partPosition = language === 'fr'
+    ? `Partie ${part.partNumber} sur ${totalParts}`
+    : language === 'en'
+      ? `Part ${part.partNumber} of ${totalParts}`
+      : `الجزء ${part.partNumber} من ${totalParts}`;
 
   return (
     <SiteLayout>
@@ -782,20 +1411,37 @@ export function ReaderPage() {
           </button>
         </div>
         <div className="mt-7 border-b border-emerald-950/10 pb-6">
-          <p className="text-sm font-bold text-emerald-700">الجزء {part.partNumber} من {story.parts?.length || part.partNumber}</p>
-          <h1 className="mt-3 text-3xl font-black leading-relaxed text-emerald-950 sm:text-4xl">{part.title}</h1>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-bold text-emerald-700">{partPosition}</p>
+            <p className="text-xs font-semibold text-slate-500">{readingPercent}% {t('من الحكاية', language)}</p>
+          </div>
+          <h1 dir="auto" className="mt-3 text-3xl font-black leading-relaxed text-emerald-950 sm:text-4xl">{part.title}</h1>
           <p className="mt-3 flex items-center gap-2 text-sm text-slate-500"><Clock3 size={15} /> {formatReadingTime(part.estimatedReadingMinutes, language)}</p>
+          <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-emerald-950/10" role="progressbar" aria-valuemin={1} aria-valuemax={totalParts} aria-valuenow={part.partNumber} aria-label={partPosition}>
+            <div className="h-full rounded-full bg-emerald-700 transition-[width] duration-500" style={{ width: `${readingPercent}%` }} />
+          </div>
         </div>
-        <article className="mt-8 whitespace-pre-line text-start text-lg leading-[2.2] text-slate-700">{part.content}</article>
-        {part.endingHook && <div className="mt-8 rounded-2xl border-r-4 border-amber-500 bg-amber-50 p-5 leading-8 text-amber-950">{part.endingHook}</div>}
+        <article dir="auto" className="mt-8 whitespace-pre-line text-start text-lg leading-[2.2] text-slate-700">{part.content}</article>
+        {part.endingHook && <div dir="auto" className="mt-8 rounded-2xl border-r-4 border-amber-500 bg-amber-50 p-5 leading-8 text-amber-950">{part.endingHook}</div>}
         <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-b border-emerald-950/10 pb-8">
-          {previous ? <Link to={`/stories/${slug}/read/${previous.partNumber}`} className="inline-flex items-center gap-2 rounded-full border border-emerald-950/15 px-4 py-2.5 text-sm font-bold text-emerald-900 hover:bg-emerald-50"><ChevronRight size={17} /> الجزء السابق</Link> : <span />}
-          {next && next.accessible && <Link to={`/stories/${slug}/read/${next.partNumber}`} className="inline-flex items-center gap-2 rounded-full bg-emerald-900 px-5 py-2.5 text-sm font-bold text-white hover:bg-emerald-800">الجزء التالي <ChevronLeft size={17} /></Link>}
-          {next && !next.accessible && <Link to="/membership" className="inline-flex items-center gap-2 rounded-full bg-emerald-900 px-5 py-2.5 text-sm font-bold text-white hover:bg-emerald-800"><LockKeyhole size={16} /> تابع باشتراك</Link>}
+          {previous ? <Link to={`/stories/${slug}/read/${previous.partNumber}`} className="inline-flex items-center gap-2 rounded-full border border-emerald-950/15 px-4 py-2.5 text-sm font-bold text-emerald-900 hover:bg-emerald-50"><ChevronRight size={17} /> {t('الجزء السابق', language)}</Link> : <span />}
+          {next && next.accessible && <Link to={`/stories/${slug}/read/${next.partNumber}`} className="inline-flex items-center gap-2 rounded-full bg-emerald-900 px-5 py-2.5 text-sm font-bold text-white hover:bg-emerald-800">{t('الجزء التالي', language)} <ChevronLeft size={17} /></Link>}
+          {next && !next.accessible && <Link to="/membership" className="inline-flex items-center gap-2 rounded-full bg-emerald-900 px-5 py-2.5 text-sm font-bold text-white hover:bg-emerald-800"><LockKeyhole size={16} /> {t('تابع باشتراك', language)}</Link>}
         </div>
+        {!next && (
+          <div className="mt-6 rounded-3xl border border-line bg-surface-soft p-6 sm:p-7">
+            <span className="grid h-11 w-11 place-items-center rounded-2xl bg-brand-soft text-brand-ink"><Sparkles size={20} aria-hidden="true" /></span>
+            <h2 className="mt-4 text-xl font-extrabold text-ink">{t('أكملت الحكاية', language)}</h2>
+            <p className="mt-2 max-w-2xl leading-8 text-ink-muted">{t('وصلت إلى نهاية هذه الحكاية. يمكنك حفظ تقدّمك، أو اختيار حكاية جديدة تبدأ بها.', language)}</p>
+            <div className="mt-5 flex flex-wrap gap-3">
+              <Link to="/stories" className={buttonClasses({ size: 'md' })}>{t('اختر حكاية أخرى', language)} <ChevronLeft size={17} /></Link>
+              <Link to={`/stories/${slug}`} className={buttonClasses({ variant: 'secondary', size: 'md' })}>{t('العودة إلى الحكاية', language)}</Link>
+            </div>
+          </div>
+        )}
         <div className="mt-8 flex flex-wrap items-center justify-between gap-4 rounded-2xl bg-emerald-50 p-5">
-          <div><p className="font-bold text-emerald-950">أنهيت هذا الجزء؟</p><p className="mt-1 text-sm text-slate-600">احفظ تقدّمك وتابع القراءة من حيث توقفت.</p></div>
-          {user ? <button onClick={markAsRead} disabled={busy} className="rounded-full bg-emerald-900 px-5 py-2.5 text-sm font-bold text-white disabled:opacity-60">{busy ? 'جارٍ الحفظ…' : 'حفظ تقدّمي'}</button> : <Link to="/login" className="rounded-full bg-white px-5 py-2.5 text-sm font-bold text-emerald-900">سجّل الدخول للحفظ</Link>}
+          <div><p className="font-bold text-emerald-950">{t('أنهيت هذا الجزء؟', language)}</p><p className="mt-1 text-sm text-slate-600">{t('احفظ تقدّمك وتابع القراءة من حيث توقفت.', language)}</p></div>
+          {user ? <button onClick={markAsRead} disabled={busy} className={buttonClasses({ size: 'sm' })}>{busy ? t('جارٍ الحفظ…', language) : t('حفظ تقدّمي', language)}</button> : <Link to="/login" className={buttonClasses({ variant: 'secondary', size: 'sm' })}>{t('سجّل الدخول للحفظ', language)}</Link>}
         </div>
         {notice && <p className="mt-4 text-sm font-semibold text-emerald-800" role="status">{notice}</p>}
         {quiz && <section className="mt-12 rounded-3xl border border-emerald-950/10 bg-white p-6 sm:p-8" dir={language === 'ar' ? 'rtl' : 'ltr'}>
@@ -1322,6 +1968,7 @@ export function AccountPage() {
     id: number;
     storyId: number;
     completedParts: number[];
+    nextPart?: { id: number; partNumber: number } | null;
     story?: { title: string; slug: string; cover?: string | null };
   }>>('/reading-progress');
   const { data: plans, loading: plansLoading, error: plansError } = useRemote<SubscriptionPlan[]>('/plans');
@@ -1477,7 +2124,7 @@ export function AccountPage() {
     </form>
     <TeamAccountPanel />
     <div className="mt-10 grid gap-8 lg:grid-cols-[1.25fr_0.75fr]">
-      <section><SectionHeading title="تابع القراءة" />{loading && <LoadingState />}{error && <ErrorState message={error} />}{!loading && !error && !progress?.length && <EmptyState>لم تحفظ أي تقدّم بعد. <Link to="/stories" className="font-bold text-emerald-800 underline">اكتشف القصص</Link></EmptyState>}{!!progress?.length && <div className="space-y-3">{progress.map((item) => <Link key={item.id} to={`/stories/${item.story?.slug || ''}`} className="flex items-center justify-between gap-4 rounded-2xl border border-emerald-950/10 bg-white p-5 hover:border-emerald-700"><div><h3 className="font-bold text-emerald-950">{item.story?.title || 'حكاية'}</h3><p className="mt-1 text-sm text-slate-500">أتممت {item.completedParts.length} أجزاء</p></div><ChevronLeft size={20} className="text-emerald-700" /></Link>)}</div>}</section>
+      <section><SectionHeading title="تابع القراءة" />{loading && <LoadingState />}{error && <ErrorState message={error} />}{!loading && !error && !progress?.length && <EmptyState>لم تحفظ أي تقدّم بعد. <Link to="/stories" className="font-bold text-emerald-800 underline">اكتشف القصص</Link></EmptyState>}{!!progress?.length && <div className="space-y-3">{progress.map((item) => <Link key={item.id} to={item.nextPart ? `/stories/${item.story?.slug || ''}/read/${item.nextPart.partNumber}` : `/stories/${item.story?.slug || ''}`} className="flex items-center justify-between gap-4 rounded-2xl border border-emerald-950/10 bg-white p-5 hover:border-emerald-700"><div><h3 className="font-bold text-emerald-950">{item.story?.title || 'حكاية'}</h3><p className="mt-1 text-sm text-slate-500">{t('أتممت', language)} {item.completedParts.length} {t('أجزاء', language)} · {item.nextPart ? `${t('التالي', language)} ${item.nextPart.partNumber}` : t('افتح الحكاية', language)}</p></div><ChevronLeft size={20} className="text-emerald-700" /></Link>)}</div>}</section>
       <section><SectionHeading title="حالة الاشتراك" /><div className="rounded-3xl border border-emerald-950/10 bg-white p-6">
         {!subscriptions.length ? <><span className="grid h-12 w-12 place-items-center rounded-2xl bg-amber-50 text-amber-700"><Star size={22} /></span><h3 className="mt-4 font-bold text-emerald-950">لا يوجد اشتراك حالي</h3><p className="mt-2 text-sm leading-7 text-slate-600">تابع قراءة الأجزاء المجانية أو اختر إحدى الباقات المتاحة أدناه.</p></> :
           <div className="space-y-4">{subscriptions.map((subscription) => <SubscriptionCard key={subscription.id} subscription={subscription} busy={updatingSubscriptionId === subscription.id} onCancel={() => updateSubscription(subscription.id, 'cancel')} onResume={() => updateSubscription(subscription.id, 'resume')} />)}</div>}

@@ -38,6 +38,23 @@ async function findActiveEntitlement({ userId, storyId, partId, now, entitlement
   );
 }
 
+async function hasPremiumEntitlement(userId, now = new Date(), entitlementModel = Entitlement) {
+  if (!userId) return false;
+  const entitlements = await entitlementModel.findAll({
+    where: {
+      userId,
+      resourceType: 'premium',
+      revokedAt: null,
+      startsAt: { [Op.lte]: now }
+    }
+  });
+  return entitlements.some((entitlement) =>
+    !entitlement.revokedAt &&
+    new Date(entitlement.startsAt) <= now &&
+    (!entitlement.expiresAt || new Date(entitlement.expiresAt) > now)
+  );
+}
+
 async function hasActiveSubscription(userId, now = new Date(), subscriptionModel = Subscription) {
   const subscriptions = await subscriptionModel.findAll({
     where: { userId, status: { [Op.in]: subscriptionStatuses } }
@@ -67,14 +84,16 @@ async function canAccessPart({
 
   if (part.releaseAt && new Date(part.releaseAt) > now) {
     if (!userId || !part.earlyAccessUntil || new Date(part.earlyAccessUntil) <= now) return false;
-    return hasActiveSubscription(userId, now, subscriptionModel);
+    return await hasActiveSubscription(userId, now, subscriptionModel) ||
+      await hasPremiumEntitlement(userId, now, entitlementModel);
   }
 
   const free = Boolean(story.isFree || story.collection?.isFree || part.isFree);
   if (!userId) return free && guestCanReadPart(story, part);
   if (free) return true;
 
-  return hasActiveSubscription(userId, now, subscriptionModel);
+  return await hasActiveSubscription(userId, now, subscriptionModel) ||
+    await hasPremiumEntitlement(userId, now, entitlementModel);
 }
 
 async function canAccessBook({ userId, role, book, now = new Date(), entitlementModel = Entitlement }) {
@@ -100,6 +119,7 @@ module.exports = {
   subscriptionIsActive,
   guestCanReadPart,
   hasActiveSubscription,
+  hasPremiumEntitlement,
   canAccessPart,
   canAccessBook
 };

@@ -17,18 +17,21 @@ export class ApiError extends Error {
   code?: string;
   fields?: Record<string, string>;
   existingPart?: { id: number; partNumber: number };
+  missing?: Array<{ code: string; field?: string; itemId?: number; needed?: number }>;
 
   constructor(
     message: string,
     code?: string,
     fields?: Record<string, string>,
-    existingPart?: { id: number; partNumber: number }
+    existingPart?: { id: number; partNumber: number },
+    missing?: Array<{ code: string; field?: string; itemId?: number; needed?: number }>
   ) {
     super(message);
     this.name = 'ApiError';
     this.code = code;
     this.fields = fields;
     this.existingPart = existingPart;
+    this.missing = missing;
   }
 }
 
@@ -141,7 +144,7 @@ export async function request<T>(path: string, init: RequestInit = {}, bearerTok
       ) {
         throw new ApiError(DUPLICATE_EMAIL_MESSAGES[language as keyof typeof DUPLICATE_EMAIL_MESSAGES], body.code);
       }
-      throw new ApiError(body.message || `Erreur API (${response.status}).`, body.code, body.fields, body.existingPart);
+      throw new ApiError(body.message || `Erreur API (${response.status}).`, body.code, body.fields, body.existingPart, body.missing);
     }
     return body as T;
   } catch (error) {
@@ -168,7 +171,7 @@ async function requestBlob(path: string): Promise<Blob> {
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
       if (response.status === 401 && getAuthToken()) notifyExpiredSession();
-      throw new ApiError(body.message || `Erreur API (${response.status}).`, body.code, body.fields, body.existingPart);
+      throw new ApiError(body.message || `Erreur API (${response.status}).`, body.code, body.fields, body.existingPart, body.missing);
     }
     return await response.blob();
   } catch (error) {

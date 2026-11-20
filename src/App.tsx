@@ -1,5 +1,7 @@
 import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { StoryAuthProvider } from '@/contexts/StoryAuthContext';
+import { SiteThemeProvider } from '@/contexts/SiteThemeContext';
+import DesignSystemPage from '@/pages/DesignSystemPage';
 import NotFound from '@/pages/NotFound';
 import {
   AccountPage,
@@ -37,7 +39,8 @@ function LegacyRouteRedirect() {
 export default function App() {
   return (
     <BrowserRouter>
-      <StoryAuthProvider>
+      <SiteThemeProvider>
+        <StoryAuthProvider>
         <Routes>
           <Route path="/:locale" element={<LocalizedRoutes />}>
             <Route index element={<LandingPage />} />
@@ -63,12 +66,14 @@ export default function App() {
             <Route path="policy" element={<PolicyPage kind="overview" />} />
             <Route path="policy/sources" element={<PolicyPage kind="sources" />} />
             <Route path="policy/depiction" element={<PolicyPage kind="depiction" />} />
+            <Route path="design" element={<DesignSystemPage />} />
             <Route path="workspace" element={<Navigate to="../account" replace />} />
             <Route path="*" element={<NotFound />} />
           </Route>
           <Route path="*" element={<LegacyRouteRedirect />} />
         </Routes>
-      </StoryAuthProvider>
+        </StoryAuthProvider>
+      </SiteThemeProvider>
     </BrowserRouter>
   );
 }

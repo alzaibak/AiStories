@@ -421,12 +421,18 @@ const Entitlement = sequelize.define('Entitlement', {
   id,
   userId: { type: DataTypes.INTEGER, allowNull: false, references: { model: 'users', key: 'id' }, onDelete: 'CASCADE' },
   orderItemId: { type: DataTypes.INTEGER, allowNull: true, unique: true, references: { model: 'store_order_items', key: 'id' }, onDelete: 'SET NULL' },
-  resourceType: { type: DataTypes.ENUM('collection', 'story', 'part', 'video', 'ebook', 'book'), allowNull: false },
+  resourceType: { type: DataTypes.ENUM('collection', 'story', 'part', 'video', 'ebook', 'book', 'premium'), allowNull: false },
   resourceId: { type: DataTypes.INTEGER, allowNull: false },
   startsAt: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
   expiresAt: { type: DataTypes.DATE, allowNull: true },
-  source: { type: DataTypes.ENUM('subscription', 'purchase', 'rental', 'promo', 'gift', 'event', 'admin'), allowNull: false },
-  revokedAt: { type: DataTypes.DATE, allowNull: true }
+  source: { type: DataTypes.ENUM('subscription', 'purchase', 'rental', 'promo', 'gift', 'event', 'admin', 'mystery_box'), allowNull: false },
+  revokedAt: { type: DataTypes.DATE, allowNull: true },
+  // Linked by migration 025 once mystery_box_purchases exists; keeping the model
+  // free of a hard reference lets migration 009 create entitlements first.
+  mysteryBoxPurchaseId: {
+    type: DataTypes.INTEGER,
+    allowNull: true
+  }
 }, { ...timestamps, tableName: 'entitlements', indexes: [{ fields: ['userId', 'resourceType', 'resourceId', 'expiresAt'] }] });
 
 const ProcessedWebhookEvent = sequelize.define('ProcessedWebhookEvent', {
@@ -546,7 +552,8 @@ const DonationCampaign = sequelize.define('DonationCampaign', {
   currency: { type: DataTypes.STRING(3), allowNull: false, defaultValue: 'EUR' },
   status: { type: DataTypes.ENUM('draft', 'active', 'completed', 'archived'), allowNull: false, defaultValue: 'draft' },
   startsAt: { type: DataTypes.DATE, allowNull: true },
-  endsAt: { type: DataTypes.DATE, allowNull: true }
+  endsAt: { type: DataTypes.DATE, allowNull: true },
+  sponsoredBooksCount: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 }
 }, { ...timestamps, tableName: 'donation_campaigns' });
 
 const Donation = sequelize.define('Donation', {

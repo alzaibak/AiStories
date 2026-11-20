@@ -95,7 +95,7 @@ Remove-Item Env:\SUPERADMIN_RECOVERY_PASSWORD
 
 ## Données de démonstration
 
-Le seed crée le compte administrateur, trois histoires brouillon, deux livres de préparation non publiés et un ebook de démonstration original publié (4,90 EUR). Ce dernier utilise un petit PDF local et son téléchargement reste protégé par un droit d’accès ; il ne nécessite pas de bucket S3. Les autres ebooks publiés utilisent le stockage S3/MinIO privé. Définissez un secret dédié à l’environnement avant d’exécuter le seed :
+Le seed crée le compte administrateur, deux histoires brouillon, une histoire de démonstration publiée (`companionship-in-the-cave`) modifiable depuis le tableau de bord admin, deux livres de préparation non publiés et un ebook de démonstration original publié (4,90 EUR). Ce dernier utilise un petit PDF local et son téléchargement reste protégé par un droit d’accès ; il ne nécessite pas de bucket S3. Les autres ebooks publiés utilisent le stockage S3/MinIO privé. Définissez un secret dédié à l’environnement avant d’exécuter le seed :
 
 ```powershell
 $env:SEED_ADMIN_EMAIL = "admin@exemple.test"

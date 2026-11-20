@@ -6,10 +6,25 @@
     <title>حكايات إسلامية — قصص موثوقة لكل العائلة</title>
     <meta name="description" content="قصص إسلامية موثوقة، مقسمة إلى أجزاء ممتعة مع كتب للعائلة." />
     <meta name="author" content="حكايات إسلامية" />
+    <meta name="theme-color" content="#fbf7ef" />
     <meta property="og:title" content="حكايات إسلامية — قصص موثوقة لكل العائلة" />
     <meta property="og:description" content="اكتشف قصص الأنبياء والصحابة والتاريخ الإسلامي في مكتبة عائلية موثوقة." />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
+    <script>
+      // Apply the saved reading appearance before first paint (public site only).
+      try {
+        var preferred = localStorage.getItem('site-theme');
+        if (preferred === 'dark' || preferred === 'sepia' || preferred === 'light') {
+          document.documentElement.dataset.siteTheme = preferred;
+          if (preferred === 'dark') document.documentElement.classList.add('dark');
+          document.documentElement.style.colorScheme = preferred === 'dark' ? 'dark' : 'light';
+        }
+      } catch (error) {}
+    </script>
+    <link rel="preload" href="/fonts/ibm-plex-sans-arabic-400-arabic.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/ibm-plex-sans-arabic-600-arabic.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/noto-naskh-arabic-400_700-arabic.woff2" as="font" type="font/woff2" crossorigin />
   </head>
 
   <body>

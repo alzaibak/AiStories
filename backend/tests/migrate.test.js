@@ -9,7 +9,15 @@ const { removeForeignKeysForColumn } = require('../migrations/003-remove-commerc
 const paymentWorkflowMigration = require('../migrations/011-add-payment-workflow');
 const publishingMigration = require('../migrations/016-publishing-auth-and-slugs');
 const bookPublicationDateMigration = require('../migrations/017-repair-book-publication-date');
+const storyPlatformMigration = require('../migrations/009-create-story-platform');
 const Sequelize = require('sequelize');
+
+test('crée media_assets avant story_videos pour respecter la clé étrangère', () => {
+  assert.ok(
+    storyPlatformMigration.storyModelNames.indexOf('MediaAsset') <
+      storyPlatformMigration.storyModelNames.indexOf('StoryVideo')
+  );
+});
 
 test('ne resynchronise pas les tables de base déjà présentes', async () => {
   const syncCalls = [];

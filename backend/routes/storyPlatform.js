@@ -2019,11 +2019,46 @@ router.get('/admin/community/reports', authenticate, allowRoles('ADMIN', 'SUPER_
 
 router.get('/reading-progress', authenticate, async (req, res, next) => {
   try {
-    res.json(await ReadingProgress.findAll({
+    const progressRows = await ReadingProgress.findAll({
       where: { userId: req.user.id },
-      include: [{ model: Story, as: 'story', attributes: ['id', 'title', 'slug', 'cover'] }],
+      include: [{
+        model: Story,
+        as: 'story',
+        attributes: ['id', 'title', 'slug', 'cover', 'isFree'],
+        include: [
+          { model: Collection, as: 'collection', attributes: ['id', 'isFree'] },
+          {
+            model: StoryPart,
+            as: 'parts',
+            attributes: ['id', 'partNumber', 'isFree', 'releaseAt', 'earlyAccessUntil']
+          }
+        ]
+      }],
       order: [['lastReadAt', 'DESC']]
+    });
+    const payload = await Promise.all(progressRows.map(async (row) => {
+      const story = row.story;
+      const completedParts = new Set(Array.isArray(row.completedParts) ? row.completedParts : []);
+      let nextPart = null;
+      if (story) {
+        const unreadParts = [...(story.parts || [])]
+          .sort((left, right) => left.partNumber - right.partNumber)
+          .filter((part) => !completedParts.has(part.id));
+        for (const part of unreadParts) {
+          if (await canAccessPart({ userId: req.user.id, role: req.user.role, story, part })) {
+            nextPart = { id: part.id, partNumber: part.partNumber };
+            break;
+          }
+        }
+      }
+      const json = row.toJSON();
+      if (json.story) {
+        delete json.story.parts;
+        delete json.story.collection;
+      }
+      return { ...json, nextPart };
     }));
+    res.json(payload);
   } catch (error) {
     next(error);
   }

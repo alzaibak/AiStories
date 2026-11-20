@@ -17,7 +17,7 @@ async function main() {
   await sequelize.authenticate();
   if (!adminOnly) await require('../migrate')('up');
 
-  const { renamed, removedPrevious } = await ensureSeedAdmin({
+  const { user, renamed, removedPrevious } = await ensureSeedAdmin({
     User,
     hashPassword,
     email: process.env.SEED_ADMIN_EMAIL,
@@ -31,7 +31,7 @@ async function main() {
   if (removedPrevious) console.info('Ancien compte super-administrateur supprimé.');
 
   if (!adminOnly) {
-    await seedStories();
+    await seedStories({ reviewer: user });
     console.info('Données de démonstration des histoires créées.');
   }
 }

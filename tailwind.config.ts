@@ -75,6 +75,42 @@ export default {
           800: "rgb(var(--reject-rgb) / <alpha-value>)",
           900: "rgb(var(--reject-rgb) / <alpha-value>)",
         },
+        /* Public-site design system tokens (src/styles/site.css) */
+        paper: "rgb(var(--ds-canvas-rgb) / <alpha-value>)",
+        surface: {
+          DEFAULT: "rgb(var(--ds-surface-rgb) / <alpha-value>)",
+          soft: "rgb(var(--ds-surface-soft-rgb) / <alpha-value>)",
+          sunken: "rgb(var(--ds-surface-sunken-rgb) / <alpha-value>)",
+        },
+        ink: {
+          DEFAULT: "rgb(var(--ds-ink-rgb) / <alpha-value>)",
+          muted: "rgb(var(--ds-ink-muted-rgb) / <alpha-value>)",
+          faint: "rgb(var(--ds-ink-faint-rgb) / <alpha-value>)",
+        },
+        line: {
+          DEFAULT: "rgb(var(--ds-line-rgb) / <alpha-value>)",
+          strong: "rgb(var(--ds-line-strong-rgb) / <alpha-value>)",
+        },
+        brand: {
+          DEFAULT: "rgb(var(--ds-brand-rgb) / <alpha-value>)",
+          strong: "rgb(var(--ds-brand-strong-rgb) / <alpha-value>)",
+          soft: "rgb(var(--ds-brand-soft-rgb) / <alpha-value>)",
+          ink: "rgb(var(--ds-brand-ink-rgb) / <alpha-value>)",
+          on: "rgb(var(--ds-on-brand-rgb) / <alpha-value>)",
+        },
+        gold: {
+          DEFAULT: "rgb(var(--ds-gold-rgb) / <alpha-value>)",
+          soft: "rgb(var(--ds-gold-soft-rgb) / <alpha-value>)",
+          ink: "rgb(var(--ds-gold-ink-rgb) / <alpha-value>)",
+        },
+        danger: {
+          DEFAULT: "rgb(var(--ds-danger-rgb) / <alpha-value>)",
+          soft: "rgb(var(--ds-danger-soft-rgb) / <alpha-value>)",
+        },
+        success: {
+          DEFAULT: "rgb(var(--ds-success-rgb) / <alpha-value>)",
+          soft: "rgb(var(--ds-success-soft-rgb) / <alpha-value>)",
+        },
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
@@ -127,6 +163,14 @@ export default {
       },
       fontFamily: {
         sans: ['Inter', 'sans-serif'],
+        ui: ['IBM Plex Sans Arabic', 'Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        reading: ['Lora', 'Noto Naskh Arabic', 'Georgia', 'serif'],
+        display: ['IBM Plex Sans Arabic', 'Lora', 'serif'],
+      },
+      boxShadow: {
+        soft: 'var(--shadow-soft)',
+        lift: 'var(--shadow-lift)',
+        glow: 'var(--shadow-glow)',
       },
       keyframes: {
         "fade-in-up": {
@@ -137,10 +181,20 @@ export default {
           "0%": { opacity: "0", transform: "translateX(20px)" },
           "100%": { opacity: "1", transform: "translateX(0)" },
         },
+        rise: {
+          "0%": { opacity: "0", transform: "translateY(14px)" },
+          "100%": { opacity: "1", transform: "translateY(0)" },
+        },
+        pop: {
+          "0%": { opacity: "0", transform: "scale(0.94)" },
+          "100%": { opacity: "1", transform: "scale(1)" },
+        },
       },
       animation: {
         "fade-in-up": "fade-in-up 0.6s ease-out forwards",
         "slide-in-right": "slide-in-right 0.5s ease-out forwards",
+        rise: "rise 0.42s cubic-bezier(0.16, 1, 0.3, 1) both",
+        pop: "pop 0.42s cubic-bezier(0.22, 1.35, 0.36, 1) both",
       },
     },
   },
