@@ -21,6 +21,7 @@ import {
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
+  RotateCcw,
   ScrollText,
   Search,
   Settings,
@@ -33,6 +34,7 @@ import {
 import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useStoryAuth } from '@/contexts/StoryAuthContext';
 import { translateText, type SiteLanguage } from '@/lib/localization';
+import { FormErrorSummary, type FormFieldError } from '@/lib/adminFormErrors';
 
 type AdminLanguage = SiteLanguage;
 
@@ -66,6 +68,7 @@ const navigation: Array<{
     links: [
       { label: 'الكتب والكتب الإلكترونية', to: 'shop/books', icon: ShoppingBag },
       { label: 'صناديق الغموض', to: 'shop/mystery-boxes', icon: Gift },
+      { label: 'المرتجعات والاستردادات', to: 'shop/returns', icon: RotateCcw },
       { label: 'الطلبات', to: 'orders', icon: ClipboardList }
     ]
   },
@@ -93,6 +96,7 @@ const navigation: Array<{
       { label: 'المستخدمون والأدوار', to: 'system/users', icon: Users },
       { label: 'التذكيرات والقوالب', to: 'system/emails', icon: Mail },
       { label: 'إعدادات النظام', to: 'system', icon: Settings },
+      { label: 'سجل الأمان', to: 'system/security', icon: ShieldCheck },
       { label: 'سياسة التصوير والمراجعة', to: 'system/policy', icon: ScrollText }
     ]
   }
@@ -114,6 +118,8 @@ const knownRoutes: Array<{ path: string; label: string }> = [
   { path: '/admin/community/teams', label: 'الفرق' },
   { path: '/admin/shop/books', label: 'الكتب والكتب الإلكترونية' },
   { path: '/admin/shop/mystery-boxes', label: 'صناديق الغموض' },
+  { path: '/admin/shop/returns/settings', label: 'سياسة الإرجاع' },
+  { path: '/admin/shop/returns', label: 'المرتجعات والاستردادات' },
   { path: '/admin/orders', label: 'الطلبات' },
   { path: '/admin/money/payments', label: 'مدفوعات Stripe' },
   { path: '/admin/money/donations', label: 'التبرعات والحملات' },
@@ -122,6 +128,7 @@ const knownRoutes: Array<{ path: string; label: string }> = [
   { path: '/admin/system/users', label: 'المستخدمون والأدوار' },
   { path: '/admin/system/change-password', label: 'تغيير كلمة المرور' },
   { path: '/admin/system/emails', label: 'التذكيرات والقوالب' },
+  { path: '/admin/system/security', label: 'سجل الأمان' },
   { path: '/admin/system/policy', label: 'سياسة التصوير والمراجعة' },
   { path: '/admin/system', label: 'إعدادات النظام' }
 ];
@@ -152,6 +159,21 @@ export default function AdminLayout() {
     return () => window.removeEventListener('keydown', closeOnEscape);
   }, [mobileMenuOpen]);
 
+  const [formErrors, setFormErrors] = useState<{ errors: FormFieldError[]; message: string; suggestion: string }>({
+    errors: [], message: '', suggestion: ''
+  });
+  const hasDedicatedSummary = /\/content\/(stories|quizzes|collections|parts|books)/.test(location.pathname);
+
+  useEffect(() => {
+    const onFormErrors = (event: Event) => {
+      const detail = (event as CustomEvent<{ errors: FormFieldError[]; message?: string; suggestion?: string }>).detail;
+      if (!detail?.errors?.length) return;
+      setFormErrors({ errors: detail.errors, message: detail.message || '', suggestion: detail.suggestion || '' });
+    };
+    window.addEventListener('admin-form-errors', onFormErrors);
+    return () => window.removeEventListener('admin-form-errors', onFormErrors);
+  }, []);
+
   if (isLoading) {
     return <main className="grid min-h-screen place-items-center text-slate-600">{localizedText('جارٍ التحميل…', language)}</main>;
   }
@@ -176,7 +198,7 @@ export default function AdminLayout() {
   if (user.role === 'SUPER_ADMIN' && pathWithoutLocale === '/admin/content/review-queue') {
     return <Navigate to={basePath} replace />;
   }
-  if (isEditor && ['/admin/orders', '/admin/subscriptions', '/admin/system', '/admin/money', '/admin/community', '/admin/shop/mystery-boxes'].some((path) => pathWithoutLocale.startsWith(path))) {
+  if (isEditor && ['/admin/orders', '/admin/subscriptions', '/admin/system', '/admin/money', '/admin/community', '/admin/shop/mystery-boxes', '/admin/shop/returns'].some((path) => pathWithoutLocale.startsWith(path))) {
     return <Navigate to={basePath} replace />;
   }
   const matchedRoute = [...knownRoutes]
@@ -273,7 +295,7 @@ export default function AdminLayout() {
   </div>;
 
   return <div dir={isRtl ? 'rtl' : 'ltr'} lang={language} className="min-h-screen bg-slate-50 text-slate-900">
-    {mobileMenuOpen && <button type="button" aria-label={localizedText('إغلاق القائمة', language)} onClick={() => setMobileMenuOpen(false)} className="fixed inset-0 z-40 bg-slate-950/50 lg:hidden" />}
+    {mobileMenuOpen && <button type="button" aria-label={localizedText('إغلاق القائمة', language)} onClick={() => setMobileMenuOpen(false)} className="fixed inset-0 z-20 bg-slate-950/50 lg:hidden" />}
     <div className="flex min-h-screen">
       <aside className={`fixed inset-y-0 z-50 ${isRtl ? 'right-0' : 'left-0'} transform transition-transform duration-200 ${mobileMenuOpen ? 'translate-x-0' : isRtl ? 'translate-x-full' : '-translate-x-full'} lg:static lg:z-auto lg:translate-x-0`}>
         {sidebar}
@@ -323,6 +345,15 @@ export default function AdminLayout() {
           </div>
         </header>
         <div className="min-w-0 flex-1 p-4 sm:p-6 lg:p-8">
+          {!hasDedicatedSummary && formErrors.errors.length > 0 && <div className="mb-4">
+            <FormErrorSummary
+              errors={formErrors.errors}
+              message={formErrors.message}
+              suggestion={formErrors.suggestion}
+              language={language}
+            />
+            <button type="button" onClick={() => setFormErrors({ errors: [], message: '', suggestion: '' })} className="mt-2 text-xs font-bold text-slate-500 underline">{localizedText('إخفاء', language)}</button>
+          </div>}
           <Outlet />
         </div>
       </div>

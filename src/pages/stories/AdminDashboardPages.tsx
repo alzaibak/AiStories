@@ -13,6 +13,8 @@ type AdminStory = {
   rejectionReason?: string | null;
   publishedAt?: string | null;
   summary?: string;
+  cover?: string | null;
+  coverImage?: string | null;
   updatedAt?: string;
   parts?: Array<{ id: number; partNumber: number; title?: string; content?: string; endingHook?: string }>;
   collection?: { title: string };
@@ -39,7 +41,16 @@ type AdminBook = {
   publishedAt?: string | null;
   fileStorageKey: string | null;
 };
-type AdminOrderSummary = { id: number; total: string | number; currency: string; createdAt: string };
+type AdminOrderSummary = { id: number; status?: string; total: string | number; paidAmount?: string | number | null; currency: string; createdAt: string };
+type AdminReturnsStats = {
+  openReturns: number;
+  refundsThisMonth: number;
+  returnsThisMonth: number;
+  ordersThisMonth?: number;
+  returnRate?: number;
+  averageRefundDays: number;
+  topReasons: Array<{ code: string; count: number }>;
+};
 type DashboardData = {
   stories: AdminStory[];
   subscriptions: unknown[] | null;
@@ -138,6 +149,7 @@ export function AdminDashboardPage() {
   const { user } = useStoryAuth();
   const [reloadKey, setReloadKey] = useState(0);
   const [data, setData] = useState<DashboardData | null>(null);
+  const [returnStats, setReturnStats] = useState<AdminReturnsStats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const isOwnerAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN';
@@ -150,10 +162,13 @@ export function AdminDashboardPage() {
     const requests = [
       api.get<AdminStory[]>(isReviewer ? '/admin/content/review-queue' : '/admin/content/stories'),
       isOwnerAdmin ? api.get<unknown[]>('/admin/subscriptions') : Promise.resolve(null),
-      isOwnerAdmin ? api.get<AdminOrderSummary[]>('/admin/store-orders') : Promise.resolve(null)
+      isOwnerAdmin ? api.get<{ items: AdminOrderSummary[] }>('/admin/store-orders?limit=100').then((result) => result.items) : Promise.resolve(null),
+      isOwnerAdmin ? api.get<AdminReturnsStats>('/admin/returns/dashboard') : Promise.resolve(null)
     ];
-    Promise.all(requests).then(([stories, subscriptions, orders]) => {
-      if (active) setData({ stories, subscriptions, orders });
+    Promise.all(requests).then(([stories, subscriptions, orders, returns]) => {
+      if (!active) return;
+      setData({ stories, subscriptions, orders });
+      setReturnStats(returns as AdminReturnsStats | null);
     }).catch((caught: unknown) => {
       if (active) setError(caught instanceof Error ? caught.message : t('تعذر تحميل البيانات.', language));
     }).finally(() => {
@@ -166,8 +181,11 @@ export function AdminDashboardPage() {
     { label: 'القصص المنشورة', value: isReviewer ? null : data?.stories.filter((story) => story.status === 'published').length, icon: BookOpen, note: isReviewer ? 'بيانات القصص المنشورة غير متاحة لدور المراجع' : 'من مكتبة القصص' },
     { label: 'المشتركون', value: data?.subscriptions?.length, icon: Users, note: 'حسابات الاشتراك' },
     { label: 'طلبات الكتب', value: data?.orders?.length, icon: ClipboardList, note: 'إجمالي الطلبات' },
+    { label: 'طلبات اليوم', value: (data?.orders || []).filter((order) => new Date(order.createdAt).toDateString() === new Date().toDateString()).length, icon: ClipboardList, note: 'أُنشئت اليوم' },
+    { label: 'مدفوعات معلّقة', value: (data?.orders || []).filter((order) => ['pending', 'pending_payment'].includes(order.status || '')).length, icon: CircleDollarSign, note: 'بانتظار تأكيد Stripe' },
+    { label: 'مدفوعات فاشلة', value: (data?.orders || []).filter((order) => ['failed', 'expired', 'amount_mismatch'].includes(order.status || '')).length, icon: ClipboardList, note: 'تحتاج مراجعة' },
     { label: 'بانتظار المراجعة', value: data?.stories.filter((story) => story.status === 'in_review').length, icon: ShieldCheck, note: 'قصص قيد المراجعة' },
-    { label: 'الإيرادات هذا الشهر', value: null, icon: CircleDollarSign, note: 'لا تتوفر بيانات الإيرادات في لوحة الإدارة بعد' },
+    { label: 'الإيرادات هذا الشهر', value: (data?.orders || []).filter((order) => ['paid', 'fulfilled'].includes(order.status || '')).reduce((sum, order) => sum + Number(order.paidAmount ?? order.total ?? 0), 0).toFixed(2), icon: CircleDollarSign, note: 'الطلبات المدفوعة' },
     { label: 'التبرعات', value: null, icon: Library, note: 'لا تتوفر بيانات التبرعات في لوحة الإدارة بعد' },
     { label: 'المسابقة النشطة', value: null, icon: ShieldCheck, note: 'لا تتوفر بيانات المسابقات في لوحة الإدارة بعد' }
   ];
@@ -197,6 +215,30 @@ export function AdminDashboardPage() {
         <p className="mt-3 text-xs leading-5 text-slate-500">{t(note, language)}</p>
       </article>)}
     </section>
+    {returnStats && <section aria-label={t('المرتجعات والاستردادات', language)} className="rounded-2xl border border-slate-200 bg-white p-5">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-extrabold">{t('المرتجعات والاستردادات', language)}</h2>
+          <p className="mt-1 text-xs text-slate-500">{t('ملخص الشهر الجاري ونسبة الإرجاع.', language)}</p>
+        </div>
+        <Link to={`/${locale}/admin/shop/returns`} className="text-sm font-bold text-emerald-800 underline">{t('إدارة المرتجعات', language)}</Link>
+      </div>
+      <dl className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {[
+          { label: 'طلبات مفتوحة', value: returnStats.openReturns },
+          { label: 'استردادات هذا الشهر', value: returnStats.refundsThisMonth },
+          { label: 'نسبة الإرجاع', value: `${(returnStats.returnRate ?? 0).toFixed(1)}%` },
+          { label: 'متوسط مدة الاسترداد', value: `${returnStats.averageRefundDays} ${t('يوم', language)}` }
+        ].map(({ label, value }) => <div key={label} className="rounded-xl bg-slate-50 p-4">
+          <dt className="text-xs font-semibold text-slate-500">{t(label, language)}</dt>
+          <dd className="mt-1 text-2xl font-black text-slate-950">{value}</dd>
+        </div>)}
+      </dl>
+      {!!returnStats.topReasons.length && <div className="mt-4">
+        <p className="text-xs font-bold uppercase tracking-wide text-slate-500">{t('أكثر أسباب الإرجاع', language)}</p>
+        <ul className="mt-2 flex flex-wrap gap-2">{returnStats.topReasons.map((reason) => <li key={reason.code} className="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-900">{reason.code} · {reason.count}</li>)}</ul>
+      </div>}
+    </section>}
     <div className="grid gap-6 xl:grid-cols-2">
       <section className="rounded-2xl border border-slate-200 bg-white p-5">
         <div className="flex items-center justify-between gap-3">
@@ -242,6 +284,7 @@ export function AdminStoriesPage() {
   const [page, setPage] = useState(1);
   const search = searchParams.get('q') || '';
   const statusFilter = searchParams.get('status') || 'all';
+  const imageFilter = searchParams.get('image') || 'all';
   const pageSize = 10;
 
   useEffect(() => {
@@ -260,8 +303,10 @@ export function AdminStoriesPage() {
 
   const filteredStories = useMemo(() => stories.filter((story) => {
     const matchesSearch = `${story.title} ${story.slug} ${story.collection?.title || ''}`.toLocaleLowerCase().includes(search.toLocaleLowerCase());
-    return matchesSearch && (statusFilter === 'all' || story.status === statusFilter);
-  }), [search, statusFilter, stories]);
+    const cover = story.coverImage || story.cover;
+    const matchesImage = imageFilter === 'all' || (imageFilter === 'missing' ? !cover : Boolean(cover));
+    return matchesSearch && matchesImage && (statusFilter === 'all' || story.status === statusFilter);
+  }), [search, statusFilter, imageFilter, stories]);
   const pageCount = Math.max(1, Math.ceil(filteredStories.length / pageSize));
   const visibleStories = filteredStories.slice((page - 1) * pageSize, page * pageSize);
   async function storyAction(story: AdminStory, action: 'submit' | 'approve' | 'reject' | 'return' | 'unpublish') {
@@ -312,6 +357,14 @@ export function AdminStoriesPage() {
     setPage(1);
   }
 
+  function updateImageFilter(nextImage: string) {
+    const next = new URLSearchParams(searchParams);
+    if (nextImage === 'all') next.delete('image');
+    else next.set('image', nextImage);
+    setSearchParams(next, { replace: true });
+    setPage(1);
+  }
+
   return <div className="mx-auto max-w-7xl space-y-6">
     <header className="flex flex-wrap items-end justify-between gap-4">
       <div><p className="text-sm font-bold text-emerald-700">{t('المحتوى', language)}</p><h1 className="mt-1 text-3xl font-black">{t('القصص', language)}</h1><p className="mt-2 text-sm text-slate-600">{t('ابحث عن القصص وراجع حالتها وأجزائها.', language)}</p></div>
@@ -323,18 +376,22 @@ export function AdminStoriesPage() {
         <label className="text-sm font-semibold">{t('الحالة', language)}<select value={statusFilter} onChange={(event) => updateStatus(event.target.value)} className="mt-1.5 block rounded-xl border border-slate-200 bg-white px-3 py-2.5">
           <option value="all">{t('كل الحالات', language)}</option><option value="draft">{t('مسودة', language)}</option><option value="in_review">{t('قيد المراجعة', language)}</option><option value="published">{t('منشورة', language)}</option><option value="rejected">{t('مرفوضة', language)}</option><option value="archived">{t('مؤرشفة', language)}</option>
         </select></label>
+        <label className="text-sm font-semibold">{t('الصورة', language)}<select value={imageFilter} onChange={(event) => updateImageFilter(event.target.value)} className="mt-1.5 block rounded-xl border border-slate-200 bg-white px-3 py-2.5">
+          <option value="all">{t('كل الصور', language)}</option><option value="missing">{t('بدون صورة', language)}</option><option value="present">{t('بصورة', language)}</option>
+        </select></label>
       </div>
       {error && <ErrorMessage message={error} language={language} />}
       {notice && <p role="status" className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-900">{notice}</p>}
       {loading && <p role="status" className="py-8 text-center text-sm text-slate-500">{t('جارٍ تحميل القصص…', language)}</p>}
       {!loading && !error && filteredStories.length === 0 && <p className="rounded-xl bg-slate-50 p-8 text-center text-sm text-slate-600">{t('لا توجد قصص تطابق بحثك.', language)}</p>}
       {!loading && filteredStories.length > 0 && <div className="overflow-x-auto">
-        <table className="w-full min-w-[760px] text-start text-sm">
+        <table className="w-full min-w-[840px] text-start text-sm">
           <thead className="border-b border-slate-200 text-xs uppercase text-slate-500"><tr>
-            <th className="px-3 py-3 font-bold">{t('القصة', language)}</th><th className="px-3 py-3 font-bold">{t('المجموعة', language)}</th><th className="px-3 py-3 font-bold">{t('الأجزاء', language)}</th><th className="px-3 py-3 font-bold">{t('الحالة', language)}</th><th className="px-3 py-3 font-bold">{t('الإجراءات', language)}</th>
+            <th className="px-3 py-3 font-bold">{t('الغلاف', language)}</th><th className="px-3 py-3 font-bold">{t('القصة', language)}</th><th className="px-3 py-3 font-bold">{t('المجموعة', language)}</th><th className="px-3 py-3 font-bold">{t('الأجزاء', language)}</th><th className="px-3 py-3 font-bold">{t('الحالة', language)}</th><th className="px-3 py-3 font-bold">{t('الإجراءات', language)}</th>
           </tr></thead>
           <tbody className="divide-y divide-slate-100">
             {visibleStories.map((story) => <tr key={story.id}>
+              <td className="px-3 py-4">{(story.coverImage || story.cover) ? <img src={story.coverImage || story.cover || ''} alt="" className="h-16 w-12 rounded-lg object-cover" loading="lazy" /> : <span className="inline-flex h-16 w-12 items-center justify-center rounded-lg border border-dashed border-amber-300 bg-amber-50 text-[0.625rem] font-bold text-amber-800">{t('بدون صورة', language)}</span>}</td>
               <td className="px-3 py-4"><p className="font-bold text-slate-900">{story.title}</p><p className="mt-1 text-xs text-slate-500" dir="ltr">{story.slug}</p>{story.status === 'rejected' && story.rejectionReason && <p className="mt-2 text-xs text-red-700">{t('سبب الرفض', language)}: {story.rejectionReason}</p>}</td>
               <td className="px-3 py-4">{story.collection?.title || '—'}</td>
               <td className="px-3 py-4">{story.parts?.length || 0}</td>

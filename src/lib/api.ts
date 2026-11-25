@@ -13,18 +13,26 @@ const DUPLICATE_EMAIL_MESSAGES = {
 };
 
 export type UserRole = 'SUPER_ADMIN' | 'ADMIN' | 'READER' | 'EDITOR' | 'REVIEWER';
+export type ApiFieldError = { field: string; code: string; message: string };
+
 export class ApiError extends Error {
   code?: string;
   fields?: Record<string, string>;
   existingPart?: { id: number; partNumber: number };
   missing?: Array<{ code: string; field?: string; itemId?: number; needed?: number }>;
+  errors?: ApiFieldError[];
+  status?: number;
+  suggestion?: string;
 
   constructor(
     message: string,
     code?: string,
     fields?: Record<string, string>,
     existingPart?: { id: number; partNumber: number },
-    missing?: Array<{ code: string; field?: string; itemId?: number; needed?: number }>
+    missing?: Array<{ code: string; field?: string; itemId?: number; needed?: number }>,
+    errors?: ApiFieldError[],
+    status?: number,
+    suggestion?: string
   ) {
     super(message);
     this.name = 'ApiError';
@@ -32,6 +40,9 @@ export class ApiError extends Error {
     this.fields = fields;
     this.existingPart = existingPart;
     this.missing = missing;
+    this.errors = errors;
+    this.status = status;
+    this.suggestion = suggestion;
   }
 }
 
@@ -136,6 +147,11 @@ export async function request<T>(path: string, init: RequestInit = {}, bearerTok
     const body = await response.json().catch(() => ({}));
     if (!response.ok) {
       if (response.status === 401 && token && !bearerToken) notifyExpiredSession();
+      if (Array.isArray(body.errors) && body.errors.length && path.startsWith('/admin/') && typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('admin-form-errors', {
+          detail: { errors: body.errors, message: body.message || '', suggestion: body.suggestion || '' }
+        }));
+      }
       if (
         response.status === 409 &&
         typeof body.message === 'string' &&
@@ -144,7 +160,16 @@ export async function request<T>(path: string, init: RequestInit = {}, bearerTok
       ) {
         throw new ApiError(DUPLICATE_EMAIL_MESSAGES[language as keyof typeof DUPLICATE_EMAIL_MESSAGES], body.code);
       }
-      throw new ApiError(body.message || `Erreur API (${response.status}).`, body.code, body.fields, body.existingPart, body.missing);
+      throw new ApiError(
+        body.message || `Erreur API (${response.status}).`,
+        body.code,
+        body.fields,
+        body.existingPart,
+        body.missing,
+        body.errors,
+        response.status,
+        body.suggestion
+      );
     }
     return body as T;
   } catch (error) {
@@ -171,7 +196,16 @@ async function requestBlob(path: string): Promise<Blob> {
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
       if (response.status === 401 && getAuthToken()) notifyExpiredSession();
-      throw new ApiError(body.message || `Erreur API (${response.status}).`, body.code, body.fields, body.existingPart, body.missing);
+      throw new ApiError(
+        body.message || `Erreur API (${response.status}).`,
+        body.code,
+        body.fields,
+        body.existingPart,
+        body.missing,
+        body.errors,
+        response.status,
+        body.suggestion
+      );
     }
     return await response.blob();
   } catch (error) {
@@ -186,11 +220,12 @@ async function requestBlob(path: string): Promise<Blob> {
 
 export const api = {
   get: <T>(path: string) => request<T>(path),
-  post: <T>(path: string, body: unknown) =>
-    request<T>(path, { method: 'POST', body: JSON.stringify(body) }),
-  uploadFile: <T>(path: string, file: File) => {
+  post: <T>(path: string, body: unknown, init: RequestInit = {}) =>
+    request<T>(path, { ...init, method: 'POST', body: JSON.stringify(body) }),
+  uploadFile: <T>(path: string, file: File, fields?: Record<string, string>) => {
     const formData = new FormData();
     formData.append('file', file);
+    Object.entries(fields || {}).forEach(([name, value]) => formData.append(name, value));
     return request<T>(path, { method: 'POST', body: formData });
   },
   patch: <T>(path: string, body: unknown) =>

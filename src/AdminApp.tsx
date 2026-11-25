@@ -11,6 +11,7 @@ import {
   AdminEventsPage,
   AdminPromoCodesPage,
   AdminPolicyPage,
+  AdminSecurityLogPage,
   AdminTeamsPage
 } from '@/pages/stories/AdminOperationsPages';
 import AdminLayout from '@/pages/stories/AdminLayout';
@@ -24,6 +25,7 @@ import {
   AdminStoriesPage
 } from '@/pages/stories/AdminDashboardPages';
 import { AdminChangePasswordPage, AdminPasswordResetPage, AdminRegisterPage, AdminUsersPage } from '@/pages/stories/AdminAccountPages';
+import { AdminReturnDetailPage, AdminReturnsPage, AdminReturnSettingsPage } from '@/pages/stories/AdminReturnsPages';
 import {
   AdminLoginPage,
   AdminStoreOrdersPage,
@@ -78,6 +80,9 @@ export default function AdminApp() {
               <Route path="shop/mystery-boxes/new" element={<AdminMysteryBoxEditorPage />} />
               <Route path="shop/mystery-boxes/:boxId/edit" element={<AdminMysteryBoxEditorPage />} />
               <Route path="shop/mystery-boxes/:boxId/purchases" element={<AdminMysteryBoxPurchasesPage />} />
+              <Route path="shop/returns" element={<AdminReturnsPage />} />
+              <Route path="shop/returns/settings" element={<AdminReturnSettingsPage />} />
+              <Route path="shop/returns/:returnId" element={<AdminReturnDetailPage />} />
               <Route path="orders" element={<AdminStoreOrdersPage />} />
               <Route path="money/payments" element={<AdminStoreOrdersPage />} />
               <Route path="money/donations" element={<AdminDonationsPage />} />
@@ -87,6 +92,7 @@ export default function AdminApp() {
               <Route path="system/change-password" element={<AdminChangePasswordPage />} />
               <Route path="system/emails" element={<AdminEmailTemplatesPage />} />
               <Route path="system/policy" element={<AdminPolicyPage />} />
+              <Route path="system/security" element={<AdminSecurityLogPage />} />
               <Route path="system" element={<AdminModulePage title="إعدادات النظام" />} />
               <Route path="*" element={<NotFound />} />
             </Route>

@@ -206,6 +206,14 @@ type Campaign = {
   goalAmount: number | string;
   raisedAmount: number | string;
   currency: string;
+  campaignType?: 'amount_goal' | 'items_goal' | 'both';
+  targetUnits?: number | null;
+  sponsoredUnits?: number;
+  unitName?: string | null;
+  costPerUnit?: number | string | null;
+  extraCosts?: number | string | null;
+  totalCost?: number | string | null;
+  coverImage?: string | null;
   translations: Partial<Record<Language, { title?: string; description?: string }>>;
 };
 type DonationRecord = {
@@ -216,6 +224,11 @@ type DonationRecord = {
   createdAt: string;
   campaign?: { slug: string };
   user?: { firstName: string; lastName: string; email: string } | null;
+};
+type CampaignFull = Campaign & {
+  tiers?: Array<{ id: number; amount: number | string; units: number | null; label?: Record<string, string>; isActive: boolean }>;
+  places?: Array<{ id: number; name: string; type: string; city?: string | null; country?: string | null; plannedQuantity: number; status: string }>;
+  updates?: Array<{ id: number; translations?: Record<string, { title?: string; body?: string }>; publishedAt?: string | null }>;
 };
 type RecurringDonationRecord = {
   id: number;
@@ -239,10 +252,22 @@ export function AdminDonationsPage() {
   const [total, setTotal] = useState(0);
   const [slug, setSlug] = useState('');
   const [goalAmount, setGoalAmount] = useState('');
+  const [targetUnits, setTargetUnits] = useState('300');
+  const [unitName, setUnitName] = useState('كتاب');
+  const [costPerUnit, setCostPerUnit] = useState('2.50');
+  const [extraCosts, setExtraCosts] = useState('0');
+  const [campaignType, setCampaignType] = useState<'amount_goal' | 'items_goal' | 'both'>('both');
+  const [coverImage, setCoverImage] = useState('');
   const [translations, setTranslations] = useState(blankLocalized());
   const [activeLanguage, setActiveLanguage] = useState<Language>('ar');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [manual, setManual] = useState({ amount: '10', campaignId: '', source: 'manual_cash', displayName: '', isAnonymous: false });
+  const [editingCampaign, setEditingCampaign] = useState<CampaignFull | null>(null);
+  const [campaignForm, setCampaignForm] = useState({ goalAmount: '', targetUnits: '', costPerUnit: '', extraCosts: '', coverImage: '', status: 'draft' });
+  const [tierDraft, setTierDraft] = useState({ amount: '10', units: '4', label: 'تبرع' });
+  const [placeDraft, setPlaceDraft] = useState({ name: '', type: 'school', city: '', country: 'MA', plannedQuantity: '50' });
+  const [updateDraft, setUpdateDraft] = useState({ title: '', body: '' });
 
   const loadCampaigns = useCallback(async () => {
     const result = await api.get<PageResponse<Campaign>>(`/admin/money/donation-campaigns?page=${page}&limit=20`);
@@ -264,9 +289,22 @@ export function AdminDonationsPage() {
     setBusy(true);
     setError(null);
     try {
-      await api.post('/admin/money/donation-campaigns', { slug, goalAmount: Number(goalAmount), currency: 'EUR', status: 'draft', translations });
+      await api.post('/admin/money/donation-campaigns', {
+        slug,
+        goalAmount: Number(goalAmount),
+        currency: 'EUR',
+        status: 'active',
+        campaignType,
+        targetUnits: targetUnits ? Number(targetUnits) : null,
+        unitName: { ar: unitName, en: unitName, fr: unitName },
+        costPerUnit: costPerUnit ? Number(costPerUnit) : null,
+        extraCosts: Number(extraCosts) || 0,
+        ...(coverImage.trim() ? { coverImage: coverImage.trim() } : {}),
+        translations
+      });
       setSlug('');
       setGoalAmount('');
+      setCoverImage('');
       setTranslations(blankLocalized());
       await loadCampaigns();
     } catch (caught) {
@@ -276,13 +314,136 @@ export function AdminDonationsPage() {
     }
   }
 
-  async function activate(campaign: Campaign) {
+  async function setStatus(campaign: Campaign, status: string) {
     try {
-      await api.patch(`/admin/money/donation-campaigns/${campaign.id}`, { status: 'active' });
+      await api.patch(`/admin/money/donation-campaigns/${campaign.id}`, { status });
       await loadCampaigns();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : t('تعذر تفعيل الحملة.', language));
+      setError(caught instanceof Error ? caught.message : t('تعذر تحديث حالة الحملة.', language));
     }
+  }
+
+  async function refundDonation(donation: DonationRecord) {
+    if (!window.confirm('هل تريد ردّ هذا التبرع بالكامل؟')) return;
+    setError(null);
+    try {
+      await api.post(`/admin/money/donations/${donation.id}/refund`, {});
+      setDonations((current) => current.map((item) => item.id === donation.id ? { ...item, status: 'refunded' } : item));
+      await loadCampaigns();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'تعذر رد التبرع.');
+    }
+  }
+
+  async function recordManual(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const created = await api.post<DonationRecord>('/admin/money/donations/manual', {
+        amount: Number(manual.amount),
+        currency: 'EUR',
+        source: manual.source,
+        campaignId: manual.campaignId ? Number(manual.campaignId) : null,
+        displayName: manual.displayName.trim() || null,
+        isAnonymous: manual.isAnonymous
+      });
+      setDonations((current) => [created, ...current]);
+      setManual({ ...manual, amount: '10', displayName: '' });
+      await loadCampaigns();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'تعذر تسجيل التبرع اليدوي.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function openCampaign(campaign: Campaign) {
+    setError(null);
+    try {
+      const full = await api.get<CampaignFull>(`/admin/money/donation-campaigns/${campaign.id}/full`);
+      setEditingCampaign(full);
+      setCampaignForm({
+        goalAmount: String(full.goalAmount ?? ''),
+        targetUnits: full.targetUnits ? String(full.targetUnits) : '',
+        costPerUnit: full.costPerUnit ? String(full.costPerUnit) : '',
+        extraCosts: String(full.extraCosts ?? 0),
+        coverImage: full.coverImage || '',
+        status: full.status
+      });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'تعذر تحميل الحملة.');
+    }
+  }
+
+  async function saveCampaign(event: FormEvent) {
+    event.preventDefault();
+    if (!editingCampaign) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.patch(`/admin/money/donation-campaigns/${editingCampaign.id}`, {
+        goalAmount: Number(campaignForm.goalAmount),
+        targetUnits: campaignForm.targetUnits ? Number(campaignForm.targetUnits) : null,
+        costPerUnit: campaignForm.costPerUnit ? Number(campaignForm.costPerUnit) : null,
+        extraCosts: Number(campaignForm.extraCosts) || 0,
+        ...(campaignForm.coverImage.trim() ? { coverImage: campaignForm.coverImage.trim() } : {}),
+        status: campaignForm.status
+      });
+      await openCampaign(editingCampaign);
+      await loadCampaigns();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'تعذر حفظ الحملة.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function addTier(event: FormEvent) {
+    event.preventDefault();
+    if (!editingCampaign) return;
+    setBusy(true);
+    try {
+      await api.post(`/admin/money/donation-campaigns/${editingCampaign.id}/tiers`, {
+        amount: Number(tierDraft.amount), units: Number(tierDraft.units) || null,
+        label: { ar: tierDraft.label, en: tierDraft.label, fr: tierDraft.label }, sortOrder: (editingCampaign.tiers?.length || 0) + 1
+      });
+      await openCampaign(editingCampaign);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'تعذر إضافة المستوى.');
+    } finally { setBusy(false); }
+  }
+
+  async function addPlace(event: FormEvent) {
+    event.preventDefault();
+    if (!editingCampaign) return;
+    setBusy(true);
+    try {
+      await api.post(`/admin/money/donation-campaigns/${editingCampaign.id}/places`, {
+        name: placeDraft.name, type: placeDraft.type, city: placeDraft.city, country: placeDraft.country,
+        plannedQuantity: Number(placeDraft.plannedQuantity), status: 'planned', isPublic: true
+      });
+      setPlaceDraft({ ...placeDraft, name: '' });
+      await openCampaign(editingCampaign);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'تعذر إضافة موقع التوزيع.');
+    } finally { setBusy(false); }
+  }
+
+  async function addUpdate(event: FormEvent) {
+    event.preventDefault();
+    if (!editingCampaign) return;
+    setBusy(true);
+    try {
+      await api.post(`/admin/money/donation-campaigns/${editingCampaign.id}/updates`, {
+        translations: { ar: { title: updateDraft.title, body: updateDraft.body }, en: { title: updateDraft.title, body: updateDraft.body }, fr: { title: updateDraft.title, body: updateDraft.body } },
+        publishedAt: new Date().toISOString()
+      });
+      setUpdateDraft({ title: '', body: '' });
+      await openCampaign(editingCampaign);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'تعذر نشر التحديث.');
+    } finally { setBusy(false); }
   }
 
   if (!user || !['ADMIN', 'SUPER_ADMIN'].includes(user.role)) return <AdminPage title="التبرعات والحملات"><AccessDenied /></AdminPage>;
@@ -290,21 +451,106 @@ export function AdminDonationsPage() {
     <form onSubmit={create} className={`${cardClass} grid gap-4 md:grid-cols-2`}>
       <label className="text-sm font-semibold">{t('الرابط المختصر', language)}<input required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" value={slug} onChange={(event) => setSlug(event.target.value)} dir="ltr" className={fieldClass} /></label>
       <label className="text-sm font-semibold">{t('الهدف (EUR)', language)}<input required type="number" min="0.01" step="0.01" value={goalAmount} onChange={(event) => setGoalAmount(event.target.value)} className={fieldClass} /></label>
+      <label className="text-sm font-semibold">نوع الهدف<select value={campaignType} onChange={(event) => setCampaignType(event.target.value as typeof campaignType)} className={fieldClass}><option value="both">مبلغ ووحدات</option><option value="amount_goal">مبلغ فقط</option><option value="items_goal">وحدات فقط</option></select></label>
+      <label className="text-sm font-semibold">عدد الوحدات المستهدفة<input type="number" min="1" value={targetUnits} onChange={(event) => setTargetUnits(event.target.value)} className={fieldClass} /></label>
+      <label className="text-sm font-semibold">اسم الوحدة (كتاب)<input value={unitName} onChange={(event) => setUnitName(event.target.value)} className={fieldClass} /></label>
+      <label className="text-sm font-semibold">تكلفة الوحدة (EUR)<input type="number" min="0" step="0.01" value={costPerUnit} onChange={(event) => setCostPerUnit(event.target.value)} className={fieldClass} /></label>
+      <label className="text-sm font-semibold">تكاليف إضافية (شحن/توزيع)<input type="number" min="0" step="0.01" value={extraCosts} onChange={(event) => setExtraCosts(event.target.value)} className={fieldClass} /></label>
+      <label className="text-sm font-semibold md:col-span-2">رابط صورة الغلاف<input dir="ltr" value={coverImage} onChange={(event) => setCoverImage(event.target.value)} placeholder="https://…" className={fieldClass} /></label>
+      <p className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-900 md:col-span-2">التكلفة الإجمالية المحسوبة: <strong>{((Number(targetUnits) || 0) * (Number(costPerUnit) || 0) + (Number(extraCosts) || 0)).toFixed(2)} EUR</strong></p>
       <div className="md:col-span-2 flex gap-2 border-b">{languages.map((code) => <button key={code} type="button" onClick={() => setActiveLanguage(code)} className={`border-b-2 px-3 py-2 font-bold ${activeLanguage === code ? 'border-emerald-800' : 'border-transparent'}`}>{code.toUpperCase()}</button>)}</div>
       <label className="text-sm font-semibold">{t('العنوان', language)}<input required={activeLanguage === 'ar'} value={translations[activeLanguage].title} onChange={(event) => setTranslations((current) => ({ ...current, [activeLanguage]: { ...current[activeLanguage], title: event.target.value } }))} className={fieldClass} /></label>
       <label className="text-sm font-semibold md:col-span-2">{t('الوصف', language)}<textarea required={activeLanguage === 'ar'} rows={3} value={translations[activeLanguage].description} onChange={(event) => setTranslations((current) => ({ ...current, [activeLanguage]: { ...current[activeLanguage], description: event.target.value } }))} className={fieldClass} /></label>
-      <button disabled={busy} className="rounded-full bg-emerald-900 px-5 py-2.5 font-bold text-white disabled:opacity-50 md:col-span-2">{busy ? t('جارٍ الحفظ…', language) : t('إنشاء حملة نشطة', language)}</button>
+      <button disabled={busy} className="rounded-full bg-emerald-900 px-5 py-2.5 font-bold text-white disabled:opacity-50 md:col-span-2">{busy ? t('جارٍ الحفظ…', language) : 'إنشاء حملة نشطة'}</button>
     </form>
     {error && <p role="alert" className="rounded-xl bg-red-50 p-4 text-red-800">{error}</p>}
     <section className="grid gap-3 md:grid-cols-2">{campaigns.map((campaign) => {
       const raised = Number(campaign.raisedAmount);
       const goal = Number(campaign.goalAmount);
-      return <article key={campaign.id} className={cardClass}><div className="flex items-center justify-between gap-3"><h2 className="font-bold">{campaign.translations?.[language]?.title || campaign.translations?.ar?.title}</h2>{campaign.status === 'draft' && <button onClick={() => void activate(campaign)} className="rounded-lg bg-emerald-900 px-3 py-1.5 text-sm font-bold text-white">{t('تفعيل', language)}</button>}</div><p className="mt-1 text-sm text-slate-500">{campaign.status} · {campaign.slug}</p><p className="mt-3 font-semibold">{raised.toFixed(2)} / {goal.toFixed(2)} {campaign.currency}</p><progress value={Math.min(raised, goal)} max={goal} className="mt-2 w-full" /></article>;
+      return <article key={campaign.id} className={cardClass}><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="font-bold">{campaign.translations?.[language]?.title || campaign.translations?.ar?.title}</h2><span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold">{campaign.status}</span></div><p className="mt-1 text-sm text-slate-500">{campaign.slug}</p><p className="mt-3 font-semibold">{raised.toFixed(2)} / {goal.toFixed(2)} {campaign.currency}</p><progress value={Math.min(raised, goal)} max={goal} className="mt-2 w-full" />{campaign.targetUnits ? <p className="mt-2 text-sm font-semibold text-emerald-800">{campaign.sponsoredUnits || 0} / {campaign.targetUnits} {campaign.unitName || 'كتاب'} · التكلفة {Number(campaign.totalCost || 0).toFixed(2)} {campaign.currency}</p> : null}<div className="mt-3 flex flex-wrap gap-2"><button onClick={() => void openCampaign(campaign)} className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-bold text-white">إدارة</button>{campaign.status === 'draft' && <button onClick={() => void setStatus(campaign, 'active')} className="rounded-lg bg-emerald-900 px-3 py-1.5 text-sm font-bold text-white">تفعيل</button>}{campaign.status === 'active' && <button onClick={() => void setStatus(campaign, 'completed')} className="rounded-lg border px-3 py-1.5 text-sm font-bold">إكمال</button>}{campaign.status !== 'archived' && <button onClick={() => void setStatus(campaign, 'archived')} className="rounded-lg border px-3 py-1.5 text-sm font-bold">أرشفة</button>}<a href={`/${language}/donation-campaigns/${campaign.slug}`} target="_blank" rel="noreferrer" className="rounded-lg border px-3 py-1.5 text-sm font-bold">معاينة</a></div></article>;
     })}</section>
-    <section className={`${cardClass} space-y-3`}><h2 className="text-xl font-extrabold">{t('سجل التبرعات', language)}</h2>{donations.map((donation) => <div key={donation.id} className="flex flex-wrap justify-between gap-2 border-b py-2 text-sm"><span>{donation.user ? `${donation.user.firstName} ${donation.user.lastName}` : t('متبرع', language)} · {donation.campaign?.slug}</span><span>{Number(donation.amount).toFixed(2)} {donation.currency} · {donation.status}</span></div>)}</section>
+    {editingCampaign && <section className={`${cardClass} space-y-5`}>
+      <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="text-xl font-extrabold">إدارة: {editingCampaign.translations?.ar?.title || editingCampaign.slug}</h2><button type="button" onClick={() => setEditingCampaign(null)} className="rounded-lg border px-3 py-1.5 text-sm font-bold">إغلاق</button></div>
+      <form onSubmit={saveCampaign} className="grid gap-3 md:grid-cols-3">
+        <label className="text-sm font-semibold">الهدف (EUR)<input required type="number" min="0.01" step="0.01" value={campaignForm.goalAmount} onChange={(event) => setCampaignForm({ ...campaignForm, goalAmount: event.target.value })} className={fieldClass} /></label>
+        <label className="text-sm font-semibold">الوحدات<input type="number" min="1" value={campaignForm.targetUnits} onChange={(event) => setCampaignForm({ ...campaignForm, targetUnits: event.target.value })} className={fieldClass} /></label>
+        <label className="text-sm font-semibold">تكلفة الوحدة<input type="number" min="0" step="0.01" value={campaignForm.costPerUnit} onChange={(event) => setCampaignForm({ ...campaignForm, costPerUnit: event.target.value })} className={fieldClass} /></label>
+        <label className="text-sm font-semibold">تكاليف إضافية<input type="number" min="0" step="0.01" value={campaignForm.extraCosts} onChange={(event) => setCampaignForm({ ...campaignForm, extraCosts: event.target.value })} className={fieldClass} /></label>
+        <label className="text-sm font-semibold">الحالة<select value={campaignForm.status} onChange={(event) => setCampaignForm({ ...campaignForm, status: event.target.value })} className={fieldClass}><option value="draft">مسودة</option><option value="active">نشطة</option><option value="completed">مكتملة</option><option value="archived">مؤرشفة</option></select></label>
+        <label className="text-sm font-semibold">صورة الغلاف<input dir="ltr" value={campaignForm.coverImage} onChange={(event) => setCampaignForm({ ...campaignForm, coverImage: event.target.value })} className={fieldClass} /></label>
+        <button disabled={busy} className="rounded-full bg-emerald-900 px-5 py-2.5 font-bold text-white disabled:opacity-50 md:col-span-3">حفظ إعدادات الحملة</button>
+      </form>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="rounded-2xl bg-slate-50 p-4"><h3 className="font-bold">مستويات التبرع</h3><ul className="mt-2 space-y-1 text-sm">{(editingCampaign.tiers || []).map((tier) => <li key={tier.id} className="flex justify-between"><span>{tier.label?.ar || 'مستوى'}</span><span>{Number(tier.amount).toFixed(2)} EUR · {tier.units ?? 0} وحدة</span></li>)}</ul><form onSubmit={addTier} className="mt-3 grid gap-2 sm:grid-cols-3"><input required type="number" min="0.01" step="0.01" value={tierDraft.amount} onChange={(event) => setTierDraft({ ...tierDraft, amount: event.target.value })} placeholder="المبلغ" className={fieldClass} /><input type="number" min="0" value={tierDraft.units} onChange={(event) => setTierDraft({ ...tierDraft, units: event.target.value })} placeholder="الوحدات" className={fieldClass} /><button disabled={busy} className="rounded-xl bg-emerald-900 px-3 py-2 text-sm font-bold text-white">إضافة</button></form></div>
+        <div className="rounded-2xl bg-slate-50 p-4"><h3 className="font-bold">مواقع التوزيع</h3><ul className="mt-2 space-y-1 text-sm">{(editingCampaign.places || []).map((place) => <li key={place.id} className="flex justify-between"><span>{place.name} · {place.status}</span><span>{place.plannedQuantity}</span></li>)}</ul><form onSubmit={addPlace} className="mt-3 grid gap-2 sm:grid-cols-2"><input required value={placeDraft.name} onChange={(event) => setPlaceDraft({ ...placeDraft, name: event.target.value })} placeholder="اسم الموقع" className={fieldClass} /><input required type="number" min="1" value={placeDraft.plannedQuantity} onChange={(event) => setPlaceDraft({ ...placeDraft, plannedQuantity: event.target.value })} placeholder="الكمية" className={fieldClass} /><input value={placeDraft.city} onChange={(event) => setPlaceDraft({ ...placeDraft, city: event.target.value })} placeholder="المدينة" className={fieldClass} /><select value={placeDraft.type} onChange={(event) => setPlaceDraft({ ...placeDraft, type: event.target.value })} className={fieldClass}><option value="school">مدرسة</option><option value="mosque">مسجد</option><option value="association">جمعية</option><option value="orphanage">دار أيتام</option><option value="library">مكتبة</option><option value="family">أسرة</option></select><button disabled={busy} className="rounded-xl bg-emerald-900 px-3 py-2 text-sm font-bold text-white">إضافة موقع</button></form></div>
+      </div>
+      <div className="rounded-2xl bg-slate-50 p-4"><h3 className="font-bold">تحديثات الحملة</h3><ul className="mt-2 space-y-2 text-sm">{(editingCampaign.updates || []).map((update) => <li key={update.id} className="border-b pb-2"><strong>{update.translations?.ar?.title}</strong><p className="text-slate-600">{update.translations?.ar?.body}</p></li>)}</ul><form onSubmit={addUpdate} className="mt-3 grid gap-2 sm:grid-cols-[1fr_2fr_auto]"><input required value={updateDraft.title} onChange={(event) => setUpdateDraft({ ...updateDraft, title: event.target.value })} placeholder="عنوان التحديث" className={fieldClass} /><input required value={updateDraft.body} onChange={(event) => setUpdateDraft({ ...updateDraft, body: event.target.value })} placeholder="نص التحديث" className={fieldClass} /><button disabled={busy} className="rounded-xl bg-emerald-900 px-3 py-2 text-sm font-bold text-white">نشر</button></form></div>
+    </section>}
+    <form onSubmit={recordManual} className={`${cardClass} grid gap-3 md:grid-cols-3`}><h2 className="text-xl font-extrabold md:col-span-3">تسجيل تبرع يدوي (نقدًا أو تحويلًا بنكيًا)</h2><label className="text-sm font-semibold">المبلغ<input required type="number" min="1" step="0.01" value={manual.amount} onChange={(event) => setManual({ ...manual, amount: event.target.value })} className={fieldClass} /></label><label className="text-sm font-semibold">الحملة<select value={manual.campaignId} onChange={(event) => setManual({ ...manual, campaignId: event.target.value })} className={fieldClass}><option value="">دعم المنصة</option>{campaigns.map((campaign) => <option key={campaign.id} value={campaign.id}>{campaign.translations?.ar?.title || campaign.slug}</option>)}</select></label><label className="text-sm font-semibold">المصدر<select value={manual.source} onChange={(event) => setManual({ ...manual, source: event.target.value })} className={fieldClass}><option value="manual_cash">نقدًا</option><option value="manual_bank">تحويل بنكي</option></select></label><label className="text-sm font-semibold">اسم المتبرع<input value={manual.displayName} onChange={(event) => setManual({ ...manual, displayName: event.target.value })} className={fieldClass} /></label><label className="flex items-center gap-2 self-end text-sm font-semibold"><input type="checkbox" checked={manual.isAnonymous} onChange={(event) => setManual({ ...manual, isAnonymous: event.target.checked })} />تبرع مجهول</label><button disabled={busy} className="self-end rounded-full bg-emerald-900 px-5 py-2.5 font-bold text-white disabled:opacity-50">تسجيل التبرع</button></form>
+    <section className={`${cardClass} space-y-3`}><h2 className="text-xl font-extrabold">{t('سجل التبرعات', language)}</h2>{donations.map((donation) => <div key={donation.id} className="flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm"><span>{donation.user ? `${donation.user.firstName} ${donation.user.lastName}` : t('متبرع', language)} · {donation.campaign?.slug || 'دعم المنصة'}</span><span className="flex items-center gap-2">{Number(donation.amount).toFixed(2)} {donation.currency} · {donation.status}{donation.status === 'paid' && <button type="button" onClick={() => void refundDonation(donation)} className="rounded-lg border border-red-200 px-2 py-1 text-xs font-bold text-red-700">ردّ</button>}</span></div>)}</section>
     <Pager page={page} total={total} onPage={setPage} language={language} />
     <section className={`${cardClass} space-y-3`}><h2 className="text-xl font-extrabold">{t('التبرعات الشهرية', language)}</h2>{recurringDonations.map((donation) => <div key={donation.id} className="flex flex-wrap justify-between gap-2 border-b py-2 text-sm"><span>{donation.user ? `${donation.user.firstName} ${donation.user.lastName}` : t('متبرع', language)} · {donation.campaign?.slug} · {donation.status}{donation.cancelAtPeriodEnd ? ` · ${t('إلغاء بنهاية الفترة', language)}` : ''}</span><span>{Number(donation.amount).toFixed(2)} {donation.currency}</span></div>)}</section>
     <Pager page={recurringPage} total={recurringTotal} onPage={setRecurringPage} language={language} />
+  </AdminPage>;
+}
+
+type SecurityEventRecord = {
+  id: number;
+  type: string;
+  severity: string;
+  reason: string;
+  route: string | null;
+  method: string | null;
+  ip: string | null;
+  createdAt: string;
+  metadata?: Record<string, unknown> | null;
+  user?: { id: number; name: string; email: string } | null;
+};
+
+export function AdminSecurityLogPage() {
+  const language = useAdminLanguage();
+  const { user } = useStoryAuth();
+  const [items, setItems] = useState<SecurityEventRecord[]>([]);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [severity, setSeverity] = useState('');
+  const [type, setType] = useState('');
+  const [summary, setSummary] = useState<{ critical: number; high: number; total: number } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    const query = new URLSearchParams({ page: String(page), limit: '25' });
+    if (severity) query.set('severity', severity);
+    if (type.trim()) query.set('type', type.trim());
+    Promise.all([
+      api.get<PageResponse<SecurityEventRecord>>(`/admin/security-events?${query.toString()}`),
+      api.get<{ last24Hours: { critical: number; high: number; total: number } }>('/admin/security-events/summary')
+    ]).then(([result, stats]) => {
+      if (!active) return;
+      setItems(result.items);
+      setTotal(result.total);
+      setSummary(stats.last24Hours);
+      setError(null);
+    }).catch((caught) => {
+      if (active) setError(caught instanceof Error ? caught.message : 'تعذر تحميل سجل الأمان.');
+    }).finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [page, severity, type]);
+
+  if (!user || !['ADMIN', 'SUPER_ADMIN'].includes(user.role)) return <AdminPage title="سجل الأمان"><AccessDenied /></AdminPage>;
+  return <AdminPage title="سجل الأمان">
+    {summary && <div className="grid gap-3 sm:grid-cols-3"><div className={`${cardClass} border-red-200`}><p className="text-sm font-bold text-red-700">حرجة (٢٤ ساعة)</p><p className="mt-1 text-2xl font-black">{summary.critical}</p></div><div className={`${cardClass} border-amber-200`}><p className="text-sm font-bold text-amber-800">عالية (٢٤ ساعة)</p><p className="mt-1 text-2xl font-black">{summary.high}</p></div><div className={cardClass}><p className="text-sm font-bold text-slate-600">كل الأحداث (٢٤ ساعة)</p><p className="mt-1 text-2xl font-black">{summary.total}</p></div></div>}
+    <div className={`${cardClass} flex flex-wrap items-end gap-3`}>
+      <label className="text-sm font-semibold">الخطورة<select value={severity} onChange={(event) => { setPage(1); setSeverity(event.target.value); }} className={fieldClass}><option value="">الكل</option><option value="critical">حرجة</option><option value="high">عالية</option><option value="warning">تحذير</option><option value="info">معلومات</option></select></label>
+      <label className="min-w-56 flex-1 text-sm font-semibold">نوع الحدث<input dir="ltr" value={type} onChange={(event) => { setPage(1); setType(event.target.value); }} placeholder="payment_amount_mismatch" className={fieldClass} /></label>
+    </div>
+    {error && <p role="alert" className="rounded-xl bg-red-50 p-4 text-red-800">{error}</p>}
+    {loading ? <p className="text-sm text-slate-500">جارٍ التحميل…</p> : <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white"><table className="w-full min-w-[52rem] text-sm"><thead className="bg-slate-50 text-start"><tr><th className="p-3 text-start">التاريخ</th><th className="p-3 text-start">النوع</th><th className="p-3 text-start">الخطورة</th><th className="p-3 text-start">المستخدم</th><th className="p-3 text-start">المسار</th><th className="p-3 text-start">السبب</th></tr></thead><tbody>{items.map((event) => <tr key={event.id} className="border-t border-slate-100 align-top"><td className="whitespace-nowrap p-3 text-slate-500">{new Date(event.createdAt).toLocaleString(language)}</td><td className="p-3 font-mono text-xs" dir="ltr">{event.type}</td><td className="p-3"><span className={`rounded-full px-2 py-1 text-xs font-bold ${event.severity === 'critical' ? 'bg-red-100 text-red-800' : event.severity === 'high' ? 'bg-amber-100 text-amber-900' : 'bg-slate-100 text-slate-700'}`}>{event.severity}</span></td><td className="p-3">{event.user ? `${event.user.name} (${event.user.email})` : '—'}</td><td className="p-3 font-mono text-xs" dir="ltr">{event.method} {event.route}</td><td className="p-3 text-slate-600">{event.reason}{event.ip ? ` · ${event.ip}` : ''}</td></tr>)}</tbody></table></div>}
+    {!loading && !items.length && <p className="rounded-xl bg-slate-50 p-5 text-slate-600">لا توجد أحداث مطابقة.</p>}
+    <Pager page={page} total={total} onPage={setPage} language={language} />
   </AdminPage>;
 }
 
