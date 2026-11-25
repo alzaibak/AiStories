@@ -1,4 +1,3 @@
-import { ReturnsPolicyPage, returnPolicyShortLine, useReturnPolicy } from '@/pages/stories/ReturnsPolicyPage';
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import {
   Link as RouterLink,
@@ -16,9 +15,8 @@ import {
   ArrowLeft, ArrowUpLeft, BookOpen, Bookmark, Check, ChevronLeft,
   ChevronRight, ChevronDown, CircleHelp, Clock3, CreditCard, Globe, Heart, LogOut,
   LockKeyhole, LogIn, MapPin, Menu, Moon, RefreshCw, Search, ShieldCheck, Sun,
-  Gift, ShoppingBag, Sparkles, Star, UserRound, X, Share2, Award, Flame, Trophy
+  Gift, ShoppingBag, Sparkles, Star, UserRound, X
 } from 'lucide-react';
-import { pluralItems, pluralMinutes, pluralParts } from '@/lib/plural';
 import { useStoryAuth } from '@/contexts/StoryAuthContext';
 import { ApiError, api, type ReaderSubscription } from '@/lib/api';
 import { translateText, translateTree } from '@/lib/localization';
@@ -27,6 +25,7 @@ import { useSiteTheme } from '@/contexts/SiteThemeContext';
 import { BrandMark } from '@/components/ui/BrandMark';
 import { buttonClasses } from '@/components/ui/Button';
 import { StoryCard } from '@/components/ui/StoryCard';
+import { CoverArt } from '@/components/ui/CoverArt';
 
 type SiteLanguage = 'ar' | 'en' | 'fr';
 const siteLanguages: SiteLanguage[] = ['ar', 'en', 'fr'];
@@ -83,108 +82,9 @@ type StoryPart = {
   title: string;
   estimatedReadingMinutes: number;
   endingHook?: string;
-  illustrationImage?: string | null;
-  illustrationAlt?: string | null;
   isFree?: boolean;
   accessible?: boolean;
 };
-
-type ReadingProgressEntry = {
-  storyId: number;
-  completedParts: number[];
-  lastPartId?: number | null;
-  lastReadAt?: string | null;
-};
-
-type CompletionBadge = {
-  id: number;
-  name: string;
-  points: number;
-  iconKey?: string;
-  currentValue?: number;
-  targetValue?: number;
-  ratio?: number;
-};
-
-type CompletionPayload = {
-  completedParts: number;
-  totalParts: number;
-  pointsGained: number;
-  totalPoints: number;
-  level: { level: number; name: string; points: number; pointsToNext: number; progressPercent: number };
-  streak: { current: number; best: number };
-  newBadges: CompletionBadge[];
-  nextBadges: CompletionBadge[];
-};
-
-type ProfileSummary = {
-  user: { points: number };
-  level: { level: number; name: string; points: number; pointsToNext: number; progressPercent: number };
-  stats: { storiesCompleted: number; currentStreak: number; badgesEarned: number; badgesTotal: number };
-  streak: { current: number; best: number };
-  nextBadges: Array<CompletionBadge & { progress: { currentValue: number; targetValue: number; ratio: number } }>;
-};
-
-function retentionText(language: SiteLanguage) {
-  if (language === 'en') {
-    return {
-      finished: 'You finished this story',
-      proof: (done: number, total: number) => `${done} of ${total} parts completed`,
-      points: 'Points',
-      streak: 'Reading streak',
-      level: 'Level',
-      nextBadge: 'Next badge progress',
-      reward: 'Your reading reward',
-      because: (title: string) => `Because you read ${title}`,
-      discover: 'More stories for you',
-      quiz: 'Test your understanding',
-      nextStory: 'Next story',
-      share: 'Share the story',
-      choose: 'Choose a story',
-      back: 'Back to the story',
-      badgeProgress: (value: number, target: number) => `${value} / ${target}`,
-      days: (count: number) => `${count} day${count === 1 ? '' : 's'}`
-    };
-  }
-  if (language === 'fr') {
-    return {
-      finished: 'Vous avez terminé cette histoire',
-      proof: (done: number, total: number) => `${done} parties sur ${total} terminées`,
-      points: 'Points',
-      streak: 'Série de lecture',
-      level: 'Niveau',
-      nextBadge: 'Progression du prochain badge',
-      reward: 'Votre récompense de lecture',
-      because: (title: string) => `Parce que vous avez lu ${title}`,
-      discover: 'D’autres histoires pour vous',
-      quiz: 'Testez votre compréhension',
-      nextStory: 'Histoire suivante',
-      share: 'Partager l’histoire',
-      choose: 'Choisir une histoire',
-      back: 'Retour à l’histoire',
-      badgeProgress: (value: number, target: number) => `${value} / ${target}`,
-      days: (count: number) => `${count} jour${count === 1 ? '' : 's'}`
-    };
-  }
-  return {
-    finished: 'أكملت هذه الحكاية',
-    proof: (done: number, total: number) => `أتممت ${done} من ${total} أجزاء`,
-    points: 'النقاط',
-    streak: 'سلسلة القراءة',
-    level: 'المستوى',
-    nextBadge: 'تقدّم الشارة القادمة',
-    reward: 'مكافأة القراءة',
-    because: (title: string) => `لأنك قرأت ${title}`,
-    discover: 'حكايات أخرى قد تناسبك',
-    quiz: 'اختبر فهمك',
-    nextStory: 'الحكاية التالية',
-    share: 'شارك الحكاية',
-    choose: 'اختر حكاية',
-    back: 'العودة إلى الحكاية',
-    badgeProgress: (value: number, target: number) => `${value} / ${target}`,
-    days: (count: number) => `${count} ${count === 1 ? 'يوم' : 'أيام'}`
-  };
-}
 
 type StorySummary = {
   id: number;
@@ -199,18 +99,8 @@ type StorySummary = {
   isFree: boolean;
   isStoryOfTheWeek?: boolean;
   ageGroup?: string;
-  publishAt?: string;
-  updatedAt?: string;
   collection?: { id: number; title: string; slug: string; isFree?: boolean };
   parts?: StoryPart[];
-  hook?: string;
-  heroImage?: string | null;
-  socialImage?: string | null;
-  coverAlt?: string;
-  coverVariants?: Array<{ width: number; url: string }>;
-  focalPoint?: { x: number; y: number } | null;
-  imageCredit?: string;
-  updatedAt?: string;
   videos?: Array<{
     id: number;
     title?: string;
@@ -230,10 +120,6 @@ type CollectionSummary = {
   slug: string;
   description?: string | null;
   cover?: string | null;
-  coverImage?: string | null;
-  bannerImage?: string | null;
-  coverAltText?: string | null;
-  bannerAltText?: string | null;
   isFree: boolean;
   stories?: StorySummary[];
 };
@@ -260,7 +146,6 @@ type MysteryBoxHeader = {
   accentColor: string;
   animationStyle: 'shimmer' | 'pulse' | 'sparkle' | 'none';
   showCountdownInHeader: boolean;
-  bannerImage?: string | null;
   startsAt: string;
   endsAt: string;
   serverTime: string;
@@ -273,6 +158,7 @@ type MysteryBoxHeader = {
 type PlanTranslation = { name: string; features: string[] };
 type PlanTranslations = Partial<Record<SiteLanguage, PlanTranslation>>;
 type PlanDraft = {
+  slug: string;
   price: string;
   interval: 'month' | 'year';
   translations: Record<SiteLanguage, { name: string; features: string }>;
@@ -280,6 +166,7 @@ type PlanDraft = {
 
 function emptyPlanDraft(): PlanDraft {
   return {
+    slug: '',
     price: '',
     interval: 'month',
     translations: {
@@ -342,7 +229,6 @@ function Header() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [cartCount, setCartCount] = useState(0);
   const [openMenu, setOpenMenu] = useState<'theme' | 'language' | 'profile' | null>(null);
   const language = useSiteLanguage();
   const location = useLocation();
@@ -357,23 +243,6 @@ function Header() {
     setMenuOpen(false);
     setOpenMenu(null);
   }, [location.pathname]);
-
-  useEffect(() => {
-    if (!user) {
-      const loadGuest = () => setCartCount(readGuestCart().reduce((sum, line) => sum + line.quantity, 0));
-      loadGuest();
-      window.addEventListener('cart:changed', loadGuest);
-      return () => window.removeEventListener('cart:changed', loadGuest);
-    }
-    if (user.role !== 'READER') { setCartCount(0); return; }
-    let active = true;
-    const load = () => api.get<{ itemCount: number }>('/cart')
-      .then((value) => { if (active) setCartCount(value.itemCount || 0); })
-      .catch(() => { if (active) setCartCount(0); });
-    void load();
-    window.addEventListener('cart:changed', load);
-    return () => { active = false; window.removeEventListener('cart:changed', load); };
-  }, [user, location.pathname]);
 
   useEffect(() => {
     const locked = menuOpen || searchOpen;
@@ -417,11 +286,13 @@ function Header() {
       ? path.startsWith('/stories') || path.startsWith('/collections')
       : path === href || path.startsWith(`${href}/`);
 
-  const appearances: Array<{ value: 'light' | 'reading' | 'dark'; label: string; Icon: typeof Sun }> = [
+  const appearances: Array<{ value: 'light' | 'sepia' | 'dark'; label: string; Icon: typeof Sun }> = [
     { value: 'light', label: 'فاتح', Icon: Sun },
-    { value: 'reading', label: 'وضع القراءة', Icon: BookOpen },
+    { value: 'sepia', label: 'وضع ورقي', Icon: BookOpen },
     { value: 'dark', label: 'داكن', Icon: Moon }
   ];
+  const currentAppearance = appearances.find((item) => item.value === theme) || appearances[0];
+  const CurrentAppearanceIcon = currentAppearance.Icon;
 
   const iconButton = 'grid h-10 w-10 place-items-center rounded-full text-ink-muted transition hover:bg-surface-soft hover:text-ink';
 
@@ -451,36 +322,45 @@ function Header() {
         </nav>
 
         <div className="ms-auto flex items-center gap-1">
-          <Link to="/cart" className={`${iconButton} relative`} aria-label={t('سلة المشتريات', language)}>
-            <ShoppingBag size={19} strokeWidth={1.9} />
-            {cartCount > 0 && <span className="absolute -end-0.5 -top-0.5 grid h-5 min-w-5 place-items-center rounded-full bg-brand px-1 text-[10px] font-bold text-brand-on">{cartCount > 99 ? '99+' : cartCount}</span>}
-          </Link>
           <button type="button" className={iconButton} onClick={() => setSearchOpen(true)} aria-label={t('بحث', language)}>
             <Search size={19} strokeWidth={1.9} />
           </button>
 
-          <div
-            role="group"
-            aria-label={t('المظهر', language)}
-            className="hidden items-center gap-0.5 rounded-full border border-line bg-surface p-0.5 lg:flex"
-          >
-            {appearances.map(({ value, label, Icon }) => (
-              <button
-                key={value}
-                type="button"
-                aria-pressed={theme === value}
-                title={t(label, language)}
-                onClick={() => setTheme(value)}
-                className={`inline-flex h-8 items-center gap-1.5 rounded-full px-2.5 text-xs font-semibold transition ${
-                  theme === value
-                    ? 'bg-brand-soft text-brand-ink'
-                    : 'text-ink-muted hover:bg-surface-soft hover:text-ink'
-                }`}
-              >
-                <Icon size={15} strokeWidth={1.9} aria-hidden="true" />
-                <span className="hidden xl:inline">{t(label, language)}</span>
-              </button>
-            ))}
+          <div className="relative hidden sm:block">
+            <button
+              type="button"
+              className={`${iconButton} flex w-auto items-center gap-1 px-2.5`}
+              aria-label={t('المظهر', language)}
+              aria-expanded={openMenu === 'theme'}
+              aria-haspopup="menu"
+              onClick={() => setOpenMenu(openMenu === 'theme' ? null : 'theme')}
+            >
+              <CurrentAppearanceIcon size={19} strokeWidth={1.9} />
+              <ChevronDown size={13} aria-hidden="true" />
+            </button>
+            {openMenu === 'theme' && (
+              <>
+                <button type="button" tabIndex={-1} aria-hidden="true" className="fixed inset-0 z-30 cursor-default" onClick={() => setOpenMenu(null)} />
+                <div role="menu" aria-label={t('المظهر', language)} className="ds-pop absolute end-0 top-full z-40 mt-2 w-44 rounded-2xl border border-line bg-surface p-1.5 shadow-lift">
+                  {appearances.map(({ value, label, Icon }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={theme === value}
+                      onClick={() => { setTheme(value); setOpenMenu(null); }}
+                      className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-semibold transition ${
+                        theme === value ? 'bg-brand-soft text-brand-ink' : 'text-ink-muted hover:bg-surface-soft hover:text-ink'
+                      }`}
+                    >
+                      <Icon size={16} aria-hidden="true" />
+                      {t(label, language)}
+                      {theme === value && <Check size={14} className="ms-auto" aria-hidden="true" />}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
 
           <div className="relative hidden md:block">
@@ -770,7 +650,7 @@ function Footer() {
               ))}
             </nav>
             <div className="flex items-center gap-1 rounded-full border border-line bg-surface p-1" role="group" aria-label={t('المظهر', language)}>
-              {([['light', Sun, 'فاتح'], ['reading', BookOpen, 'وضع القراءة'], ['dark', Moon, 'داكن']] as const).map(([value, Icon, label]) => (
+              {([['light', Sun, 'فاتح'], ['sepia', BookOpen, 'وضع ورقي'], ['dark', Moon, 'داكن']] as const).map(([value, Icon, label]) => (
                 <button
                   key={value}
                   type="button"
@@ -783,7 +663,6 @@ function Footer() {
                   }`}
                 >
                   <Icon size={14} aria-hidden="true" />
-                  <span className="sr-only">{t(label, language)}</span>
                 </button>
               ))}
             </div>
@@ -824,32 +703,18 @@ function SectionHeading({ eyebrow, title, action }: { eyebrow?: string; title: s
   );
 }
 
-function StoryArtwork({ story, className = '', imageOverride, focalPoint }: {
-  story: Pick<StorySummary, 'title' | 'cover' | 'coverAlt' | 'coverVariants'>;
-  className?: string;
-  imageOverride?: string | null;
-  focalPoint?: { x: number; y: number } | null;
-}) {
-  const source = imageOverride || story.cover;
+function StoryArtwork({ story, className = '' }: { story: Pick<StorySummary, 'title' | 'cover'>; className?: string }) {
   return (
     <div className={`relative overflow-hidden bg-gradient-to-br from-emerald-900 via-emerald-800 to-[#b4834f] ${className}`}>
-      {source && <img
-        src={source}
-        srcSet={story.coverVariants?.length ? story.coverVariants.map((variant) => `${variant.url} ${variant.width}w`).join(', ') : undefined}
-        sizes="(min-width: 1024px) 40vw, 100vw"
-        alt={story.coverAlt || ''}
-        className="absolute inset-0 h-full w-full object-cover"
-        style={{ objectPosition: focalPoint ? `${focalPoint.x}% ${focalPoint.y}%` : '50% 40%' }}
-        loading="eager"
-      />}
-      {!source && (
+      {story.cover && <img src={story.cover} alt="" className="absolute inset-0 h-full w-full object-cover" loading="lazy" />}
+      {!story.cover && (
         <>
           <div className="absolute -left-8 -top-10 h-48 w-48 rounded-full border border-white/15" />
           <div className="absolute -left-2 -top-4 h-36 w-36 rounded-full border border-white/15" />
           <Sparkles className="absolute bottom-5 left-5 text-amber-200/80" size={20} />
         </>
       )}
-      {!source && <span dir="auto" className="absolute inset-x-5 bottom-5 line-clamp-3 text-xl font-bold leading-9 text-white">{story.title}</span>}
+      {!story.cover && <span dir="auto" className="absolute inset-x-5 bottom-5 line-clamp-2 text-lg font-bold leading-8 text-white">{story.title}</span>}
     </div>
   );
 }
@@ -962,118 +827,74 @@ function HeroBrandPanel({ language }: { language: SiteLanguage }) {
   );
 }
 
-const countdownLabels: Record<SiteLanguage, Record<'days' | 'hours' | 'minutes' | 'seconds', [string, string, string]>> = {
-  ar: {
-    days: ['يوم', 'يومان', 'أيام'],
-    hours: ['ساعة', 'ساعتان', 'ساعات'],
-    minutes: ['دقيقة', 'دقيقتان', 'دقائق'],
-    seconds: ['ثانية', 'ثانيتان', 'ثوانٍ']
-  },
-  en: {
-    days: ['day', 'days', 'days'],
-    hours: ['hour', 'hours', 'hours'],
-    minutes: ['minute', 'minutes', 'minutes'],
-    seconds: ['second', 'seconds', 'seconds']
-  },
-  fr: {
-    days: ['jour', 'jours', 'jours'],
-    hours: ['heure', 'heures', 'heures'],
-    minutes: ['minute', 'minutes', 'minutes'],
-    seconds: ['seconde', 'secondes', 'secondes']
-  }
-};
-
-function countdownUnitLabel(value: number, unit: keyof typeof countdownLabels.ar, language: SiteLanguage) {
-  const forms = countdownLabels[language]?.[unit] || countdownLabels.ar[unit];
-  if (language === 'ar') {
-    if (value === 1) return forms[0];
-    if (value === 2) return forms[1];
-    if (value >= 3 && value <= 10) return forms[2];
-    return forms[0];
-  }
-  return value === 1 ? forms[0] : forms[1];
-}
-
 function HeroMysteryBoxCard({ box, language }: { box: MysteryBoxHeader; language: SiteLanguage }) {
   const countdown = useRemainingTime(box.showCountdownInHeader ? box.endsAt : null);
+  const accent = box.accentColor || '#F3E3B8';
   const countdownUnits = [
-    { value: countdown?.days ?? 0, unit: 'days' as const },
-    { value: countdown?.hours ?? 0, unit: 'hours' as const },
-    { value: countdown?.minutes ?? 0, unit: 'minutes' as const },
-    { value: countdown?.seconds ?? 0, unit: 'seconds' as const }
+    { value: countdown?.days ?? 0, label: t('يوم', language) },
+    { value: countdown?.hours ?? 0, label: t('ساعة', language) },
+    { value: countdown?.minutes ?? 0, label: t('دقيقة', language) },
+    { value: countdown?.seconds ?? 0, label: t('ثانية', language) }
   ];
 
   return (
     <div className="relative">
-      <div className="absolute -inset-3 rounded-[2rem] border border-[#D8C08A]/20 sm:-inset-4" aria-hidden="true" />
-      <div className="relative overflow-hidden rounded-[1.65rem] border border-[#D8C08A]/35 bg-[#FBF7EF] shadow-[0_30px_70px_-38px_rgba(0,0,0,0.75)]">
-        <div className="relative h-52 overflow-hidden bg-[#123B30] sm:h-60">
-          <div className="absolute inset-0" style={{ backgroundImage: 'linear-gradient(155deg, #194A3C 0%, #0B2A23 100%)' }} aria-hidden="true" />
-          <div className="absolute inset-0 opacity-[0.18]" style={{ backgroundImage: 'radial-gradient(#EBDDBF 0.8px, transparent 0.8px)', backgroundSize: '18px 18px' }} aria-hidden="true" />
-          <div className="absolute -right-16 -top-20 h-64 w-64 rounded-full border border-[#D8C08A]/20" aria-hidden="true" />
-          <div className="absolute -right-6 -top-10 h-40 w-40 rounded-full border border-[#D8C08A]/15" aria-hidden="true" />
-          <div className="absolute inset-0 grid place-items-center text-[#D8C08A]/50" aria-hidden="true">
-            <Gift size={44} strokeWidth={1.1} />
-          </div>
-          {box.bannerImage && (
-            <img
-              src={box.bannerImage}
-              alt={box.label}
-              className="absolute inset-0 h-full w-full object-cover"
-              loading="eager"
-              onError={(event) => { event.currentTarget.style.display = 'none'; }}
-            />
-          )}
-          <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-[#071C17]/55 to-transparent" aria-hidden="true" />
-          <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-[#071C17]/45 to-transparent" aria-hidden="true" />
-          <div className="absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-4 sm:p-5">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-[#F4EBDD]/30 bg-[#0B2A23]/60 px-3 py-1.5 text-[11px] font-semibold text-[#F4EBDD] backdrop-blur-sm">
-              <span className="h-1.5 w-1.5 rounded-full bg-[#C9DDBE]" aria-hidden="true" />
-              {t('متاح الآن', language)}
+      <div className="absolute -inset-5 rounded-[3rem] border border-amber-100/20" aria-hidden="true" />
+      <div className="relative overflow-hidden rounded-[2.5rem] border border-white/15 shadow-2xl">
+        <div className="absolute inset-0" style={{ backgroundImage: `linear-gradient(145deg, ${box.colorFrom} 0%, ${box.colorTo} 100%)` }} />
+        <div className="absolute inset-0 opacity-45" style={{ backgroundImage: 'radial-gradient(circle at 18% 10%, rgba(255,255,255,.38) 0, transparent 34%), radial-gradient(circle at 90% 85%, rgba(0,0,0,.4) 0, transparent 48%)' }} />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/5 to-transparent" />
+        <div className="relative flex min-h-[30rem] flex-col justify-between gap-8 p-6 sm:p-8">
+          <div className="flex items-start justify-between gap-3">
+            <span className={`grid h-14 w-14 shrink-0 place-items-center rounded-2xl border border-white/20 bg-white/10 text-2xl backdrop-blur ${box.animationStyle === 'pulse' ? 'animate-pulse' : ''}`} aria-hidden="true">
+              {box.icon || '🎁'}
             </span>
-            {box.almostSoldOut && (
-              <span className="rounded-full border border-[#D8C08A]/50 bg-[#F4EBDD]/95 px-3 py-1.5 text-[11px] font-bold text-[#6B4E1F]">{t('اقترب النفاد', language)}</span>
-            )}
-          </div>
-        </div>
-
-        <div className="p-5 sm:p-7">
-          <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.18em] text-[#8A6F3E]">
-            <span aria-hidden="true">{box.icon || '🎁'}</span>
-            <span className="line-clamp-1">{box.seasonLabel || t('صندوق الغموض', language)}</span>
-          </div>
-          <h2 className="font-editorial mt-2 line-clamp-2 text-[1.7rem] leading-[1.35] text-[#12352B] sm:text-3xl">{box.label}</h2>
-
-          <div className="mt-4 flex flex-wrap items-baseline gap-x-3 gap-y-2 border-b border-[#E3D8C3] pb-4">
-            <span className="text-2xl font-bold tracking-tight text-[#12352B]">{formatPrice(Number(box.price.amount), box.price.currency, language)}</span>
-            {box.price.tier === 'early_bird' && (
-              <span className="rounded-full bg-[#EFE3CB] px-2.5 py-1 text-[10px] font-bold text-[#6B4E1F]">{t('سعر مبكر', language)}</span>
-            )}
-            <span className="ms-auto text-xs text-[#7A6A52]">
-              {box.itemCount > 0 ? pluralItems(box.itemCount, language) : t('صندوق الغموض', language)}
-              {typeof box.remaining === 'number' && ` · ${t('بقي', language)} ${box.remaining}`}
-            </span>
-          </div>
-
-          {box.showCountdownInHeader && countdown && (
-            <div className="mt-4">
-              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#8A7A60]">{t('ينتهي خلال', language)}</p>
-              <div className="mt-2 grid grid-cols-4 gap-2">
-                {countdownUnits.map((unit) => (
-                  <div key={unit.unit} className="rounded-lg border border-[#E1D6C1] bg-[#F4EDE0] px-1 py-2 text-center">
-                    <p className="font-editorial text-lg leading-none text-[#183F34]">{String(unit.value).padStart(2, '0')}</p>
-                    <p className="mt-1 text-[9px] font-medium text-[#7A6A52]">{countdownUnitLabel(unit.value, unit.unit, language)}</p>
-                  </div>
-                ))}
-              </div>
+            <div className="flex flex-wrap justify-end gap-2">
+              {box.almostSoldOut && (
+                <span className="rounded-full border border-amber-200/40 bg-amber-200/15 px-3 py-1.5 text-[11px] font-bold text-amber-100 backdrop-blur">{t('اقترب النفاد', language)}</span>
+              )}
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-black/20 px-3 py-1.5 text-[11px] font-bold text-white/85 backdrop-blur">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-300" aria-hidden="true" />
+                {t('متاح الآن', language)}
+              </span>
             </div>
-          )}
+          </div>
 
-          <span className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-full bg-[#123B30] px-5 py-3 text-sm font-semibold text-[#F6EFE3]">
-            <Gift size={16} aria-hidden="true" />
-            {t('قريبًا', language)}
-          </span>
-          <p className="mt-3 text-center text-[11px] text-[#8A7A60]">{t('محتوى عائلي', language)}</p>
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-[0.2em]" style={{ color: accent }}>
+              {box.seasonLabel || t('صندوق الغموض', language)}
+            </p>
+            <h2 className="mt-2 line-clamp-2 text-3xl font-black leading-[1.35] text-white">{box.label}</h2>
+            <div className="mt-4 flex flex-wrap items-end gap-x-3 gap-y-2">
+              <span className="text-2xl font-black text-white">{formatPrice(Number(box.price.amount), box.price.currency, language)}</span>
+              {box.price.tier === 'early_bird' && (
+                <span className="mb-1 rounded-full px-2.5 py-1 text-[10px] font-black" style={{ backgroundColor: accent, color: '#102f27' }}>{t('سعر مبكر', language)}</span>
+              )}
+            </div>
+            <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-semibold text-white/70">
+              {box.itemCount > 0 && <span>{box.itemCount} {t('عنصرًا داخل الصندوق', language)}</span>}
+              {typeof box.remaining === 'number' && <span>{box.itemCount > 0 ? '· ' : ''}{t('بقي', language)} {box.remaining}</span>}
+            </p>
+
+            {box.showCountdownInHeader && countdown && (
+              <div className="mt-5">
+                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/60">{t('ينتهي خلال', language)}</p>
+                <div className="mt-2 grid grid-cols-4 gap-2">
+                  {countdownUnits.map((unit) => (
+                    <div key={unit.label} className="rounded-xl border border-white/10 bg-black/20 px-1 py-2 text-center backdrop-blur">
+                      <p className="text-lg font-black leading-none text-white">{String(unit.value).padStart(2, '0')}</p>
+                      <p className="mt-1 text-[9px] font-semibold text-white/60">{unit.label}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <span className="mt-5 inline-flex items-center gap-2 rounded-full px-5 py-3 text-sm font-black shadow-soft" style={{ backgroundColor: accent, color: '#102f27' }}>
+              <Gift size={16} aria-hidden="true" />
+              {t('قريبًا', language)}
+            </span>
+          </div>
         </div>
       </div>
     </div>
@@ -1104,33 +925,32 @@ export function LandingPage() {
   return (
     <SiteLayout>
       <main>
-        <section className="relative overflow-hidden bg-[#0D2E26] text-[#F4EBDD]">
-          <div className="pointer-events-none absolute inset-0 opacity-[0.16]" aria-hidden="true" style={{ backgroundImage: 'radial-gradient(#E8D9BC 0.7px, transparent 0.7px)', backgroundSize: '22px 22px' }} />
-          <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-[#D8C08A]/25" aria-hidden="true" />
-          <Container className="relative grid min-h-[580px] gap-14 py-16 md:grid-cols-[1.05fr_0.95fr] md:items-center md:py-24">
+        <section className="relative overflow-hidden bg-[#102f27] text-white">
+          <div className="absolute inset-0 opacity-30" style={{ backgroundImage: 'radial-gradient(circle at 85% 20%, #ca9b5b 0, transparent 26%), radial-gradient(circle at 12% 90%, #278369 0, transparent 32%)' }} />
+          <Container className="relative grid min-h-[570px] gap-12 py-16 md:grid-cols-[1.05fr_0.95fr] md:items-center md:py-24">
             <div>
-              <span className="inline-flex items-center gap-2 rounded-full border border-[#D8C08A]/40 bg-[#F4EBDD]/[0.04] px-4 py-2 text-sm text-[#E6D8BE]">
-                <Sparkles size={15} /> حكايات من نور الهداية
+              <span className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/5 px-4 py-2 text-sm text-amber-100">
+                <Sparkles size={16} /> حكايات من نور الهداية
               </span>
-              <h1 className="font-editorial mt-7 max-w-2xl text-4xl leading-[1.5] tracking-tight text-[#F6EFE3] sm:text-5xl lg:text-[3.6rem]">
-                قصصٌ تُروى… <span className="text-[#D8C08A]">وقيمٌ تبقى.</span>
+              <h1 className="mt-7 max-w-2xl text-4xl font-black leading-[1.45] tracking-tight sm:text-5xl lg:text-6xl">
+                قصصٌ تُروى… <span className="text-amber-200">وقيمٌ تبقى.</span>
               </h1>
-              <p className="mt-6 max-w-xl text-base leading-8 text-[#D5DDD6] sm:text-lg">
+              <p className="mt-6 max-w-xl text-base leading-8 text-emerald-50/80 sm:text-lg">
                 عِش مع قصص الأنبياء والصحابة ومحطات التاريخ الإسلامي، في تجربة قراءة ممتعة وموثوقة لكل أفراد الأسرة.
               </p>
               <div className="mt-9 flex flex-wrap gap-3">
-                <Link to="/stories" className="inline-flex items-center justify-center gap-2 rounded-full bg-[#EFE3CB] px-6 py-3.5 text-sm font-bold text-[#10352B] shadow-[0_12px_30px_-18px_rgba(0,0,0,0.6)] transition-colors hover:bg-[#F7F0E2] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#EFE3CB]">
+                <Link to="/stories" className={buttonClasses({ variant: 'gold', size: 'lg' })}>
                   {t('ابدأ القراءة', language)}
                   <ChevronLeft size={18} />
                 </Link>
-                <a href="#start-journey" className="inline-flex items-center justify-center gap-2 rounded-full border border-[#F4EBDD]/30 px-6 py-3.5 text-sm font-semibold text-[#F4EBDD] transition-colors hover:border-[#F4EBDD]/50 hover:bg-[#F4EBDD]/5">
+                <a href="#start-journey" className={buttonClasses({ variant: 'secondary', size: 'lg', className: 'border-white/25 bg-white/5 text-white hover:border-white/40 hover:bg-white/10' })}>
                   {t('كيف تعمل الحكايات؟', language)}
                 </a>
               </div>
-              <p className="mt-4 text-sm text-[#BFCFC5]">
+              <p className="mt-4 text-sm text-emerald-100/70">
                 {t('مجاني للبدء', language)} · {t('أجزاء قصيرة', language)} · {t('تقدّمك محفوظ', language)}
               </p>
-              <div className="mt-8 flex flex-wrap gap-x-7 gap-y-3 text-sm text-[#C6D4CB]">
+              <div className="mt-8 flex flex-wrap gap-x-7 gap-y-3 text-sm text-emerald-100/80">
                 <span className="inline-flex items-center gap-2"><ShieldCheck size={17} /> {t('مراجعة وتوثيق', language)}</span>
                 <span className="inline-flex items-center gap-2"><BookOpen size={17} /> {t('أجزاء قصيرة', language)}</span>
                 <span className="inline-flex items-center gap-2"><Bookmark size={17} /> {t('تقدّمك محفوظ', language)}</span>
@@ -1216,36 +1036,14 @@ export function LandingPage() {
 export function StoriesPage() {
   const [searchParams] = useSearchParams();
   const [search, setSearch] = useState(searchParams.get('q') || '');
-  const [collectionFilter, setCollectionFilter] = useState('all');
-  const [typeFilter, setTypeFilter] = useState('all');
-  const [ageFilter, setAgeFilter] = useState('all');
-  const [accessFilter, setAccessFilter] = useState('all');
   const { data: stories, loading, error } = useRemote<StorySummary[]>('/stories?limit=100');
   const { data: collections } = useRemote<CollectionSummary[]>('/collections');
-  const { user } = useStoryAuth();
-  const { data: readingProgress } = useRemote<Array<{ storyId: number; completedParts: number[] }>>(user ? '/reading-progress' : '');
-  const progressFor = (story: StorySummary) => {
-    const completed = readingProgress?.find((entry) => entry.storyId === story.id)?.completedParts.length || 0;
-    const total = story.parts?.length || 0;
-    return total ? Math.min(100, Math.round((completed / total) * 100)) : 0;
-  };
-  const filteredStories = useMemo(() => stories?.filter((story) => {
-    const haystack = `${story.title} ${story.summary} ${story.hook || ''} ${story.collection?.title || ''}`.toLocaleLowerCase('ar');
-    const matchesSearch = haystack.includes(search.trim().toLocaleLowerCase('ar'));
-    const matchesCollection = collectionFilter === 'all' || String(story.collectionId) === collectionFilter;
-    const matchesType = typeFilter === 'all' || story.type === typeFilter;
-    const matchesAge = ageFilter === 'all' || (story.ageGroup || 'all') === ageFilter;
-    const matchesAccess = accessFilter === 'all' || (accessFilter === 'free' ? story.isFree : !story.isFree);
-    return matchesSearch && matchesCollection && matchesType && matchesAge && matchesAccess;
-  }) || [], [stories, search, collectionFilter, typeFilter, ageFilter, accessFilter]);
+  const filteredStories = useMemo(() => stories?.filter((story) =>
+    `${story.title} ${story.summary} ${story.collection?.title || ''}`.toLocaleLowerCase('ar').includes(search.trim().toLocaleLowerCase('ar'))
+  ) || [], [stories, search]);
   const language = useSiteLanguage();
   const recommended = stories?.find((story) => story.isStoryOfTheWeek) || stories?.[0];
   const recommendedMinutes = recommended?.parts?.reduce((total, part) => total + (part.estimatedReadingMinutes || 0), 0) || 0;
-  const continueStories = (stories || []).filter((story) => progressFor(story) > 0 && progressFor(story) < 100);
-  const newStories = [...(stories || [])]
-    .filter((story) => story.publishAt && Date.now() - new Date(story.publishAt).getTime() < 14 * 24 * 60 * 60 * 1000)
-    .slice(0, 4);
-  const filterSelect = 'rounded-full border border-emerald-950/15 bg-white px-4 py-2 text-sm font-semibold text-emerald-900';
 
   return (
     <SiteLayout>
@@ -1258,39 +1056,24 @@ export function StoriesPage() {
             <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="ابحث عن قصة أو موضوع" className="w-full bg-transparent text-sm outline-none placeholder:text-slate-400" aria-label="ابحث عن قصة" />
           </label>
         </div>
-        <div className="mt-5 flex flex-wrap gap-2" aria-label={t('تصفية الحكايات', language)}>
-          <select aria-label={t('المجموعة', language)} value={collectionFilter} onChange={(event) => setCollectionFilter(event.target.value)} className={filterSelect}>
-            <option value="all">{t('كل المجموعات', language)}</option>
-            {(collections || []).map((collection) => <option key={collection.id} value={collection.id}>{collection.title}</option>)}
-          </select>
-          <select aria-label={t('النوع', language)} value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)} className={filterSelect}>
-            <option value="all">{t('كل الأنواع', language)}</option><option value="quran">{t('من القرآن الكريم', language)}</option><option value="sunnah">{t('من السنة النبوية', language)}</option><option value="history">{t('تاريخية', language)}</option><option value="new">{t('مستوحاة', language)}</option>
-          </select>
-          <select aria-label={t('الفئة العمرية', language)} value={ageFilter} onChange={(event) => setAgeFilter(event.target.value)} className={filterSelect}>
-            <option value="all">{t('كل الأعمار', language)}</option><option value="kids">{t('الأطفال', language)}</option><option value="teens">{t('اليافعون', language)}</option><option value="adults">{t('البالغون', language)}</option>
-          </select>
-          <select aria-label={t('الوصول', language)} value={accessFilter} onChange={(event) => setAccessFilter(event.target.value)} className={filterSelect}>
-            <option value="all">{t('الكل', language)}</option><option value="free">{t('مجاني', language)}</option><option value="premium">{t('للمشتركين', language)}</option>
-          </select>
-          {(search || collectionFilter !== 'all' || typeFilter !== 'all' || ageFilter !== 'all' || accessFilter !== 'all') && <button type="button" onClick={() => { setSearch(''); setCollectionFilter('all'); setTypeFilter('all'); setAgeFilter('all'); setAccessFilter('all'); }} className="rounded-full border border-emerald-950/15 px-4 py-2 text-sm font-semibold text-slate-600">{t('مسح الفلاتر', language)}</button>}
-        </div>
         {!search && recommended && (
-          <div className="mt-8">
-            <StoryCard story={recommended} language={language} variant="featured" progress={progressFor(recommended)} />
-            {recommendedMinutes > 0 && <p className="mt-2 text-xs font-semibold text-ink-muted">{pluralMinutes(recommendedMinutes, language)} · {pluralParts(recommended.parts?.length || 0, language)}</p>}
+          <div className="mt-8 overflow-hidden rounded-3xl border border-brand/20 bg-brand-soft/60 p-6 sm:p-8">
+            <div className="flex flex-col justify-between gap-6 sm:flex-row sm:items-center">
+              <div className="max-w-2xl">
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-brand-ink">{t('ابدأ من هنا', language)}</p>
+                <h2 dir="auto" className="mt-2 text-2xl font-black text-ink">{recommended.title}</h2>
+                <p dir="auto" className="mt-2 line-clamp-2 leading-7 text-ink-muted">{recommended.summary}</p>
+                <p className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs font-semibold text-ink-muted">
+                  <span className="inline-flex items-center gap-1.5"><BookOpen size={14} /> {recommended.parts?.length || 0} {t('أجزاء', language)}</span>
+                  {recommendedMinutes > 0 && <span className="inline-flex items-center gap-1.5"><Clock3 size={14} /> {recommendedMinutes} {t('دقيقة', language)}</span>}
+                  <span>{t('حكاية مقترحة لتبدأ بها', language)}</span>
+                </p>
+              </div>
+              <Link to={`/stories/${recommended.slug}`} className={buttonClasses({ size: 'md', className: 'shrink-0' })}>
+                {t('افتح الحكاية', language)} <ChevronLeft size={17} />
+              </Link>
+            </div>
           </div>
-        )}
-        {!!continueStories.length && !search && (
-          <section className="mt-12">
-            <div className="flex items-end justify-between"><h2 className="text-2xl font-black text-ink">{t('تابع القراءة', language)}</h2><span className="text-sm text-ink-muted">{continueStories.length}</span></div>
-            <div className="mt-5 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">{continueStories.slice(0, 3).map((story) => <StoryCard key={story.id} story={story} language={language} progress={progressFor(story)} />)}</div>
-          </section>
-        )}
-        {!!newStories.length && !search && (
-          <section className="mt-12">
-            <h2 className="text-2xl font-black text-ink">{t('جديد هذا الأسبوع', language)}</h2>
-            <div className="mt-5 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">{newStories.map((story) => <StoryCard key={story.id} story={story} language={language} progress={progressFor(story)} />)}</div>
-          </section>
         )}
         {!!collections?.length && <div className="mt-9 flex flex-wrap gap-2">{collections.map((collection) => <a key={collection.id} href={`#collection-${collection.id}`} className="rounded-full border border-emerald-950/15 bg-white px-4 py-2 text-sm font-semibold text-emerald-900 hover:border-emerald-700">{collection.title}</a>)}</div>}
         {loading && <LoadingState />}
@@ -1301,8 +1084,8 @@ export function StoriesPage() {
             {collections?.length ? collections.map((collection) => {
               const collectionStories = filteredStories.filter((story) => story.collectionId === collection.id);
               if (!collectionStories.length) return null;
-              return <section id={`collection-${collection.id}`} key={collection.id}><SectionHeading eyebrow="مجموعة قصصية" title={collection.title} /><div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">{collectionStories.map((story) => <StoryCard key={story.id} story={story} language={language} progress={progressFor(story)} />)}</div></section>;
-            }) : <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">{filteredStories.map((story) => <StoryCard key={story.id} story={story} language={language} progress={progressFor(story)} />)}</div>}
+              return <section id={`collection-${collection.id}`} key={collection.id}><SectionHeading eyebrow="مجموعة قصصية" title={collection.title} /><div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">{collectionStories.map((story) => <StoryCard key={story.id} story={story} />)}</div></section>;
+            }) : <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">{filteredStories.map((story) => <StoryCard key={story.id} story={story} />)}</div>}
           </div>
         )}
       </Container></main>
@@ -1319,9 +1102,6 @@ export function CollectionDetailPage() {
     {loading && <LoadingState />}
     {error && <div className="mt-8"><ErrorState message={error} /></div>}
     {collection && <>
-      {collection.bannerImage && <div className="mt-7 aspect-[16/6] overflow-hidden rounded-3xl border border-line bg-surface-soft">
-        <img src={collection.bannerImage} alt={collection.bannerAltText || ''} className="h-full w-full object-cover" />
-      </div>}
       <header className="mt-7 max-w-3xl">
         <p className="text-sm font-bold text-emerald-700">{t('مجموعة قصص', language)}</p>
         <h1 className="mt-2 text-3xl font-black text-emerald-950 sm:text-4xl">{collection.title}</h1>
@@ -1338,26 +1118,37 @@ export function StoryDetailPage() {
   const { slug = '' } = useParams();
   const language = useSiteLanguage();
   const { user } = useStoryAuth();
+  const navigate = useLocalizedNavigate();
   const { data: story, loading, error } = useRemote<StorySummary>(`/stories/${encodeURIComponent(slug)}`);
   const { data: readingProgress } = useRemote<ReadingProgressEntry[]>(user ? '/reading-progress' : '');
   const parts = story?.parts || [];
   const completedParts = readingProgress?.find((entry) => entry.storyId === story?.id)?.completedParts || [];
   const completedPartSet = new Set(completedParts);
-  const completedStoryParts = parts.filter((part) => completedPartSet.has(part.id));
+  const completedCount = parts.filter((part) => completedPartSet.has(part.id)).length;
   const readableParts = parts.filter((part) => part.accessible);
-  const finished = parts.length > 0 && completedStoryParts.length === parts.length;
-  const nextPart = finished ? undefined : readableParts.find((part) => !completedPartSet.has(part.id)) || readableParts[0];
+  const finished = parts.length > 0 && completedCount === parts.length;
+  const started = completedCount > 0;
   const totalMinutes = parts.reduce((total, part) => total + (part.estimatedReadingMinutes || 0), 0);
-  const progressPercent = parts.length ? Math.min(100, Math.round((completedStoryParts.length / parts.length) * 100)) : 0;
-  const started = completedStoryParts.length > 0;
-  const { data: profile } = useRemote<ProfileSummary>(user && finished ? '/me/profile-summary' : '');
+  const progressPercent = parts.length ? Math.max(0, Math.min(100, Math.round((completedCount / parts.length) * 100))) : 0;
+  const lastPart = parts[parts.length - 1];
+  const { data: profile } = useRemote<ProfileSummary>(user && started ? '/me/profile-summary' : '');
   const { data: libraryStories } = useRemote<StorySummary[]>('/stories?limit=100');
-  const { data: libraryBooks } = useRemote<BookSummary[]>('/books?limit=100');
   const readIds = new Set((readingProgress || []).filter((entry) => entry.completedParts?.length).map((entry) => entry.storyId));
-  const lastOtherRead = (readingProgress || [])
-    .filter((entry) => entry.storyId !== story?.id && entry.lastReadAt)
-    .sort((left, right) => new Date(right.lastReadAt || 0).getTime() - new Date(left.lastReadAt || 0).getTime())[0];
-  const recommendationSource = (libraryStories || []).find((candidate) => candidate.id === lastOtherRead?.storyId);
+
+  const [resumePartNumber, setResumePartNumber] = useState<number | null>(null);
+  useEffect(() => {
+    if (!story) return;
+    const stored = Number(window.localStorage.getItem(`reader-last-part:${story.id}`));
+    setResumePartNumber(Number.isSafeInteger(stored) && stored > 0 ? stored : null);
+  }, [story]);
+
+  const resumePart = parts.find((part) => part.partNumber === resumePartNumber && part.accessible)
+    || readableParts.find((part) => !completedPartSet.has(part.id))
+    || readableParts[0];
+  const currentPart = finished ? undefined : resumePart;
+  const nextStory = (libraryStories || []).find((candidate) => candidate.id !== story?.id && !readIds.has(candidate.id))
+    || (libraryStories || []).find((candidate) => candidate.id !== story?.id);
+
   const sameCollectionStories = (libraryStories || []).filter((candidate) => candidate.id !== story?.id &&
     !readIds.has(candidate.id) && candidate.collection?.id === story?.collection?.id);
   const sameTypeStories = (libraryStories || []).filter((candidate) => candidate.id !== story?.id &&
@@ -1365,18 +1156,13 @@ export function StoryDetailPage() {
   const unreadRecommendationPool = [...sameCollectionStories, ...sameTypeStories, ...(libraryStories || []).filter((candidate) =>
     candidate.id !== story?.id && !readIds.has(candidate.id))]
     .filter((candidate, index, all) => all.findIndex((entry) => entry.id === candidate.id) === index);
-  // If the reader has finished every other published story, still offer a
-  // re-read instead of leaving the end-of-story page as a dead end.
   const recommendationPool = unreadRecommendationPool.length
     ? unreadRecommendationPool
     : (libraryStories || []).filter((candidate) => candidate.id !== story?.id);
-  const recommendations = recommendationPool.slice(0, 3);
-  const matchingBook = (libraryBooks || []).find((book) => book.title === story?.title) || (libraryBooks || [])[0];
-  const nextStory = recommendations[0];
-  const lastPart = parts[parts.length - 1];
+  const recommendations = recommendationPool.slice(0, 6);
+
   const retention = retentionText(language);
   const [shareNotice, setShareNotice] = useState('');
-  const quote = story?.hook || story?.summary || '';
 
   useEffect(() => {
     if (!story) return;
@@ -1401,178 +1187,262 @@ export function StoryDetailPage() {
     setMeta('meta[name="twitter:image"]', 'name', 'twitter:image', story.socialImage || story.cover || '');
   }, [story, language]);
 
-  async function shareStory() {
-    if (!story) return;
-    const url = window.location.href;
+  async function copyLink() {
     try {
-      if (navigator.share) {
-        await navigator.share({ title: story.title, text: story.summary, url });
-        return;
-      }
-      await navigator.clipboard.writeText(url);
-      setShareNotice(t('تم نسخ رابط الحكاية.', language));
+      await navigator.clipboard.writeText(window.location.href);
+      setShareNotice(t('تم نسخ الرابط', language));
     } catch {
       setShareNotice(t('تعذر المشاركة تلقائيًا. انسخ الرابط من شريط العنوان.', language));
     }
   }
 
+  const sourceLabel = story?.sourceBadge === 'quran_verse'
+    ? t('من القرآن الكريم', language)
+    : story?.sourceBadge === 'authentic_hadith'
+      ? t('من السنة النبوية', language)
+      : t('قصة موثقة', language);
+  const primaryHref = finished
+    ? `/stories/${story?.slug}/read/${lastPart?.partNumber || 1}#quiz`
+    : currentPart
+      ? `/stories/${story?.slug}/read/${currentPart.partNumber}`
+      : '/membership';
+  const primaryLabel = finished
+    ? t('أعد القراءة', language)
+    : currentPart
+      ? started
+        ? `${t('متابعة القراءة')} — ${t('الجزء', language)} ${currentPart.partNumber}`
+        : t('ابدأ القراءة')
+      : t('افتح الحكاية بالاشتراك');
+
   return (
     <SiteLayout>
-      <main><Container className="py-9 sm:py-14">
-        <Link to="/stories" className="inline-flex items-center gap-2 text-sm font-semibold text-emerald-800"><ArrowUpLeft size={17} className="rtl:rotate-180" /> {t('العودة إلى القصص', language)}</Link>
-        {loading && <LoadingState />}
-        {error && <div className="mt-8"><ErrorState message={error} /></div>}
-        {story && (
-          <div className="mt-7 grid gap-10 lg:grid-cols-[0.85fr_1.15fr]">
-            <div>
-              <StoryArtwork story={story} className="aspect-[3/4] rounded-[2rem] shadow-lg" imageOverride={story.heroImage || story.cover} focalPoint={story.focalPoint} />
-              {story.imageCredit && <p className="mt-2 text-xs text-ink-faint">{t('حقوق الصورة', language)}: {story.imageCredit}</p>}
-            </div>
-            <div>
-              <p className="text-sm font-bold text-emerald-700">{story.collection?.title || t('حكاية إيمانية', language)} · {story.sourceBadge === 'quran_verse' ? t('من القرآن الكريم', language) : story.sourceBadge === 'authentic_hadith' ? t('من السنة النبوية', language) : t('قصة موثقة', language)}</p>
-              <h1 dir="auto" className="mt-4 text-3xl font-black leading-relaxed text-emerald-950 sm:text-4xl">{story.title}</h1>
-              {story.hook && <p dir="auto" className="mt-3 text-lg font-semibold leading-8 text-brand-ink">{story.hook}</p>}
-              <p dir="auto" className="mt-3 text-lg leading-9 text-slate-600">{story.summary}</p>
-              <div className="mt-6 flex flex-wrap gap-2 text-sm text-slate-600">
-                <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-2"><BookOpen size={16} /> {pluralParts(parts.length, language)}</span>
-                <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-2"><Clock3 size={16} /> {pluralMinutes(totalMinutes, language)}</span>
-                <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-2"><ShieldCheck size={16} /> {t('مراجعة موثوقة', language)}</span>
-                <button type="button" onClick={() => void shareStory()} className="inline-flex items-center gap-2 rounded-full border border-emerald-950/15 px-3 py-2 hover:bg-emerald-50"><Share2 size={16} /> {t('شارك الحكاية', language)}</button>
-              </div>
-              {shareNotice && <p role="status" className="mt-2 text-sm font-semibold text-emerald-800">{shareNotice}</p>}
-              <div className="mt-7 rounded-3xl border border-line bg-surface-soft p-5 sm:p-6">
-                <div className="flex flex-wrap items-center justify-between gap-4">
-                  <div className="min-w-0">
-                    <p className="text-xs font-bold uppercase tracking-[0.16em] text-brand-ink">{t(started ? 'تابع من حيث توقفت' : 'ابدأ من هنا', language)}</p>
-                    <p className="mt-1 text-lg font-bold leading-7 text-ink">{t(started ? 'خطوتك التالية قصيرة' : 'الحكاية جاهزة، والخطوة الأولى قصيرة', language)}</p>
-                    <p className="mt-1 text-sm text-ink-muted">
-                      {parts.length} {t('أجزاء', language)} · {totalMinutes} {t('دقيقة', language)} · {t('ابدأ بالجزء الأول ثم تابع بالترتيب', language)}
-                    </p>
-                  </div>
-                  {finished ? (
-                    <Link to={`/stories/${story.slug}/read/${lastPart?.partNumber || 1}#quiz`} className={buttonClasses({ size: 'md' })}>
-                      <CircleHelp size={17} /> {t('اختبر فهمك', language)}
-                    </Link>
-                  ) : nextPart ? (
-                    <Link to={`/stories/${story.slug}/read/${nextPart.partNumber}`} className={buttonClasses({ size: 'md' })}>
-                      {started ? `${t('تابع القراءة', language)} · ${t('الجزء', language)} ${nextPart.partNumber}` : t('ابدأ القراءة', language)}
-                      <ChevronLeft size={17} className="ltr:rotate-180" />
-                    </Link>
-                  ) : (
-                    <Link to="/membership" className={buttonClasses({ size: 'md' })}>
-                      <LockKeyhole size={16} /> {t('افتح الحكاية بالاشتراك', language)}
-                    </Link>
-                  )}
+      <main>
+        <Container className="py-7 sm:py-12">
+          <nav aria-label={t('مسار التصفح', language)} className="flex flex-wrap items-center gap-2 text-sm text-ink-muted">
+            <Link to="/stories" className="inline-flex items-center gap-1.5 font-semibold hover:text-brand-ink">
+              <ArrowUpLeft size={16} className="rtl:rotate-180" aria-hidden="true" /> {t('العودة إلى القصص', language)}
+            </Link>
+            {story?.collection?.title && <span aria-hidden="true">/</span>}
+            {story?.collection?.title && (
+              <Link to={`/collections/${story.collection.slug}`} className="hover:text-brand-ink">{story.collection.title}</Link>
+            )}
+          </nav>
+
+          {loading && <LoadingState />}
+          {error && <div className="mt-8"><ErrorState message={error} /></div>}
+
+          {story && (
+            <>
+              <section className="mt-6 grid items-start gap-8 sm:mt-10 lg:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)] lg:gap-12">
+                <div className="mx-auto w-full max-w-sm lg:mx-0 lg:max-w-none">
+                  <CoverArt
+                    title={story.title}
+                    cover={story.heroImage || story.cover}
+                    variants={story.coverVariants}
+                    seed={story.id}
+                    priority
+                    sizes="(min-width: 1024px) 34vw, 100vw"
+                    className="aspect-[3/4] rounded-[20px] border border-line"
+                  />
+                  {story.imageCredit && <p className="mt-2 text-xs text-ink-faint">{t('حقوق الصورة', language)}: {story.imageCredit}</p>}
                 </div>
-                {started && (
-                  <div className="mt-4 flex items-center gap-3">
-                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-surface-sunken" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progressPercent} aria-label={t('تقدّم القراءة', language)}>
-                      <div className="h-full rounded-full bg-brand transition-[width] duration-500" style={{ width: `${progressPercent}%` }} />
-                    </div>
-                    <span className="shrink-0 text-xs font-bold text-ink-muted">{finished ? t('مكتملة', language) : `${progressPercent}%`}</span>
-                  </div>
-                )}
-                {finished && user && profile && (
-                  <div className="mt-5 rounded-2xl border border-line bg-surface p-4 dark:border-white/10 dark:bg-emerald-950/30">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="flex items-center gap-2 font-bold text-ink dark:text-emerald-50"><Award size={17} /> {retention.reward}</p>
-                      <span className="rounded-full bg-brand-soft px-3 py-1 text-xs font-bold text-brand-ink dark:bg-emerald-500/15 dark:text-emerald-100">{retention.proof(completedStoryParts.length, parts.length)}</span>
-                    </div>
-                    <div className="mt-3 grid grid-cols-3 gap-2 text-center">
-                      <div className="rounded-xl bg-surface-soft p-2 dark:bg-white/5"><p className="text-lg font-black text-ink dark:text-white">{profile.user.points}</p><p className="text-[11px] text-ink-muted dark:text-emerald-100/70">{retention.points}</p></div>
-                      <div className="rounded-xl bg-surface-soft p-2 dark:bg-white/5"><p className="text-lg font-black text-ink dark:text-white">{retention.days(profile.streak.current)}</p><p className="text-[11px] text-ink-muted dark:text-emerald-100/70">{retention.streak}</p></div>
-                      <div className="rounded-xl bg-surface-soft p-2 dark:bg-white/5"><p className="text-lg font-black text-ink dark:text-white">{profile.level.name || profile.level.level}</p><p className="text-[11px] text-ink-muted dark:text-emerald-100/70">{retention.level}</p></div>
-                    </div>
-                    {profile.nextBadges[0] && (
-                      <div className="mt-3">
-                        <div className="flex items-center justify-between gap-2 text-xs font-semibold text-ink-muted dark:text-emerald-100/70">
-                          <span className="flex items-center gap-1.5"><Trophy size={14} /> {profile.nextBadges[0].name}</span>
-                          <span>{retention.badgeProgress(profile.nextBadges[0].progress.currentValue, profile.nextBadges[0].progress.targetValue)}</span>
-                        </div>
-                        <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-surface-sunken dark:bg-white/10" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round((profile.nextBadges[0].progress.ratio || 0) * 100)}>
-                          <div className="h-full rounded-full bg-brand" style={{ width: `${Math.min(100, Math.round((profile.nextBadges[0].progress.ratio || 0) * 100))}%` }} />
-                        </div>
+
+                <div className="min-w-0">
+                  <p className="ds-eyebrow">{sourceLabel}</p>
+                  <h1 dir="auto" className="ds-title mt-3 text-[2.35rem] leading-[1.25] text-ink sm:text-5xl">{story.title}</h1>
+                  {story.hook && <p dir="auto" className="mt-4 max-w-[46rem] font-reading text-xl leading-9 text-brand-ink">{story.hook}</p>}
+                  <p dir="auto" className="mt-3 line-clamp-2 max-w-[46rem] text-base leading-8 text-ink-muted">{story.summary}</p>
+
+                  <p className="mt-5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-sm text-ink-muted">
+                    {parts.length > 0 && <span>{pluralParts(parts.length, language)}</span>}
+                    {totalMinutes > 0 && <><span aria-hidden="true">·</span><span>{pluralMinutes(totalMinutes, language)}</span></>}
+                    <span aria-hidden="true">·</span>
+                    <span className="inline-flex items-center gap-1.5 text-ink">
+                      <ShieldCheck size={14} className="text-brand-ink" aria-hidden="true" />
+                      {story.reviewerName ? t('مراجعة علمية', language) : t('مراجعة موثوقة', language)}
+                    </span>
+                  </p>
+
+                  <div className="mt-7 flex flex-wrap items-center gap-3">
+                    <Link to={primaryHref} className={buttonClasses({ size: 'lg' })}>
+                      {primaryLabel}
+                      {!finished && <ChevronLeft size={17} className="ltr:rotate-180" aria-hidden="true" />}
+                    </Link>
+                    <details className="relative">
+                      <summary
+                        aria-label={t('شارك الحكاية', language)}
+                        className="grid h-11 w-11 cursor-pointer list-none place-items-center rounded-full border border-line text-ink-muted transition hover:bg-surface-soft hover:text-ink [&::-webkit-details-marker]:hidden"
+                      >
+                        <Share2 size={17} aria-hidden="true" />
+                      </summary>
+                      <div className="ds-pop absolute end-0 top-full z-20 mt-2 w-56 rounded-xl border border-line bg-surface p-2 shadow-lift">
+                        <button type="button" onClick={() => void copyLink()} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-ink hover:bg-surface-soft">
+                          <Share2 size={15} aria-hidden="true" /> {t('نسخ الرابط', language)}
+                        </button>
+                        {shareNotice && <p role="status" className="px-3 pb-1 pt-1 text-xs text-ink-muted">{shareNotice}</p>}
                       </div>
-                    )}
+                    </details>
                   </div>
-                )}
-                {finished && <div className="mt-4 grid gap-2 sm:grid-cols-3">
-                  <Link to={`/stories/${story.slug}/read/${lastPart?.partNumber || 1}#quiz`} className="flex items-center justify-center gap-2 rounded-xl border border-line px-3 py-2.5 text-center text-sm font-bold text-brand-ink hover:bg-brand-soft dark:border-white/15 dark:text-emerald-50 dark:hover:bg-white/10"><CircleHelp size={15} /> {retention.quiz}</Link>
-                  <Link to={nextStory ? `/stories/${nextStory.slug}` : '/stories'} className="flex items-center justify-center gap-2 rounded-xl border border-line px-3 py-2.5 text-center text-sm font-bold text-brand-ink hover:bg-brand-soft dark:border-white/15 dark:text-emerald-50 dark:hover:bg-white/10"><BookOpen size={15} /> {nextStory ? retention.nextStory : retention.choose}</Link>
-                  <button type="button" onClick={() => void shareStory()} className="flex items-center justify-center gap-2 rounded-xl border border-line px-3 py-2.5 text-sm font-bold text-brand-ink hover:bg-brand-soft dark:border-white/15 dark:text-emerald-50 dark:hover:bg-white/10"><Share2 size={15} /> {retention.share}</button>
-                </div>}
-              </div>
-              {story.reviewerName && <p className="mt-4 text-sm text-slate-500">{t('راجَعها:', language)} {/administration plateforme/i.test(story.reviewerName) ? t('لجنة المراجعة العلمية', language) : story.reviewerName}</p>}
-              {!!story.sourceReferences?.length && <div className="mt-6 rounded-2xl border border-emerald-950/10 bg-white p-5"><h2 className="font-bold text-emerald-950">المصادر</h2><ul className="mt-3 list-inside list-disc space-y-2 text-sm leading-7 text-slate-600">{story.sourceReferences.map((source, index) => <li key={`${source.reference}-${index}`}>{source.reference}</li>)}</ul></div>}
-              <div className="mt-8">
-                <h2 className="text-xl font-extrabold text-emerald-950">{t('أجزاء الحكاية', language)}</h2>
-                <p className="mt-2 text-sm leading-7 text-slate-500">{t('كل جزء قصير، ويمكنك حفظ تقدّمك بعد كل جزء.', language)}</p>
-                <div className="mt-4 space-y-3">
+                </div>
+              </section>
+
+              <section aria-labelledby="journey-heading" className="mt-12 rounded-2xl border border-line bg-surface/50 p-5 sm:mt-16 sm:p-7">
+                <div className="flex flex-wrap items-baseline justify-between gap-3">
+                  <h2 id="journey-heading" className="text-xl font-semibold text-ink">{t('رحلة القراءة', language)}</h2>
+                  <p className="text-sm text-ink-muted">
+                    {completedCount} / {parts.length} {t('أجزاء', language)}
+                    {progressPercent >= 100 && <span className="text-success"> · {t('اكتملت', language)}</span>}
+                  </p>
+                </div>
+                <div className="mt-3 h-1 w-full overflow-hidden rounded-full bg-surface-sunken" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progressPercent} aria-label={t('تقدّم القراءة', language)}>
+                  <div className="h-full rounded-full bg-brand transition-[width] duration-300" style={{ width: `${progressPercent}%` }} />
+                </div>
+
+                <ol className="journey mt-5">
                   {parts.map((part) => {
-                    const isDone = completedParts.includes(part.id);
+                    const done = completedPartSet.has(part.id);
+                    const locked = !done && part.accessible === false;
+                    const current = !done && !locked && currentPart?.id === part.id;
+                    const state = done ? 'done' : locked ? 'locked' : current ? 'current' : 'todo';
                     return (
-                      <div key={part.id} className={`flex items-center justify-between gap-4 rounded-2xl border p-4 ${isDone ? 'border-brand/25 bg-brand-soft/50' : 'border-emerald-950/10 bg-white'}`}>
-                        <div className="flex min-w-0 items-center gap-3">
-                          <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl font-bold ${isDone ? 'bg-brand text-brand-on' : 'bg-emerald-50 text-emerald-800'}`}>{isDone ? <Check size={18} /> : part.partNumber}</span>
-                          <div className="min-w-0">
-                            <p dir="auto" className="truncate font-bold text-emerald-950">{part.title}{nextPart?.id === part.id && !isDone && <span className="ms-2 rounded-full bg-emerald-900 px-2 py-0.5 text-[0.625rem] font-bold text-white">{t('التالي', language)}</span>}</p>
-                            <p className="mt-1 flex flex-wrap items-center gap-1 text-xs text-slate-500">
-                              <Clock3 size={13} /> {formatReadingTime(part.estimatedReadingMinutes, language)}
-                              {isDone && <span className="font-bold text-brand-ink">· {t('أكملت', language)}</span>}
-                            </p>
-                            {part.endingHook && <p dir="auto" className="mt-1 line-clamp-1 text-xs text-slate-500">{part.endingHook}</p>}
-                          </div>
+                      <li
+                        key={part.id}
+                        className="journey-row"
+                        data-state={state}
+                        aria-current={current ? 'step' : undefined}
+                      >
+                        <span className="journey-dot" aria-hidden="true">
+                          {done ? <Check size={17} /> : locked ? <LockKeyhole size={15} /> : part.partNumber}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="journey-title flex flex-wrap items-baseline gap-x-2" dir="auto">
+                            <span className={`font-semibold text-ink ${current ? 'text-[1.0625rem]' : ''}`}>
+                              {t('الجزء', language)} {part.partNumber} — {part.title}
+                            </span>
+                            {current && <span className="rounded-full bg-brand-soft px-2 py-0.5 text-[0.6875rem] font-semibold text-brand-ink">{t('التالي', language)}</span>}
+                          </p>
+                          <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-muted">
+                            <span className="inline-flex items-center gap-1"><Clock3 size={12} aria-hidden="true" /> {formatReadingTime(part.estimatedReadingMinutes, language)}</span>
+                            {done && <span className="text-success">· {t('اكتمل', language)}</span>}
+                          </p>
+                          {part.endingHook && !locked && <p dir="auto" className="mt-1 line-clamp-1 text-xs text-ink-faint">{part.endingHook}</p>}
                         </div>
-                        {part.accessible ? <Link to={`/stories/${story.slug}/read/${part.partNumber}`} className="shrink-0 rounded-full bg-emerald-900 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-800">{t(isDone ? 'أعد القراءة' : 'اقرأ', language)}</Link> : <Link to="/membership" className="inline-flex shrink-0 items-center gap-2 text-sm font-semibold text-slate-500"><LockKeyhole size={15} /> {t('مقفل', language)}</Link>}
-                      </div>
+                        <div className="shrink-0 self-center">
+                          {locked ? (
+                            <Link to="/membership" className="inline-flex min-h-11 items-center gap-1.5 rounded-full border border-line px-3 text-xs font-semibold text-ink-muted hover:text-ink">
+                              <LockKeyhole size={13} aria-hidden="true" /> {t('افتح', language)}
+                            </Link>
+                          ) : (
+                            <Link
+                              to={`/stories/${story.slug}/read/${part.partNumber}`}
+                              className={`inline-flex min-h-11 items-center gap-1.5 rounded-full px-4 text-xs font-semibold transition ${
+                                current ? 'bg-brand text-brand-on hover:bg-brand-strong' : 'border border-line text-brand-ink hover:bg-brand-soft'
+                              }`}
+                            >
+                              {done ? t('أعد القراءة', language) : current ? t('متابعة', language) : t('ابدأ', language)}
+                            </Link>
+                          )}
+                        </div>
+                      </li>
                     );
                   })}
-                </div>
-              </div>
-              <div className="mt-10 grid gap-4 sm:grid-cols-2">
-                <div className="rounded-3xl border border-line bg-surface p-5">
-                  <span className="grid h-11 w-11 place-items-center rounded-2xl bg-amber-100 text-amber-800"><CircleHelp size={21} /></span>
-                  <h2 className="mt-3 text-lg font-extrabold text-ink">{t('اختبر فهمك بعد القراءة', language)}</h2>
-                  <p className="mt-1 text-sm leading-7 text-ink-muted">{t('اختبار قصير مبني على مصادر الحكاية، مع نقاط تُضاف إلى تقدّمك.', language)}</p>
-                  <Link to={`/stories/${story.slug}/read/${lastPart?.partNumber || 1}#quiz`} className={buttonClasses({ size: 'sm', className: 'mt-4' })}>{t('ابدأ الاختبار', language)}</Link>
-                </div>
-                {matchingBook && <div className="rounded-3xl border border-line bg-surface p-5">
-                  <span className="grid h-11 w-11 place-items-center rounded-2xl bg-emerald-100 text-emerald-800"><ShoppingBag size={21} /></span>
-                  <h2 className="mt-3 text-lg font-extrabold text-ink">{matchingBook.title}</h2>
-                  <p className="mt-1 line-clamp-2 text-sm leading-7 text-ink-muted">{t('نسخة كتابية من الحكاية، للقراءة الهادئة أو للإهداء.', language)}</p>
-                  <div className="mt-4 flex flex-wrap items-center gap-3">
-                    <span className="font-extrabold text-brand-ink">{formatPrice(matchingBook.price, matchingBook.currency, language)}</span>
-                    <Link to={`/books/${matchingBook.slug}`} className={buttonClasses({ variant: 'secondary', size: 'sm' })}>{t('اطلب الكتاب', language)}</Link>
+                </ol>
+
+                {(started || finished) && user && profile && (
+                  <details className="mt-4 border-t border-line pt-3">
+                    <summary className="cursor-pointer text-sm text-ink-muted hover:text-ink">
+                      {profile.user.points} {retention.points} · {retention.days(profile.streak.current)} {retention.streak} · {profile.level.name || profile.level.level}
+                    </summary>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                      <div><p className="text-xs text-ink-faint">{retention.points}</p><p className="font-semibold text-ink">{profile.user.points}</p></div>
+                      <div><p className="text-xs text-ink-faint">{retention.streak}</p><p className="font-semibold text-ink">{retention.days(profile.streak.current)}</p></div>
+                      <div><p className="text-xs text-ink-faint">{retention.level}</p><p className="font-semibold text-ink">{profile.level.name || profile.level.level}</p></div>
+                    </div>
+                  </details>
+                )}
+              </section>
+
+              {(!!story.sourceReferences?.length || story.reviewerName) && (
+                <details className="mt-8 border-y border-line">
+                  <summary className="flex cursor-pointer items-center justify-between gap-3 py-4 text-sm font-semibold text-ink">
+                    <span>{t('المصادر والمراجعة', language)}{story.sourceReferences?.length ? ` (${story.sourceReferences.length})` : ''}</span>
+                    <ChevronDown size={16} className="text-ink-faint" aria-hidden="true" />
+                  </summary>
+                  <div className="pb-5">
+                    {story.reviewerName && (
+                      <p className="text-sm text-ink-muted">
+                        {t('راجَعها:', language)} {/administration plateforme/i.test(story.reviewerName) ? t('لجنة المراجعة العلمية', language) : story.reviewerName}
+                      </p>
+                    )}
+                    {!!story.sourceReferences?.length && (
+                      <ul className="mt-3 space-y-2 text-sm leading-7 text-ink-muted">
+                        {story.sourceReferences.map((source, index) => <li key={`${source.reference}-${index}`}>— {source.reference}</li>)}
+                      </ul>
+                    )}
                   </div>
-                </div>}
-                <div className="rounded-3xl border border-line bg-surface p-5">
-                  <span className="grid h-11 w-11 place-items-center rounded-2xl bg-sky-100 text-sky-800"><Gift size={21} /></span>
-                  <h2 className="mt-3 text-lg font-extrabold text-ink">{t('هل لديك فكرة حكاية؟', language)}</h2>
-                  <p className="mt-1 text-sm leading-7 text-ink-muted">{t('اقترح موضوعًا أو شخصية نحكي عنها في قصة قادمة، وسنراجع الاقتراح بعناية.', language)}</p>
-                  <Link to="/story-request" className={buttonClasses({ variant: 'secondary', size: 'sm', className: 'mt-4' })}>{t('اقترح قصة', language)}</Link>
-                </div>
-                <div className="rounded-3xl border border-brand/25 bg-brand-soft/50 p-5">
-                  <span className="grid h-11 w-11 place-items-center rounded-2xl bg-white text-brand-ink"><Share2 size={21} /></span>
-                  <h2 className="mt-3 text-lg font-extrabold text-ink">{t('شارك الحكاية', language)}</h2>
-                  <p dir="auto" className="mt-1 line-clamp-3 rounded-xl bg-white/70 p-3 text-sm italic leading-7 text-ink-muted">“{quote}”</p>
-                  <button type="button" onClick={() => void shareStory()} className={buttonClasses({ size: 'sm', className: 'mt-4' })}>{t('نسخ الرابط أو مشاركته', language)}</button>
-                  {shareNotice && <p role="status" className="mt-2 text-xs font-semibold text-brand-ink">{shareNotice}</p>}
-                </div>
+                </details>
+              )}
+
+              <div className="mt-10 grid gap-4 md:grid-cols-2">
+                <section className="rounded-2xl border border-line bg-surface p-5">
+                  <h2 className="text-base font-semibold text-ink">{t('اختبر فهمك', language)}</h2>
+                  <p className="mt-1 text-sm leading-7 text-ink-muted">{t('اختبار قصير مبني على مصادر الحكاية.')}</p>
+                  {finished ? (
+                    <Link to={`/stories/${story.slug}/read/${lastPart?.partNumber || 1}#quiz`} className={buttonClasses({ size: 'sm', className: 'mt-4' })}>
+                      {t('ابدأ الاختبار', language)}
+                    </Link>
+                  ) : (
+                    <p className="mt-3 text-xs text-ink-faint">{t('يُفتح الاختبار بعد إكمال الجزء الأخير', language)}</p>
+                  )}
+                </section>
+
+                <section className="rounded-2xl border border-line p-5">
+                  <p className="ds-eyebrow">{t('الحكاية التالية', language)}</p>
+                  {nextStory ? (
+                    <>
+                      <h2 dir="auto" className="mt-2 line-clamp-2 text-base font-semibold text-ink">{nextStory.title}</h2>
+                      <p dir="auto" className="mt-1 line-clamp-2 text-sm leading-7 text-ink-muted">{nextStory.hook || nextStory.summary}</p>
+                      <Link to={`/stories/${nextStory.slug}`} className={buttonClasses({ variant: 'secondary', size: 'sm', className: 'mt-4' })}>
+                        {t('اكتشف الحكاية', language)}
+                      </Link>
+                    </>
+                  ) : (
+                    <p className="mt-2 text-sm text-ink-muted">{t('اختر حكاية', language)}</p>
+                  )}
+                </section>
               </div>
-              {!!recommendations.length && <div className="mt-10">
-                <h2 className="mb-1 text-xl font-extrabold text-emerald-950">{recommendationSource ? retention.because(recommendationSource.title) : retention.discover}</h2>
-                {recommendationSource && <p className="mb-4 text-sm text-slate-500">{retention.discover}</p>}
-                <div className="grid gap-5 sm:grid-cols-3">{recommendations.map((candidate) => <StoryCard key={candidate.id} story={candidate} language={language} />)}</div>
-              </div>}
-              {!!story.videos?.length && <div id="story-video" className="mt-10"><h2 className="mb-4 text-xl font-extrabold text-emerald-950">{t('شاهد الحكاية', language)}</h2><div className="grid gap-4 sm:grid-cols-2">{story.videos.map((video) => <StoryVideoPlayer key={video.id} video={video} language={language} />)}</div></div>}
-            </div>
-          </div>
-        )}
-      </Container></main>
+
+              {!!recommendations.length && (
+                <section className="mt-12" aria-labelledby="more-stories">
+                  <h2 id="more-stories" className="text-xl font-semibold text-ink">{t('حكايات قد تناسبك', language)}</h2>
+                  <div className="ds-scroll-x mt-4 flex gap-4 pb-2">
+                    {recommendations.map((candidate) => (
+                      <div key={candidate.id} className="w-[16rem] shrink-0 snap-start sm:w-[18rem]">
+                        <StoryCard story={candidate} language={language} />
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-2 text-end">
+                    <Link to="/stories" className="text-sm font-semibold text-brand-ink hover:underline">{t('كل الحكايات', language)}</Link>
+                  </div>
+                </section>
+              )}
+
+              {!!story.videos?.length && (
+                <section id="story-video" className="mt-12" aria-labelledby="watch-story">
+                  <h2 id="watch-story" className="text-xl font-semibold text-ink">{t('شاهد الحكاية', language)}</h2>
+                  <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                    {story.videos.map((video) => <StoryVideoPlayer key={video.id} video={video} language={language} />)}
+                  </div>
+                </section>
+              )}
+            </>
+          )}
+        </Container>
+      </main>
     </SiteLayout>
   );
 }
-
 function embeddedVideoUrl(source: string) {
   try {
     const url = new URL(source);
@@ -1634,14 +1504,50 @@ function StoryVideoPlayer({ video, language }: {
   </article>;
 }
 
+type ReaderPreferences = {
+  size: 's' | 'm' | 'l' | 'xl';
+  spacing: 'compact' | 'normal' | 'airy';
+  width: 'narrow' | 'wide';
+};
+
+const defaultReaderPreferences: ReaderPreferences = { size: 'm', spacing: 'normal', width: 'narrow' };
+
+function readReaderPreferences(): ReaderPreferences {
+  try {
+    const raw = window.localStorage.getItem('reader-preferences');
+    if (!raw) return defaultReaderPreferences;
+    const parsed = JSON.parse(raw) as Partial<ReaderPreferences>;
+    return {
+      size: ['s', 'm', 'l', 'xl'].includes(String(parsed.size)) ? parsed.size as ReaderPreferences['size'] : 'm',
+      spacing: ['compact', 'normal', 'airy'].includes(String(parsed.spacing)) ? parsed.spacing as ReaderPreferences['spacing'] : 'normal',
+      width: parsed.width === 'wide' ? 'wide' : 'narrow'
+    };
+  } catch {
+    return defaultReaderPreferences;
+  }
+}
+
+function readStoredReadingTheme(): 'light' | 'reading' | 'dark' {
+  try {
+    const stored = window.localStorage.getItem('reader-theme');
+    if (stored === 'dark' || stored === 'reading' || stored === 'sepia') return stored === 'sepia' ? 'reading' : stored;
+  } catch {
+    /* ignore */
+  }
+  return 'light';
+}
+
 export function ReaderPage() {
   const { slug = '', partNumber = '' } = useParams();
   const number = Number(partNumber);
   const language = useSiteLanguage();
   const { user } = useStoryAuth();
-  const [readingTheme, setReadingTheme] = useState<'light' | 'dark'>(() =>
-    window.localStorage.getItem('reader-theme') === 'dark' ? 'dark' : 'light'
-  );
+  const navigate = useLocalizedNavigate();
+  const { setTheme: setSiteTheme } = useSiteTheme();
+  const [readingTheme, setReadingTheme] = useState<'light' | 'reading' | 'dark'>(readStoredReadingTheme);
+  const [preferences, setPreferences] = useState<ReaderPreferences>(readReaderPreferences);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [scrollProgress, setScrollProgress] = useState(0);
   const [story, setStory] = useState<StorySummary | null>(null);
   const [part, setPart] = useState<(StoryPart & { content: string; endingHook: string }) | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1659,8 +1565,21 @@ export function ReaderPage() {
   const [notificationPromptVisible, setNotificationPromptVisible] = useState(false);
 
   useEffect(() => {
-    window.localStorage.setItem('reader-theme', readingTheme);
-  }, [readingTheme]);
+    try {
+      window.localStorage.setItem('reader-theme', readingTheme);
+    } catch {
+      /* ignore */
+    }
+    setSiteTheme(readingTheme);
+  }, [readingTheme, setSiteTheme]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('reader-preferences', JSON.stringify(preferences));
+    } catch {
+      /* ignore */
+    }
+  }, [preferences]);
 
   useEffect(() => {
     if (!attempt?.timeLimitSeconds) {
@@ -1675,6 +1594,16 @@ export function ReaderPage() {
   }, [attempt]);
 
   useEffect(() => {
+    const onScroll = () => {
+      const height = document.documentElement.scrollHeight - window.innerHeight;
+      setScrollProgress(height > 0 ? Math.min(100, Math.max(0, (window.scrollY / height) * 100)) : 0);
+    };
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
+  useEffect(() => {
     let active = true;
     setLoading(true);
     setError(null);
@@ -1682,22 +1611,53 @@ export function ReaderPage() {
       api.get<StorySummary>(`/stories/${encodeURIComponent(slug)}`),
       api.get<StoryPart & { content: string; endingHook: string }>(`/stories/${encodeURIComponent(slug)}/parts/${number}`)
     ]).then(([storyResponse, partResponse]) => {
-      if (active) {
-        setStory(storyResponse);
-        setPart(partResponse);
-        setQuiz(null);
-        setQuizLocked(false);
-        api.get<Quiz>(`/stories/${encodeURIComponent(slug)}/parts/${number}/quiz`).then((quizResponse) => {
-          if (active) setQuiz(quizResponse);
-        }).catch((caught: unknown) => {
-          if (active && caught instanceof ApiError && caught.code === 'CONTENT_LOCKED') setQuizLocked(true);
-        });
+      if (!active) return;
+      setStory(storyResponse);
+      setPart(partResponse);
+      setQuiz(null);
+      setQuizLocked(false);
+      try {
+        window.localStorage.setItem(`reader-last-part:${storyResponse.id}`, String(partResponse.partNumber));
+      } catch {
+        /* ignore */
       }
+      api.get<Quiz>(`/stories/${encodeURIComponent(slug)}/parts/${number}/quiz`).then((quizResponse) => {
+        if (active) setQuiz(quizResponse);
+      }).catch((caught: unknown) => {
+        if (active && caught instanceof ApiError && caught.code === 'CONTENT_LOCKED') setQuizLocked(true);
+      });
     }).catch((caught: unknown) => {
       if (active) setError(caught instanceof Error ? caught.message : 'تعذر تحميل الجزء.');
     }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [slug, number, language]);
+
+  // Restore the scroll position of this part, then keep it up to date.
+  useEffect(() => {
+    if (!story || !part) return;
+    const key = `reader-scroll:${story.slug}:${part.partNumber}`;
+    let restoreFrame = 0;
+    try {
+      const saved = Number(window.localStorage.getItem(key));
+      if (Number.isSafeInteger(saved) && saved > 0) {
+        restoreFrame = window.requestAnimationFrame(() => window.scrollTo({ top: saved, behavior: 'auto' }));
+      }
+    } catch {
+      /* ignore */
+    }
+    const onScroll = () => {
+      try {
+        window.localStorage.setItem(key, String(window.scrollY));
+      } catch {
+        /* ignore */
+      }
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      if (restoreFrame) window.cancelAnimationFrame(restoreFrame);
+    };
+  }, [story, part]);
 
   async function markAsRead() {
     if (!user || !story || !part) return;
@@ -1716,6 +1676,11 @@ export function ReaderPage() {
       setNotice(t('تم حفظ تقدّمك في القراءة.', language));
       if (nextCompleted.length > 0 && !user.emailPreferences?.reminders) {
         setNotificationPromptVisible(true);
+      }
+      const following = story.parts?.find((candidate) => candidate.partNumber === part.partNumber + 1);
+      if (following?.accessible) {
+        navigate(`/stories/${story.slug}/read/${following.partNumber}`);
+        window.scrollTo({ top: 0, behavior: 'auto' });
       }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'تعذر حفظ تقدّم القراءة.');
@@ -1762,135 +1727,259 @@ export function ReaderPage() {
   }
 
   if (loading) return <SiteLayout><Container className="py-16"><LoadingState /></Container></SiteLayout>;
-  if (error && !part) return <SiteLayout><Container className="py-12"><ErrorState message={error} /><Link to={`/stories/${slug}`} className="mt-5 inline-flex items-center gap-2 font-bold text-emerald-800"><ArrowLeft size={16} /> العودة للقصة</Link></Container></SiteLayout>;
+  if (error && !part) return <SiteLayout><Container className="py-12"><ErrorState message={error} /><Link to={`/stories/${slug}`} className="mt-5 inline-flex items-center gap-2 font-semibold text-brand-ink"><ArrowLeft size={16} /> {t('العودة إلى الحكاية', language)}</Link></Container></SiteLayout>;
   if (!story || !part) return <Navigate to="/stories" replace />;
+
   const previous = story.parts?.find((candidate) => candidate.partNumber === number - 1);
   const next = story.parts?.find((candidate) => candidate.partNumber === number + 1);
   const totalParts = story.parts?.length || part.partNumber;
-  const readingPercent = totalParts ? Math.round((part.partNumber / totalParts) * 100) : 0;
   const partPosition = language === 'fr'
     ? `Partie ${part.partNumber} sur ${totalParts}`
     : language === 'en'
       ? `Part ${part.partNumber} of ${totalParts}`
       : `الجزء ${part.partNumber} من ${totalParts}`;
+  const isLastPart = !next;
+  const retention = retentionText(language);
+
+  const sizeOptions: Array<{ value: ReaderPreferences['size']; label: string }> = [
+    { value: 's', label: t('صغير', language) },
+    { value: 'm', label: t('متوسط', language) },
+    { value: 'l', label: t('كبير', language) },
+    { value: 'xl', label: t('كبير جدًا', language) }
+  ];
+  const spacingOptions: Array<{ value: ReaderPreferences['spacing']; label: string }> = [
+    { value: 'compact', label: t('مضغوط', language) },
+    { value: 'normal', label: t('عادي', language) },
+    { value: 'airy', label: t('متباعد', language) }
+  ];
+  const themeOptions: Array<{ value: 'light' | 'reading' | 'dark'; label: string; Icon: typeof Sun }> = [
+    { value: 'light', label: t('فاتح', language), Icon: Sun },
+    { value: 'reading', label: t('وضع القراءة', language), Icon: BookOpen },
+    { value: 'dark', label: t('داكن', language), Icon: Moon }
+  ];
+  const widthOptions: Array<{ value: ReaderPreferences['width']; label: string }> = [
+    { value: 'narrow', label: t('ضيق', language) },
+    { value: 'wide', label: t('واسع', language) }
+  ];
+  const readingActionLabel = user ? t('أنهِ الجزء وتابع', language) : t('سجّل الدخول للحفظ', language);
 
   return (
     <SiteLayout>
-      <main data-reading-theme={readingTheme}><Container className="max-w-4xl py-9 sm:py-14">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <Link to={`/stories/${story.slug}`} className="inline-flex items-center gap-2 text-sm font-semibold text-emerald-800"><ArrowLeft size={16} /> {story.title}</Link>
-          <button type="button" aria-pressed={readingTheme === 'dark'} aria-label={t(readingTheme === 'dark' ? 'التبديل إلى الوضع الفاتح' : 'التبديل إلى الوضع الداكن', language)} onClick={() => setReadingTheme((theme) => theme === 'dark' ? 'light' : 'dark')} className="inline-flex items-center gap-2 rounded-full border border-emerald-950/15 px-4 py-2 text-sm font-bold text-emerald-900 hover:bg-emerald-50">
-            {readingTheme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
-            {t(readingTheme === 'dark' ? 'الوضع الفاتح' : 'الوضع الداكن', language)}
-          </button>
+      <main
+        data-reading-theme={readingTheme}
+        className="reader-shell"
+        data-reader-size={preferences.size}
+        data-reader-spacing={preferences.spacing}
+        data-reader-width={preferences.width}
+      >
+        <div className="reader-scroll-progress" aria-hidden="true"><span style={{ width: `${scrollProgress}%` }} /></div>
+
+        <div className="sticky top-[var(--header-height)] z-20 border-b border-line bg-canvas/95 backdrop-blur-sm">
+          <Container className="flex min-h-14 items-center gap-2 py-1.5">
+            <Link to={`/stories/${story.slug}`} className="inline-flex min-h-11 items-center gap-1.5 pe-2 text-sm font-semibold text-ink-muted hover:text-ink">
+              <ArrowLeft size={16} aria-hidden="true" />
+              <span className="hidden max-w-48 truncate sm:inline">{story.title}</span>
+            </Link>
+            <p className="mx-auto min-w-0 truncate px-2 text-center text-xs font-semibold text-ink-faint">{partPosition}</p>
+            <button
+              type="button"
+              aria-pressed={readingTheme !== 'light'}
+              aria-label={t(readingTheme === 'light' ? 'التبديل إلى الوضع الداكن' : 'التبديل إلى الوضع الفاتح', language)}
+              onClick={() => setReadingTheme(readingTheme === 'light' ? 'dark' : 'light')}
+              className="grid h-11 w-11 place-items-center rounded-full text-ink-muted transition hover:bg-surface-soft hover:text-ink"
+            >
+              {readingTheme === 'light' ? <Moon size={17} aria-hidden="true" /> : <Sun size={17} aria-hidden="true" />}
+            </button>
+            <button
+              type="button"
+              aria-expanded={settingsOpen}
+              aria-label={t('إعدادات القراءة', language)}
+              onClick={() => setSettingsOpen((open) => !open)}
+              className={`inline-flex h-11 min-w-11 items-center justify-center gap-1 rounded-full px-2.5 text-sm font-semibold transition ${settingsOpen ? 'bg-brand-soft text-brand-ink' : 'text-ink-muted hover:bg-surface-soft hover:text-ink'}`}
+            >
+              <span aria-hidden="true" className="font-reading text-base leading-none">Aa</span>
+            </button>
+          </Container>
+
+          {settingsOpen && (
+            <Container className="border-t border-line bg-surface py-4">
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <div>
+                  <p className="text-xs font-semibold text-ink-faint">{t('حجم الخط', language)}</p>
+                  <div className="mt-2 flex flex-wrap gap-1" role="group" aria-label={t('حجم الخط', language)}>
+                    {sizeOptions.map(({ value, label }) => (
+                      <button key={value} type="button" aria-pressed={preferences.size === value} onClick={() => setPreferences((current) => ({ ...current, size: value }))} className={`min-h-9 rounded-lg px-2.5 text-xs font-semibold ${preferences.size === value ? 'bg-brand-soft text-brand-ink' : 'text-ink-muted hover:bg-surface-soft'}`}>{label}</button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-ink-faint">{t('تباعد الأسطر', language)}</p>
+                  <div className="mt-2 flex flex-wrap gap-1" role="group" aria-label={t('تباعد الأسطر', language)}>
+                    {spacingOptions.map(({ value, label }) => (
+                      <button key={value} type="button" aria-pressed={preferences.spacing === value} onClick={() => setPreferences((current) => ({ ...current, spacing: value }))} className={`min-h-9 rounded-lg px-2.5 text-xs font-semibold ${preferences.spacing === value ? 'bg-brand-soft text-brand-ink' : 'text-ink-muted hover:bg-surface-soft'}`}>{label}</button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-ink-faint">{t('عرض النص', language)}</p>
+                  <div className="mt-2 flex flex-wrap gap-1" role="group" aria-label={t('عرض النص', language)}>
+                    {widthOptions.map(({ value, label }) => (
+                      <button key={value} type="button" aria-pressed={preferences.width === value} onClick={() => setPreferences((current) => ({ ...current, width: value }))} className={`min-h-9 rounded-lg px-2.5 text-xs font-semibold ${preferences.width === value ? 'bg-brand-soft text-brand-ink' : 'text-ink-muted hover:bg-surface-soft'}`}>{label}</button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-ink-faint">{t('المظهر', language)}</p>
+                  <div className="mt-2 flex flex-wrap gap-1" role="group" aria-label={t('المظهر', language)}>
+                    {themeOptions.map(({ value, label, Icon }) => (
+                      <button key={value} type="button" aria-pressed={readingTheme === value} onClick={() => setReadingTheme(value)} className={`inline-flex min-h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold ${readingTheme === value ? 'bg-brand-soft text-brand-ink' : 'text-ink-muted hover:bg-surface-soft'}`}>
+                        <Icon size={13} aria-hidden="true" /> {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </Container>
+          )}
         </div>
-        <div className="mt-7 border-b border-emerald-950/10 pb-6">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-sm font-bold text-emerald-700">{partPosition}</p>
-            <p className="text-xs font-semibold text-slate-500">{readingPercent}% {t('من الحكاية', language)}</p>
-          </div>
-          <h1 dir="auto" className="mt-3 text-3xl font-black leading-relaxed text-emerald-950 sm:text-4xl">{part.title}</h1>
-          <p className="mt-3 flex items-center gap-2 text-sm text-slate-500"><Clock3 size={15} /> {formatReadingTime(part.estimatedReadingMinutes, language)}</p>
-          <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-emerald-950/10" role="progressbar" aria-valuemin={1} aria-valuemax={totalParts} aria-valuenow={part.partNumber} aria-label={partPosition}>
-            <div className="h-full rounded-full bg-emerald-700 transition-[width] duration-500" style={{ width: `${readingPercent}%` }} />
-          </div>
-        </div>
-        {part.illustrationImage && <figure className="mt-8 overflow-hidden rounded-3xl border border-emerald-950/10 dark:border-white/10">
-          <img src={part.illustrationImage} alt={part.illustrationAlt || ''} className="max-h-[28rem] w-full object-cover" loading="lazy" />
-        </figure>}
-        <article dir="auto" className="mt-8 whitespace-pre-line text-start text-lg leading-[2.2] text-slate-700">{part.content}</article>
-        {part.endingHook && <div dir="auto" className="mt-8 rounded-2xl border-r-4 border-amber-500 bg-amber-50 p-5 leading-8 text-amber-950">{part.endingHook}</div>}
-        <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-b border-emerald-950/10 pb-8">
-          {previous ? <Link to={`/stories/${slug}/read/${previous.partNumber}`} className="inline-flex items-center gap-2 rounded-full border border-emerald-950/15 px-4 py-2.5 text-sm font-bold text-emerald-900 hover:bg-emerald-50"><ChevronRight size={17} /> {t('الجزء السابق', language)}</Link> : <span />}
-          {next && next.accessible && <Link to={`/stories/${slug}/read/${next.partNumber}`} className="inline-flex items-center gap-2 rounded-full bg-emerald-900 px-5 py-2.5 text-sm font-bold text-white hover:bg-emerald-800">{t('الجزء التالي', language)} <ChevronLeft size={17} /></Link>}
-          {next && !next.accessible && <Link to="/membership" className="inline-flex items-center gap-2 rounded-full bg-emerald-900 px-5 py-2.5 text-sm font-bold text-white hover:bg-emerald-800"><LockKeyhole size={16} /> {t('تابع باشتراك', language)}</Link>}
-        </div>
-        {!next && (
-          <div className="mt-6 rounded-3xl border border-line bg-surface-soft p-6 sm:p-7">
-            <span className="grid h-11 w-11 place-items-center rounded-2xl bg-brand-soft text-brand-ink"><Sparkles size={20} aria-hidden="true" /></span>
-            <h2 className="mt-4 text-xl font-extrabold text-ink">{t('أكملت الحكاية', language)}</h2>
-            <p className="mt-2 max-w-2xl leading-8 text-ink-muted">{t('وصلت إلى نهاية هذه الحكاية. يمكنك حفظ تقدّمك، أو اختيار حكاية جديدة تبدأ بها.', language)}</p>
-            <div className="mt-5 grid gap-2 sm:grid-cols-3">
-              {quiz ? <a href="#quiz" className="flex items-center justify-center gap-2 rounded-xl border border-line bg-surface px-3 py-2.5 text-sm font-bold text-brand-ink hover:bg-brand-soft dark:border-white/15 dark:text-emerald-50 dark:hover:bg-white/10"><CircleHelp size={15} /> {t('اختبر فهمك', language)}</a> : <button type="button" onClick={() => { void navigator.clipboard?.writeText(window.location.href); }} className="flex items-center justify-center gap-2 rounded-xl border border-line bg-surface px-3 py-2.5 text-sm font-bold text-brand-ink hover:bg-brand-soft dark:border-white/15 dark:text-emerald-50 dark:hover:bg-white/10"><Share2 size={15} /> {t('شارك هذا الجزء', language)}</button>}
-              <Link to="/stories" className="flex items-center justify-center gap-2 rounded-xl border border-line bg-surface px-3 py-2.5 text-sm font-bold text-brand-ink hover:bg-brand-soft dark:border-white/15 dark:text-emerald-50 dark:hover:bg-white/10"><BookOpen size={15} /> {t('اختر حكاية أخرى', language)}</Link>
-              <Link to={`/stories/${slug}`} className="flex items-center justify-center gap-2 rounded-xl border border-line bg-surface px-3 py-2.5 text-sm font-bold text-brand-ink hover:bg-brand-soft dark:border-white/15 dark:text-emerald-50 dark:hover:bg-white/10"><ArrowLeft size={15} /> {t('العودة إلى الحكاية', language)}</Link>
-            </div>
-          </div>
-        )}
-        <div className="mt-8 flex flex-wrap items-center justify-between gap-4 rounded-2xl bg-emerald-50 p-5">
-          <div><p className="font-bold text-emerald-950">{t('أنهيت هذا الجزء؟', language)}</p><p className="mt-1 text-sm text-slate-600">{t('احفظ تقدّمك وتابع القراءة من حيث توقفت.', language)}</p></div>
-          {user ? <button onClick={markAsRead} disabled={busy} className={buttonClasses({ size: 'sm' })}>{busy ? t('جارٍ الحفظ…', language) : t('حفظ تقدّمي', language)}</button> : <Link to="/login" className={buttonClasses({ variant: 'secondary', size: 'sm' })}>{t('سجّل الدخول للحفظ', language)}</Link>}
-        </div>
-        <div className="mt-4 grid gap-2 sm:grid-cols-3">
-          {quiz && <a href="#quiz" className="rounded-xl border border-line bg-surface px-4 py-3 text-center text-sm font-bold text-brand-ink hover:bg-brand-soft">{t('اختبر فهمك', language)}</a>}
-          {next && next.accessible && <Link to={`/stories/${slug}/read/${next.partNumber}`} className="rounded-xl border border-line bg-surface px-4 py-3 text-center text-sm font-bold text-brand-ink hover:bg-brand-soft">{t('الجزء التالي', language)}</Link>}
-          <button type="button" onClick={() => { void navigator.clipboard?.writeText(window.location.href); }} className="rounded-xl border border-line bg-surface px-4 py-3 text-sm font-bold text-brand-ink hover:bg-brand-soft">{t('شارك هذا الجزء', language)}</button>
-        </div>
-        {notice && <p className="mt-4 flex items-center gap-2 text-sm font-semibold text-emerald-800" role="status"><Sparkles size={16} className="text-amber-600" aria-hidden="true" /> {notice}</p>}
-        {completion && <div className="mt-4 rounded-2xl border border-brand/25 bg-brand-soft/50 p-4 dark:border-emerald-400/20 dark:bg-emerald-500/10">
-          <p className="flex items-center gap-2 font-bold text-brand-ink dark:text-emerald-100"><Award size={17} /> {retentionText(language).reward}</p>
-          <p className="mt-1 text-sm text-ink-muted dark:text-emerald-100/80">{retentionText(language).proof(completion.completedParts, completion.totalParts)}</p>
-          <div className="mt-3 flex flex-wrap gap-2 text-xs font-bold">
-            <span className="rounded-full bg-surface px-3 py-1.5 dark:bg-white/10">{completion.pointsGained > 0 ? `+${completion.pointsGained}` : '0'} {retentionText(language).points}</span>
-            <span className="rounded-full bg-surface px-3 py-1.5 dark:bg-white/10"><Flame size={13} className="inline" /> {retentionText(language).days(completion.streak.current)}</span>
-            <span className="rounded-full bg-surface px-3 py-1.5 dark:bg-white/10">{completion.level.name || completion.level.level}</span>
-          </div>
-          {completion.nextBadges[0] && <div className="mt-3">
-            <div className="flex justify-between gap-2 text-xs font-semibold text-ink-muted dark:text-emerald-100/70"><span>{completion.nextBadges[0].name}</span><span>{retentionText(language).badgeProgress(completion.nextBadges[0].currentValue || 0, completion.nextBadges[0].targetValue || 0)}</span></div>
-            <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-surface-sunken dark:bg-white/10"><div className="h-full rounded-full bg-brand" style={{ width: `${Math.min(100, Math.round((completion.nextBadges[0].ratio || 0) * 100))}%` }} /></div>
-          </div>}
-        </div>}
-        {user && completedPartsCount > 0 && notificationPromptVisible && <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950">
-          <p className="font-bold">{t('هل نرسل لك تذكيرًا لطيفًا بالحكاية القادمة؟', language)}</p>
-          <p className="mt-1 text-emerald-900/80">{t('يمكنك تفعيل التذكيرات أو إيقافها في أي وقت من إعدادات حسابك.', language)}</p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <Link to="/account" className={buttonClasses({ size: 'sm' })}>{t('إدارة التذكيرات', language)}</Link>
-            <button type="button" onClick={() => setNotificationPromptVisible(false)} className="rounded-full border border-emerald-900/20 px-4 py-2 text-sm font-bold">{t('ليس الآن', language)}</button>
-          </div>
-        </div>}
-        {quiz && <section id="quiz" className="mt-12 scroll-mt-24 rounded-3xl border border-emerald-950/10 bg-white p-6 sm:p-8" dir={language === 'ar' ? 'rtl' : 'ltr'}>
-          <div className="flex items-start gap-4">
-            <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-amber-100 text-amber-800"><CircleHelp size={23} /></span>
-            <div><h2 className="text-xl font-extrabold text-emerald-950">اختبر فهمك</h2><p className="mt-2 leading-7 text-slate-600">أجب عن أسئلة قصيرة مستندة إلى مصادر القصة.</p></div>
-          </div>
-          {!user && <div className="mt-6 rounded-xl bg-amber-50 p-4 text-sm leading-7 text-amber-900">{t('الاختبار متاح للأعضاء المسجلين.', language)} <Link className="font-bold underline" to="/login">{t('سجّل الدخول', language)}</Link></div>}
-          {user && !attempt && !result && <button onClick={startQuiz} disabled={busy} className="mt-6 rounded-full bg-emerald-900 px-5 py-3 text-sm font-bold text-white disabled:opacity-60">{busy ? t('جارٍ التحضير…', language) : t('ابدأ الاختبار', language)}</button>}
-          {attempt && quiz && <form onSubmit={submitQuiz} className="mt-7 space-y-7">
-            <h3 className="font-bold text-emerald-900">{quiz.title}</h3>
-            {attempt.timeLimitSeconds && <p className={`text-sm ${remainingSeconds === 0 ? 'font-bold text-red-700' : 'text-amber-800'}`}>{t('الوقت المتبقي', language)}: {remainingSeconds == null ? '--:--' : `${Math.floor(remainingSeconds / 60).toString().padStart(2, '0')}:${(remainingSeconds % 60).toString().padStart(2, '0')}`}{remainingSeconds === 0 && ` — ${t('انتهى الوقت', language)}`}</p>}
-            {attempt.questions.map((question, index) => <fieldset key={question.id} className="space-y-3"><legend className="font-bold leading-7 text-emerald-950">{index + 1}. {question.text}</legend>{question.options.map((option) => {
-              const multiple = question.type === 'multiple_choice';
-              const current = answers[question.id];
-              const checked = multiple ? Array.isArray(current) && current.includes(String(option.id)) : current === String(option.id);
-              return <label key={option.id} className="flex cursor-pointer items-center gap-3 rounded-xl border border-emerald-950/10 p-3 text-sm hover:bg-emerald-50"><input type={multiple ? 'checkbox' : 'radio'} name={`question-${question.id}`} checked={checked} onChange={() => setAnswers((currentAnswers) => {
-                if (!multiple) return { ...currentAnswers, [question.id]: String(option.id) };
-                const selected = Array.isArray(currentAnswers[question.id]) ? currentAnswers[question.id] as string[] : [];
-                return { ...currentAnswers, [question.id]: selected.includes(String(option.id)) ? selected.filter((id) => id !== String(option.id)) : [...selected, String(option.id)] };
-              })} />{option.text}</label>;
-            })}</fieldset>)}
-            <button type="submit" disabled={busy || remainingSeconds === 0 || attempt.questions.some((question) => !answers[question.id] || Array.isArray(answers[question.id]) && !(answers[question.id] as string[]).length)} className="rounded-full bg-emerald-900 px-6 py-3 text-sm font-bold text-white disabled:opacity-50">{busy ? t('جارٍ الإرسال…', language) : t('إرسال الإجابات', language)}</button>
-          </form>}
-          {result && <div className="mt-7">
-            <p className={`text-xl font-extrabold ${result.passed ? 'text-emerald-800' : 'text-amber-800'}`}>
-              {t('نتيجتك', language)}: {result.score}% {result.passed ? `— ${t('أحسنت!', language)}` : `— ${t('واصل التعلّم', language)}`}
+
+        <Container className="max-w-5xl pb-24 pt-8 sm:pt-12">
+          <header className="mx-auto max-w-[46rem] text-center">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-ink-faint">{partPosition}</p>
+            <h1 dir="auto" className="ds-title mt-2 text-2xl leading-relaxed text-ink sm:text-3xl">{part.title}</h1>
+            <p className="mt-2 inline-flex items-center gap-2 text-xs text-ink-muted">
+              <Clock3 size={13} aria-hidden="true" /> {formatReadingTime(part.estimatedReadingMinutes, language)}
             </p>
-            <div className="mt-5 space-y-4">
-              {result.feedback.map((item, index) => <div key={item.questionId} className="rounded-xl bg-[#f8f7f2] p-4 text-sm leading-7">
-                <p className="font-bold">{index + 1}. {item.correct ? t('إجابة صحيحة', language) : item.correctAnswer ? `${t('الإجابة الصحيحة', language)}: ${item.correctAnswer.join('، ')}` : t('إجابة غير صحيحة', language)}</p>
-                {item.explanation && <p className="mt-1 text-slate-600">{item.explanation}</p>}
-                {item.source && <p className="mt-1 text-xs text-emerald-800">{t('المصدر', language)}: {item.source}</p>}
-              </div>)}
+          </header>
+
+          <div className="star-divider my-7" aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+              <path d="M12 2.6 14.6 7.4 20 8.2 16.1 12 17 17.4 12 14.8 7 17.4 7.9 12 4 8.2 9.4 7.4Z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" />
+            </svg>
+          </div>
+
+          {part.illustrationImage && (
+            <figure className="mx-auto mb-8 max-w-[46rem] overflow-hidden rounded-2xl border border-line">
+              <img src={part.illustrationImage} alt={part.illustrationAlt || ''} className="max-h-[26rem] w-full object-cover" loading="lazy" />
+            </figure>
+          )}
+
+          <article dir="auto" className="reader-body">
+            {part.content}
+          </article>
+
+          {part.endingHook && (
+            <p dir="auto" className="mx-auto mt-9 max-w-[38rem] border-s-2 border-gold ps-4 text-base italic leading-8 text-ink-muted">
+              {part.endingHook}
+            </p>
+          )}
+
+          <div className="mx-auto mt-10 flex max-w-[46rem] flex-wrap items-center justify-between gap-3 border-t border-line pt-6">
+            {previous ? (
+              <Link to={`/stories/${slug}/read/${previous.partNumber}`} className="inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-ink-muted hover:text-ink">
+                <ChevronRight size={17} aria-hidden="true" /> {t('الجزء السابق', language)}
+              </Link>
+            ) : <span />}
+            {user ? (
+              <button type="button" onClick={() => void markAsRead()} disabled={busy} className={buttonClasses({ size: 'md' })}>
+                {busy ? t('جارٍ الحفظ…', language) : isLastPart ? t('أنهِ الحكاية', language) : readingActionLabel}
+                {!isLastPart && <ChevronLeft size={17} className="ltr:rotate-180" aria-hidden="true" />}
+              </button>
+            ) : (
+              <Link to="/login" className={buttonClasses({ size: 'md' })}>{t('سجّل الدخول للحفظ', language)}</Link>
+            )}
+          </div>
+
+          {notice && <p role="status" className="calm-toast mx-auto mt-4 flex max-w-[46rem] items-center gap-2 text-sm font-semibold text-success"><Check size={16} aria-hidden="true" /> {notice}</p>}
+          {error && <div className="mx-auto mt-4 max-w-[46rem]"><ErrorState message={error} /></div>}
+
+          {isLastPart && (
+            <section className="mx-auto mt-10 max-w-[46rem] rounded-2xl border border-line bg-surface p-6">
+              <p className="ds-eyebrow">{t('نهاية الحكاية', language)}</p>
+              <h2 className="ds-title mt-2 text-2xl text-ink">{retention.finished}</h2>
+              <p className="mt-2 text-sm leading-7 text-ink-muted">{retention.proof(completedPartsCount, totalParts)}</p>
+              <div className="mt-5 flex flex-wrap gap-2">
+                {quiz && <a href="#quiz" className={buttonClasses({ size: 'sm' })}><CircleHelp size={15} aria-hidden="true" /> {t('اختبر فهمك', language)}</a>}
+                <Link to={`/stories/${story.slug}`} className={buttonClasses({ variant: 'secondary', size: 'sm' })}>{retention.back}</Link>
+                <Link to="/stories" className={buttonClasses({ variant: 'quiet', size: 'sm' })}>{t('اختر حكاية', language)}</Link>
+              </div>
+              {completion && (
+                <div className="mt-5 border-t border-line pt-4">
+                  <p className="flex items-center gap-2 text-sm font-semibold text-brand-ink"><Award size={16} aria-hidden="true" /> {completion.pointsGained > 0 ? `+${completion.pointsGained}` : '0'} {retention.points}</p>
+                  <p className="mt-1 text-xs text-ink-muted"><Flame size={12} className="inline" aria-hidden="true" /> {retention.days(completion.streak.current)} · {completion.level.name || completion.level.level}</p>
+                </div>
+              )}
+            </section>
+          )}
+
+          {user && completedPartsCount > 0 && notificationPromptVisible && (
+            <div className="mx-auto mt-6 max-w-[46rem] rounded-2xl border border-line p-4 text-sm text-ink">
+              <p className="font-semibold">{t('هل نرسل لك تذكيرًا لطيفًا بالحكاية القادمة؟', language)}</p>
+              <p className="mt-1 text-ink-muted">{t('يمكنك تفعيل التذكيرات أو إيقافها في أي وقت من إعدادات حسابك.', language)}</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Link to="/account" className={buttonClasses({ size: 'sm' })}>{t('إدارة التذكيرات', language)}</Link>
+                <button type="button" onClick={() => setNotificationPromptVisible(false)} className="min-h-9 rounded-full border border-line px-4 text-sm font-semibold text-ink-muted hover:text-ink">{t('ليس الآن', language)}</button>
+              </div>
             </div>
-            {result.canRetry && <button onClick={() => { setResult(null); setAttempt(null); void startQuiz(); }} disabled={busy} className="mt-5 rounded-full border border-emerald-900 px-5 py-2.5 font-bold text-emerald-900 disabled:opacity-50">{t('إعادة المحاولة', language)}</button>}
-          </div>}
-          {error && <div className="mt-5"><ErrorState message={error} /></div>}
-        </section>}
-        {quizLocked && <div className="mt-12 rounded-2xl bg-amber-50 p-5 text-amber-900">{t('هذا الاختبار متاح للمشتركين.', language)} <Link to="/membership" className="font-bold underline">{t('عرض الاشتراكات', language)}</Link></div>}
-      </Container></main>
+          )}
+
+          {quiz && isLastPart && (
+            <section id="quiz" className="mx-auto mt-12 max-w-[46rem] scroll-mt-24 rounded-2xl border border-line bg-surface p-6 sm:p-8">
+              <h2 className="text-xl font-semibold text-ink">{t('اختبر فهمك', language)}</h2>
+              <p className="mt-1 text-sm leading-7 text-ink-muted">{t('أجب عن أسئلة قصيرة مستندة إلى مصادر القصة.', language)}</p>
+              {!user && <div className="mt-5 rounded-xl bg-surface-soft p-4 text-sm leading-7 text-ink-muted">{t('الاختبار متاح للأعضاء المسجلين.', language)} <Link className="font-semibold underline" to="/login">{t('سجّل الدخول', language)}</Link></div>}
+              {user && !attempt && !result && <button onClick={startQuiz} disabled={busy} className={buttonClasses({ size: 'sm', className: 'mt-5' })}>{busy ? t('جارٍ التحضير…', language) : t('ابدأ الاختبار', language)}</button>}
+              {attempt && quiz && <form onSubmit={submitQuiz} className="mt-6 space-y-7">
+                <h3 className="font-semibold text-ink">{quiz.title}</h3>
+                {attempt.timeLimitSeconds && <p className={`text-sm ${remainingSeconds === 0 ? 'font-semibold text-danger' : 'text-gold-ink'}`}>{t('الوقت المتبقي', language)}: {remainingSeconds == null ? '--:--' : `${Math.floor(remainingSeconds / 60).toString().padStart(2, '0')}:${(remainingSeconds % 60).toString().padStart(2, '0')}`}{remainingSeconds === 0 && ` — ${t('انتهى الوقت', language)}`}</p>}
+                {attempt.questions.map((question, index) => <fieldset key={question.id} className="space-y-3"><legend className="font-semibold leading-7 text-ink">{index + 1}. {question.text}</legend>{question.options.map((option) => {
+                  const multiple = question.type === 'multiple_choice';
+                  const current = answers[question.id];
+                  const checked = multiple ? Array.isArray(current) && current.includes(String(option.id)) : current === String(option.id);
+                  return <label key={option.id} className="flex cursor-pointer items-center gap-3 rounded-xl border border-line p-3 text-sm hover:bg-surface-soft"><input type={multiple ? 'checkbox' : 'radio'} name={`question-${question.id}`} checked={checked} onChange={() => setAnswers((currentAnswers) => {
+                    if (!multiple) return { ...currentAnswers, [question.id]: String(option.id) };
+                    const selected = Array.isArray(currentAnswers[question.id]) ? currentAnswers[question.id] as string[] : [];
+                    return { ...currentAnswers, [question.id]: selected.includes(String(option.id)) ? selected.filter((id) => id !== String(option.id)) : [...selected, String(option.id)] };
+                  })} />{option.text}</label>;
+                })}</fieldset>)}
+                <button type="submit" disabled={busy || remainingSeconds === 0 || attempt.questions.some((question) => !answers[question.id] || Array.isArray(answers[question.id]) && !(answers[question.id] as string[]).length)} className={buttonClasses({ size: 'sm' })}>{busy ? t('جارٍ الإرسال…', language) : t('إرسال الإجابات', language)}</button>
+              </form>}
+              {result && <div className="mt-6">
+                <p className={`text-lg font-semibold ${result.passed ? 'text-success' : 'text-gold-ink'}`}>
+                  {t('نتيجتك', language)}: {result.score}% {result.passed ? `— ${t('أحسنت!', language)}` : `— ${t('واصل التعلّم', language)}`}
+                </p>
+                <div className="mt-4 space-y-3">
+                  {result.feedback.map((item, index) => <div key={item.questionId} className="rounded-xl bg-surface-soft p-4 text-sm leading-7">
+                    <p className="font-semibold text-ink">{index + 1}. {item.correct ? t('إجابة صحيحة', language) : item.correctAnswer ? `${t('الإجابة الصحيحة', language)}: ${item.correctAnswer.join('، ')}` : t('إجابة غير صحيحة', language)}</p>
+                    {item.explanation && <p className="mt-1 text-ink-muted">{item.explanation}</p>}
+                    {item.source && <p className="mt-1 text-xs text-brand-ink">{t('المصدر', language)}: {item.source}</p>}
+                  </div>)}
+                </div>
+                {result.canRetry && <button onClick={() => { setResult(null); setAttempt(null); void startQuiz(); }} disabled={busy} className={buttonClasses({ variant: 'secondary', size: 'sm', className: 'mt-4' })}>{t('إعادة المحاولة', language)}</button>}
+              </div>}
+            </section>
+          )}
+
+          {quizLocked && <div className="mx-auto mt-8 max-w-[46rem] rounded-2xl bg-surface-soft p-5 text-sm text-ink-muted">{t('هذا الاختبار متاح للمشتركين.', language)} <Link to="/membership" className="font-semibold text-brand-ink underline">{t('عرض الاشتراكات', language)}</Link></div>}
+        </Container>
+
+        {/* Sticky actions on small screens. */}
+        <div className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-canvas/95 px-4 py-2 backdrop-blur-sm sm:hidden">
+          <div className="flex items-center gap-2">
+            {previous && <Link to={`/stories/${slug}/read/${previous.partNumber}`} className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-line text-ink-muted" aria-label={t('الجزء السابق', language)}><ChevronRight size={18} aria-hidden="true" /></Link>}
+            {user ? (
+              <button type="button" onClick={() => void markAsRead()} disabled={busy} className={buttonClasses({ size: 'md', block: true })}>
+                {busy ? t('جارٍ الحفظ…', language) : isLastPart ? t('أنهِ الحكاية', language) : readingActionLabel}
+              </button>
+            ) : (
+              <Link to="/login" className={buttonClasses({ size: 'md', block: true })}>{t('سجّل الدخول للحفظ', language)}</Link>
+            )}
+          </div>
+        </div>
+      </main>
     </SiteLayout>
   );
 }
-
 export function BooksPage() {
   const { data: books, loading, error } = useRemote<BookSummary[]>('/books?limit=100');
   return (
@@ -1912,14 +2001,6 @@ type DonationCampaignSummary = {
   goalAmount: number | string;
   raisedAmount: number | string;
   currency: string;
-  campaignType?: 'amount_goal' | 'items_goal' | 'both';
-  targetUnits?: number | null;
-  sponsoredUnits?: number;
-  unitName?: string;
-  coverImage?: string | null;
-  canDonate?: boolean;
-  amountPercent?: number;
-  unitsPercent?: number;
   startsAt?: string | null;
   endsAt?: string | null;
 };
@@ -1933,29 +2014,6 @@ export function DonationsPage() {
   const [recurring, setRecurring] = useState<Record<number, boolean>>({});
   const [busyId, setBusyId] = useState<number | null>(null);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
-  const [platformAmount, setPlatformAmount] = useState('10');
-  const [platformRecurring, setPlatformRecurring] = useState(false);
-  const [platformAnonymous, setPlatformAnonymous] = useState(false);
-  const [platformBusy, setPlatformBusy] = useState(false);
-
-  async function supportPlatform(event: FormEvent) {
-    event.preventDefault();
-    if (!user || user.role !== 'READER') { navigate('/login'); return; }
-    setPlatformBusy(true);
-    setCheckoutError(null);
-    try {
-      const response = await api.post<{ checkoutUrl: string }>('/donations/checkout', {
-        amount: Number(platformAmount),
-        language,
-        recurring: platformRecurring,
-        isAnonymous: platformAnonymous
-      });
-      window.location.assign(response.checkoutUrl);
-    } catch (caught) {
-      setCheckoutError(caught instanceof Error ? caught.message : 'تعذر بدء التبرع.');
-      setPlatformBusy(false);
-    }
-  }
 
   async function donate(campaign: DonationCampaignSummary) {
     if (!user || user.role !== 'READER') {
@@ -1986,11 +2044,6 @@ export function DonationsPage() {
     <p className="text-sm font-bold tracking-widest text-emerald-700">{t('مساهمة مجتمعية', language)}</p>
     <h1 className="mt-3 text-3xl font-black text-emerald-950 sm:text-4xl">{t('دعم نشر الحكايات الموثوقة', language)}</h1>
     <p className="mt-3 max-w-2xl leading-8 text-slate-600">{t('ساهم في تطوير محتوى موثوق وآمن للعائلة. تتم معالجة التبرعات عبر Stripe.', language)}</p>
-    <form onSubmit={supportPlatform} className="mt-7 grid gap-3 rounded-3xl border border-emerald-950/10 bg-emerald-50/60 p-5 sm:grid-cols-[1fr_1fr_auto]">
-      <label className="text-sm font-semibold text-emerald-950">دعم المنصة مباشرة (EUR)<input type="number" min="1" step="0.01" value={platformAmount} onChange={(event) => setPlatformAmount(event.target.value)} className="mt-1 w-full rounded-xl border border-emerald-950/15 bg-white px-3 py-2.5" /></label>
-      <div className="flex flex-col justify-center gap-2 text-sm text-emerald-950"><label className="flex items-center gap-2"><input type="checkbox" checked={platformRecurring} onChange={(event) => setPlatformRecurring(event.target.checked)} />دعم شهري متكرر</label><label className="flex items-center gap-2"><input type="checkbox" checked={platformAnonymous} onChange={(event) => setPlatformAnonymous(event.target.checked)} />إخفاء اسمي</label></div>
-      <button disabled={platformBusy} className="self-end rounded-full bg-emerald-900 px-6 py-3 font-bold text-white disabled:opacity-50">{platformBusy ? 'جارٍ التحويل…' : 'ادعم المنصة'}</button>
-    </form>
     {checkoutError && <div className="mt-5"><ErrorState message={checkoutError} /></div>}
     {error && <div className="mt-5"><ErrorState message={error} /></div>}
     {loading && <LoadingState />}
@@ -1998,138 +2051,19 @@ export function DonationsPage() {
     <div className="mt-8 grid gap-5 md:grid-cols-2">{campaigns?.map((campaign) => {
       const goal = Number(campaign.goalAmount);
       const raised = Number(campaign.raisedAmount);
-      return <article key={campaign.id} className="overflow-hidden rounded-3xl border border-emerald-950/10 bg-white">
-        {campaign.coverImage && <img src={campaign.coverImage} alt="" className="h-44 w-full object-cover" />}
-        <div className="p-6">
-        <h2 className="text-xl font-extrabold text-emerald-950"><Link to={`/donation-campaigns/${campaign.slug}`} className="hover:underline">{campaign.title}</Link></h2>
+      return <article key={campaign.id} className="rounded-3xl border border-emerald-950/10 bg-white p-6">
+        <h2 className="text-xl font-extrabold text-emerald-950">{campaign.title}</h2>
         <p className="mt-3 leading-7 text-slate-600">{campaign.description}</p>
         <p className="mt-5 text-sm font-bold text-emerald-900">{formatPrice(raised, campaign.currency, language)} / {formatPrice(goal, campaign.currency, language)}</p>
         <progress value={Math.min(raised, goal)} max={goal} aria-label={t('تقدم الحملة', language)} className="mt-2 w-full" />
-        {campaign.targetUnits ? <p className="mt-2 text-sm font-semibold text-emerald-800">{campaign.sponsoredUnits || 0} / {campaign.targetUnits} {campaign.unitName || 'كتاب'}</p> : null}
         <div className="mt-5 flex gap-3">
-          <label className="min-w-0 flex-1 text-sm font-semibold">{t('مبلغ التبرع', language)}<input type="number" min="1" step="0.01" value={amounts[campaign.id] || '5'} onChange={(event) => setAmounts((current) => ({ ...current, [campaign.id]: event.target.value }))} dir="ltr" className="mt-1 w-full rounded-xl border border-emerald-950/15 px-3 py-2.5 text-left" /></label>
+          <label className="min-w-0 flex-1 text-sm font-semibold">{t('مبلغ التبرع', language)}<input type="number" min="0.5" step="0.01" value={amounts[campaign.id] || '5'} onChange={(event) => setAmounts((current) => ({ ...current, [campaign.id]: event.target.value }))} dir="ltr" className="mt-1 w-full rounded-xl border border-emerald-950/15 px-3 py-2.5 text-left" /></label>
           <button onClick={() => void donate(campaign)} disabled={busyId === campaign.id} className="self-end rounded-full bg-emerald-900 px-5 py-3 font-bold text-white disabled:opacity-50">{busyId === campaign.id ? t('جارٍ التحويل…', language) : t('تبرع الآن', language)}</button>
         </div>
         <label className="mt-4 flex items-center gap-2 text-sm font-semibold text-slate-700"><input type="checkbox" checked={Boolean(recurring[campaign.id])} onChange={(event) => setRecurring((current) => ({ ...current, [campaign.id]: event.target.checked }))} />{t('اجعل التبرع شهريًا متكررًا', language)}</label>
-        <Link to={`/donation-campaigns/${campaign.slug}`} className="mt-4 inline-block text-sm font-bold text-emerald-800 underline">تفاصيل الحملة ومواقع التوزيع</Link>
-        </div>
       </article>;
     })}</div>
   </Container></main></SiteLayout>;
-}
-
-type DonationCampaignDetail = DonationCampaignSummary & {
-  summary?: string;
-  bannerImage?: string | null;
-  costPerUnit?: number | string | null;
-  extraCosts?: number | string | null;
-  totalCost?: number | string | null;
-  donorCount?: number;
-  allowRecurring?: boolean;
-  allowAnonymous?: boolean;
-  allowCustomAmount?: boolean;
-  minAmount?: number | string;
-  maxAmount?: number | string | null;
-  linked?: { story?: { slug: string; title: string } | null; book?: { slug: string; title: string } | null; collection?: { slug: string; title: string } | null };
-  tiers?: Array<{ id: number; amount: number | string; units: number | null; label: string }>;
-  items?: Array<{ id: number; label: string; quantityTarget: number; unitCost: number | string; quantitySponsored: number; quantityDistributed: number; book?: { slug: string; title: string } | null }>;
-  places?: Array<{ id: number; name: string; type: string; city?: string | null; country?: string | null; plannedQuantity: number; status: string; distributionDate?: string | null; notes?: string | null; reportText?: string | null }>;
-  updates?: Array<{ id: number; title: string; body: string; publishedAt: string }>;
-  supporters?: Array<{ name: string; units: number; date: string }>;
-};
-
-export function DonationCampaignPage() {
-  const { slug = '' } = useParams();
-  const language = useSiteLanguage();
-  const navigate = useLocalizedNavigate();
-  const { user } = useStoryAuth();
-  const { data: campaign, loading, error } = useRemote<DonationCampaignDetail>(`/donation-campaigns/${encodeURIComponent(slug)}`);
-  const [tierId, setTierId] = useState<number | null>(null);
-  const [amount, setAmount] = useState('5');
-  const [recurring, setRecurring] = useState(false);
-  const [anonymous, setAnonymous] = useState(false);
-  const [message, setMessage] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [checkoutError, setCheckoutError] = useState<string | null>(null);
-
-  async function donate(event: FormEvent) {
-    event.preventDefault();
-    if (!campaign) return;
-    if (!user || user.role !== 'READER') { navigate('/login'); return; }
-    setBusy(true);
-    setCheckoutError(null);
-    try {
-      const response = await api.post<{ checkoutUrl: string }>(`/donation-campaigns/${campaign.id}/checkout`, {
-        ...(tierId ? { tierId } : { amount: Number(amount) }),
-        language,
-        recurring,
-        isAnonymous: anonymous,
-        ...(message.trim() ? { message: message.trim() } : {})
-      });
-      window.location.assign(response.checkoutUrl);
-    } catch (caught) {
-      setCheckoutError(caught instanceof Error ? caught.message : 'تعذر بدء التبرع.');
-      setBusy(false);
-    }
-  }
-
-  if (loading) return <SiteLayout><Container className="py-16"><LoadingState /></Container></SiteLayout>;
-  if (error || !campaign) return <SiteLayout><Container className="py-16"><ErrorState message={error || 'الحملة غير موجودة.'} /></Container></SiteLayout>;
-  const raised = Number(campaign.raisedAmount);
-  const goal = Number(campaign.goalAmount);
-  const percent = campaign.amountPercent ?? (goal > 0 ? Math.min(100, Math.round((raised / goal) * 1000) / 10) : 0);
-
-  return <SiteLayout><main>
-    <div className="relative min-h-[22rem] overflow-hidden bg-emerald-950">
-      {campaign.bannerImage || campaign.coverImage ? <img src={campaign.bannerImage || campaign.coverImage || ''} alt="" className="absolute inset-0 h-full w-full object-cover opacity-55" /> : null}
-      <div className="absolute inset-0 bg-gradient-to-t from-emerald-950 via-emerald-950/40 to-transparent" />
-      <Container className="relative flex min-h-[22rem] flex-col justify-end py-10 text-white">
-        <p className="text-sm font-bold tracking-widest text-amber-200">حملة تبرع</p>
-        <h1 className="mt-3 max-w-4xl text-3xl font-black leading-tight sm:text-5xl">{campaign.title}</h1>
-        <p className="mt-3 max-w-3xl text-sm leading-8 text-white/80 sm:text-base">{campaign.summary || campaign.description}</p>
-      </Container>
-    </div>
-    <Container className="grid gap-8 py-10 lg:grid-cols-[1.35fr_0.8fr]">
-      <div className="space-y-8">
-        <section className="rounded-3xl border border-emerald-950/10 bg-white p-6 sm:p-8">
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <div><p className="text-3xl font-black text-emerald-950">{formatPrice(raised, campaign.currency, language)}</p><p className="mt-1 text-sm text-slate-500">من هدف {formatPrice(goal, campaign.currency, language)} · {percent}%</p></div>
-            {campaign.targetUnits ? <p className="text-lg font-extrabold text-emerald-800">{campaign.sponsoredUnits || 0} / {campaign.targetUnits} {campaign.unitName || 'كتاب'}</p> : null}
-          </div>
-          <progress value={Math.min(raised, goal)} max={goal} aria-label="تقدم الحملة" className="mt-4 h-3 w-full overflow-hidden rounded-full" />
-          {campaign.targetUnits ? <progress value={Math.min(campaign.sponsoredUnits || 0, campaign.targetUnits)} max={campaign.targetUnits} aria-label="الوحدات الممولة" className="mt-2 h-2 w-full" /> : null}
-          <div className="mt-5 grid gap-3 sm:grid-cols-3">
-            <div className="rounded-2xl bg-emerald-50 p-4"><p className="text-xs font-bold text-emerald-700">متبرعون</p><p className="mt-1 text-xl font-black text-emerald-950">{campaign.donorCount || 0}</p></div>
-            <div className="rounded-2xl bg-amber-50 p-4"><p className="text-xs font-bold text-amber-800">تكلفة الوحدة</p><p className="mt-1 text-xl font-black text-amber-950">{campaign.costPerUnit ? formatPrice(campaign.costPerUnit, campaign.currency, language) : '—'}</p></div>
-            <div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-bold text-slate-600">التكلفة الإجمالية</p><p className="mt-1 text-xl font-black text-slate-900">{campaign.totalCost ? formatPrice(campaign.totalCost, campaign.currency, language) : '—'}</p></div>
-          </div>
-          <p className="mt-5 whitespace-pre-wrap leading-8 text-slate-600">{campaign.description}</p>
-          <div className="mt-5 flex flex-wrap gap-3 text-sm">{campaign.linked?.story && <Link to={`/stories/${campaign.linked.story.slug}`} className="rounded-full bg-emerald-50 px-4 py-2 font-bold text-emerald-900">القصة: {campaign.linked.story.title}</Link>}{campaign.linked?.book && <Link to={`/books/${campaign.linked.book.slug}`} className="rounded-full bg-amber-50 px-4 py-2 font-bold text-amber-900">الكتاب: {campaign.linked.book.title}</Link>}</div>
-        </section>
-
-        {!!campaign.items?.length && <section className="rounded-3xl border border-emerald-950/10 bg-white p-6 sm:p-8"><h2 className="text-2xl font-black text-emerald-950">الموارد التي نوزعها</h2><div className="mt-4 space-y-3">{campaign.items.map((item) => <div key={item.id} className="flex flex-wrap justify-between gap-2 rounded-2xl bg-slate-50 p-4 text-sm"><span className="font-bold">{item.label}</span><span>{item.quantitySponsored} / {item.quantityTarget} · وُزّع {item.quantityDistributed}</span></div>)}</div></section>}
-
-        {!!campaign.places?.length && <section className="rounded-3xl border border-emerald-950/10 bg-white p-6 sm:p-8"><h2 className="text-2xl font-black text-emerald-950">مواقع التوزيع</h2><div className="mt-4 space-y-3">{campaign.places.map((place) => <article key={place.id} className="rounded-2xl border border-slate-100 p-4"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-bold text-emerald-950">{place.name}</h3><span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-800">{place.status === 'distributed' ? 'وُزّع' : place.status === 'shipped' ? 'شُحن' : 'مخطط'}</span></div><p className="mt-1 text-sm text-slate-500">{[place.city, place.country].filter(Boolean).join('، ')} · {place.plannedQuantity} نسخة</p>{place.reportText && <p className="mt-2 text-sm leading-7 text-slate-600">{place.reportText}</p>}</article>)}</div></section>}
-
-        {!!campaign.updates?.length && <section className="rounded-3xl border border-emerald-950/10 bg-white p-6 sm:p-8"><h2 className="text-2xl font-black text-emerald-950">مستجدات الحملة</h2><div className="mt-4 space-y-5">{campaign.updates.map((update) => <article key={update.id} className="border-s-2 border-emerald-200 ps-4"><p className="text-xs text-slate-500">{new Date(update.publishedAt).toLocaleDateString(language)}</p><h3 className="mt-1 font-bold text-emerald-950">{update.title}</h3><p className="mt-1 whitespace-pre-wrap text-sm leading-7 text-slate-600">{update.body}</p></article>)}</div></section>}
-
-        {!!campaign.supporters?.length && <section className="rounded-3xl border border-emerald-950/10 bg-white p-6 sm:p-8"><h2 className="text-2xl font-black text-emerald-950">شكرًا لداعمينا</h2><div className="mt-4 flex flex-wrap gap-2">{campaign.supporters.map((supporter, index) => <span key={`${supporter.name}-${index}`} className="rounded-full bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-900">{supporter.name}{supporter.units ? ` · ${supporter.units}` : ''}</span>)}</div></section>}
-      </div>
-
-      <form onSubmit={donate} className="h-fit space-y-4 rounded-3xl border border-emerald-950/10 bg-white p-6 lg:sticky lg:top-24">
-        <h2 className="text-xl font-black text-emerald-950">ساهم في الحملة</h2>
-        {checkoutError && <ErrorState message={checkoutError} />}
-        {campaign.canDonate === false && <p className="rounded-xl bg-amber-50 p-3 text-sm leading-6 text-amber-900">هذه الحملة لا تقبل تبرعات جديدة حاليًا.</p>}
-        {!!campaign.tiers?.length && <div className="space-y-2">{campaign.tiers.map((tier) => <label key={tier.id} className={`flex cursor-pointer items-center justify-between gap-3 rounded-xl border p-3 text-sm ${tierId === tier.id ? 'border-emerald-700 bg-emerald-50' : 'border-slate-200'}`}><span><input type="radio" name="tier" checked={tierId === tier.id} onChange={() => { setTierId(tier.id); setAmount(String(tier.amount)); }} className="me-2" />{tier.label}</span><strong>{formatPrice(tier.amount, campaign.currency, language)}</strong></label>)}</div>}
-        {campaign.allowCustomAmount !== false && <label className="block text-sm font-semibold text-slate-700">مبلغ مخصص ({campaign.currency})<input type="number" min={Number(campaign.minAmount || 1)} max={campaign.maxAmount ? Number(campaign.maxAmount) : undefined} step="0.01" value={amount} onChange={(event) => { setAmount(event.target.value); setTierId(null); }} className="mt-2 w-full rounded-xl border border-emerald-950/15 px-3 py-2.5" /></label>}
-        <label className="flex items-start gap-2 text-sm text-slate-700"><input type="checkbox" checked={recurring} onChange={(event) => setRecurring(event.target.checked)} className="mt-1" />تبرع شهري متكرر</label>
-        <label className="flex items-start gap-2 text-sm text-slate-700"><input type="checkbox" checked={anonymous} onChange={(event) => setAnonymous(event.target.checked)} className="mt-1" />إخفاء اسمي من قائمة الداعمين</label>
-        <label className="block text-sm font-semibold text-slate-700">رسالة اختيارية<textarea rows={3} maxLength={2000} value={message} onChange={(event) => setMessage(event.target.value)} className="mt-2 w-full rounded-xl border border-emerald-950/15 px-3 py-2.5" /></label>
-        <button disabled={busy || campaign.canDonate === false} className="w-full rounded-full bg-emerald-900 px-5 py-3.5 font-bold text-white disabled:opacity-50">{busy ? 'جارٍ التحويل…' : 'تبرع عبر Stripe'}</button>
-        <p className="text-center text-xs leading-6 text-slate-500"><ShieldCheck size={13} className="inline" /> المبلغ يُحسب على الخادم؛ لا يمكن تعديل السعر من المتصفح.</p>
-      </form>
-    </Container>
-  </main></SiteLayout>;
 }
 
 type PublicEvent = { id: number; slug: string; title: string; rules: string; startsAt: string; endsAt: string; quizId: number | null; winnerDisplayName?: string | null; winnerAnnouncement?: string };
@@ -2187,201 +2121,11 @@ export function EventsPage() {
   </Container></main></SiteLayout>;
 }
 
-type CartItem = {
-  id: number;
-  bookId: number;
-  slug: string;
-  title: string;
-  cover: string | null;
-  format: 'ebook' | 'print';
-  quantity: number;
-  unitPrice: number;
-  currency: string;
-  stockQuantity: number | null;
-  alreadyOwned: boolean;
-  available: boolean;
-  lineTotalMinor: number;
-};
-
-type CartPayload = {
-  items: CartItem[];
-  itemCount: number;
-  hasPhysical: boolean;
-  currency: string;
-  subtotalMinor: number;
-  shippingMinor: number;
-  totalMinor: number;
-  subtotal: string;
-  shipping: string;
-  total: string;
-};
-
-type GuestCartLine = { bookId: number; quantity: number };
-const GUEST_CART_KEY = 'islamic-stories-guest-cart';
-
-function readGuestCart(): GuestCartLine[] {
-  try {
-    const parsed = JSON.parse(window.localStorage.getItem(GUEST_CART_KEY) || '[]');
-    return Array.isArray(parsed) ? parsed.filter((line) => Number.isSafeInteger(line?.bookId) && line.bookId > 0).map((line) => ({ bookId: Number(line.bookId), quantity: Math.max(1, Math.min(20, Number(line.quantity) || 1)) })) : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeGuestCart(lines: GuestCartLine[]) {
-  window.localStorage.setItem(GUEST_CART_KEY, JSON.stringify(lines.slice(0, 50)));
-  window.dispatchEvent(new Event('cart:changed'));
-}
-
-const emptyCart: CartPayload = {
-  items: [], itemCount: 0, hasPhysical: false, currency: 'EUR',
-  subtotalMinor: 0, shippingMinor: 0, totalMinor: 0,
-  subtotal: '0.00', shipping: '0.00', total: '0.00'
-};
-
-export function CartPage() {
-  const language = useSiteLanguage();
-  const navigate = useLocalizedNavigate();
-  const { user, isLoading } = useStoryAuth();
-  const [cart, setCart] = useState<CartPayload>(emptyCart);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [busyBook, setBusyBook] = useState<number | null>(null);
-  const [checkingOut, setCheckingOut] = useState(false);
-  const [promoCode, setPromoCode] = useState('');
-  const [digitalConsent, setDigitalConsent] = useState(false);
-  const [consentError, setConsentError] = useState<string | null>(null);
-  const [shippingAddress, setShippingAddress] = useState({ name: '', line1: '', city: '', postalCode: '', country: '', phone: '' });
-
-  useEffect(() => {
-    if (!user || user.role !== 'READER') { setLoading(false); return; }
-    let active = true;
-    setLoading(true);
-    api.get<CartPayload>('/cart')
-      .then((value) => { if (active) setCart(value); })
-      .catch((caught) => { if (active) setError(caught instanceof Error ? caught.message : 'تعذر تحميل السلة.'); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [user]);
-
-  useEffect(() => {
-    if (!user || user.role !== 'READER') return;
-    const guestLines = readGuestCart();
-    if (!guestLines.length) return;
-    let active = true;
-    api.post<CartPayload>('/cart/merge', { items: guestLines })
-      .then((value) => {
-        if (!active) return;
-        window.localStorage.removeItem(GUEST_CART_KEY);
-        setCart(value);
-        setLoading(false);
-        window.dispatchEvent(new Event('cart:changed'));
-      })
-      .catch(() => { /* The server cart still loads; guest lines stay for a retry. */ });
-    return () => { active = false; };
-  }, [user]);
-
-  async function updateQuantity(item: CartItem, quantity: number) {
-    if (quantity < 1) return;
-    setBusyBook(item.bookId);
-    setError(null);
-    try {
-      setCart(await api.patch<CartPayload>(`/cart/items/${item.bookId}`, { quantity }));
-      window.dispatchEvent(new Event('cart:changed'));
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'تعذر تحديث الكمية.');
-    } finally {
-      setBusyBook(null);
-    }
-  }
-
-  async function removeItem(item: CartItem) {
-    setBusyBook(item.bookId);
-    setError(null);
-    try {
-      setCart(await api.delete<CartPayload>(`/cart/items/${item.bookId}`));
-      window.dispatchEvent(new Event('cart:changed'));
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'تعذر حذف الكتاب.');
-    } finally {
-      setBusyBook(null);
-    }
-  }
-
-  async function checkout(event: FormEvent) {
-    event.preventDefault();
-    if (!cart.items.length) return;
-    const hasEbook = cart.items.some((item) => item.format === 'ebook');
-    setConsentError(null);
-    if (hasEbook && !digitalConsent) {
-      setConsentError('يجب الموافقة على شروط التنزيل الرقمي قبل المتابعة.');
-      return;
-    }
-    if (cart.hasPhysical && (!shippingAddress.name || !shippingAddress.line1 || !shippingAddress.city || !shippingAddress.postalCode || !shippingAddress.country || !shippingAddress.phone)) {
-      setError('أكمل عنوان التوصيل للكتب المطبوعة.');
-      return;
-    }
-    setCheckingOut(true);
-    setError(null);
-    try {
-      const key = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
-      const response = await api.post<{ checkoutUrl: string; orderId: number }>('/payments/books/checkout', {
-        items: cart.items.map((item) => ({ bookId: item.bookId, quantity: item.quantity })),
-        language,
-        digitalConsent: hasEbook ? digitalConsent : false,
-        ...(promoCode.trim() ? { promoCode: promoCode.trim() } : {}),
-        ...(cart.hasPhysical ? { shippingAddress } : {})
-      }, { headers: { 'Idempotency-Key': key } });
-      window.location.assign(response.checkoutUrl);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'تعذر بدء الدفع.');
-      setCheckingOut(false);
-    }
-  }
-
-  if (isLoading || loading) return <SiteLayout><Container className="py-16"><LoadingState /></Container></SiteLayout>;
-  if (!user) {
-    const guestCount = readGuestCart().reduce((sum, line) => sum + line.quantity, 0);
-    return <SiteLayout><Container className="max-w-2xl py-16"><div className="rounded-3xl border border-emerald-950/10 bg-white p-8 text-center"><ShoppingBag className="mx-auto text-emerald-800" size={36} /><h1 className="mt-4 text-2xl font-black text-emerald-950">سلة المشتريات</h1><p className="mt-2 text-slate-600">{guestCount ? `لديك ${guestCount} كتاب في السلة المؤقتة. سجّل الدخول لدمجها وإتمام الشراء.` : 'سجّل الدخول لعرض سلتك وإتمام الشراء بأمان.'}</p><button onClick={() => navigate('/login')} className="mt-6 rounded-full bg-emerald-900 px-6 py-3 font-bold text-white">تسجيل الدخول</button></div></Container></SiteLayout>;
-  }
-
-  return <SiteLayout><main><Container className="max-w-6xl py-12 sm:py-16">
-    <div className="flex flex-wrap items-end justify-between gap-3"><div><p className="text-sm font-bold text-emerald-700">متجر الحكايات</p><h1 className="mt-2 text-3xl font-black text-emerald-950">سلة المشتريات</h1></div><Link to="/books" className="font-bold text-emerald-800 underline">متابعة التسوق</Link></div>
-    {error && <div className="mt-5"><ErrorState message={error} /></div>}
-    {!cart.items.length ? <div className="mt-8 rounded-3xl border border-emerald-950/10 bg-white p-10 text-center"><ShoppingBag className="mx-auto text-emerald-800" size={38} /><h2 className="mt-4 text-xl font-extrabold text-emerald-950">سلتك فارغة</h2><p className="mt-2 text-slate-600">أضف كتابًا إلكترونيًا أو نسخة مطبوعة للبدء.</p><Link to="/books" className="mt-6 inline-block rounded-full bg-emerald-900 px-6 py-3 font-bold text-white">تصفح الكتب</Link></div> :
-    <div className="mt-8 grid gap-8 lg:grid-cols-[1.4fr_0.8fr]">
-      <section className="space-y-4">{cart.items.map((item) => <article key={item.bookId} className="flex gap-4 rounded-2xl border border-emerald-950/10 bg-white p-4 sm:p-5">
-        <div className="h-28 w-20 shrink-0 overflow-hidden rounded-xl bg-[#efe8d8]">{item.cover ? <img src={item.cover} alt="" className="h-full w-full object-cover" /> : <BookOpen className="m-5 text-emerald-800" size={28} />}</div>
-        <div className="min-w-0 flex-1"><h2 className="font-bold text-emerald-950">{item.title}</h2><p className="mt-1 text-sm text-slate-500">{item.format === 'ebook' ? 'كتاب إلكتروني · تنزيل فوري' : 'نسخة مطبوعة'}</p><p className="mt-2 font-extrabold text-emerald-800">{formatPrice(item.unitPrice, item.currency, language)}</p>
-          {!item.available && <p className="mt-1 text-xs font-bold text-red-700">الكمية المطلوبة غير متوفرة حاليًا.</p>}
-          {item.alreadyOwned && <p className="mt-1 text-xs font-bold text-red-700">هذا الكتاب موجود في مكتبتك بالفعل.</p>}
-          <div className="mt-3 flex flex-wrap items-center gap-3">
-            {item.format === 'print' ? <div className="inline-flex items-center rounded-full border border-emerald-950/15"><button type="button" onClick={() => void updateQuantity(item, item.quantity - 1)} disabled={busyBook === item.bookId || item.quantity <= 1} className="px-3 py-1.5 disabled:opacity-40">−</button><span className="min-w-8 text-center text-sm font-bold">{item.quantity}</span><button type="button" onClick={() => void updateQuantity(item, item.quantity + 1)} disabled={busyBook === item.bookId || (item.stockQuantity !== null && item.quantity >= item.stockQuantity)} className="px-3 py-1.5 disabled:opacity-40">+</button></div> : <span className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-600">الكمية: 1</span>}
-            <button type="button" onClick={() => void removeItem(item)} disabled={busyBook === item.bookId} className="text-sm font-bold text-red-700 underline disabled:opacity-40">حذف</button>
-          </div>
-        </div>
-      </article>)}</section>
-      <form onSubmit={checkout} className="h-fit space-y-4 rounded-3xl border border-emerald-950/10 bg-white p-6 lg:sticky lg:top-24">
-        <h2 className="text-xl font-extrabold text-emerald-950">ملخص الطلب</h2>
-        <div className="space-y-2 border-b border-slate-100 pb-4 text-sm"><div className="flex justify-between"><span>المجموع الفرعي</span><span>{formatPrice(cart.subtotal, cart.currency, language)}</span></div>{cart.hasPhysical && <div className="flex justify-between"><span>الشحن</span><span>{formatPrice(cart.shipping, cart.currency, language)}</span></div>}{promoCode.trim() && <p className="text-xs text-emerald-800">يُطبّق رمز الخصم عند إنشاء الطلب ويُتحقق منه على الخادم.</p>}<div className="flex justify-between text-lg font-black text-emerald-950"><span>الإجمالي</span><span>{formatPrice(cart.total, cart.currency, language)}</span></div></div>
-        <label className="block text-sm font-semibold text-slate-700">رمز الخصم (اختياري)<input value={promoCode} onChange={(event) => setPromoCode(event.target.value.toUpperCase())} maxLength={64} dir="ltr" className="mt-2 w-full rounded-xl border border-emerald-950/15 px-3 py-2.5 text-left" /></label>
-        {cart.hasPhysical && <fieldset className="space-y-3"><legend className="text-sm font-bold text-emerald-950">عنوان التوصيل</legend><input required placeholder="الاسم الكامل" value={shippingAddress.name} onChange={(event) => setShippingAddress({ ...shippingAddress, name: event.target.value })} className="w-full rounded-xl border border-emerald-950/15 px-3 py-2.5" /><input required placeholder="العنوان" value={shippingAddress.line1} onChange={(event) => setShippingAddress({ ...shippingAddress, line1: event.target.value })} className="w-full rounded-xl border border-emerald-950/15 px-3 py-2.5" /><div className="grid grid-cols-2 gap-3"><input required placeholder="المدينة" value={shippingAddress.city} onChange={(event) => setShippingAddress({ ...shippingAddress, city: event.target.value })} className="rounded-xl border border-emerald-950/15 px-3 py-2.5" /><input required placeholder="الرمز البريدي" value={shippingAddress.postalCode} onChange={(event) => setShippingAddress({ ...shippingAddress, postalCode: event.target.value })} className="rounded-xl border border-emerald-950/15 px-3 py-2.5" /><input required placeholder="رمز الدولة (FR)" minLength={2} maxLength={2} value={shippingAddress.country} onChange={(event) => setShippingAddress({ ...shippingAddress, country: event.target.value.toUpperCase() })} className="rounded-xl border border-emerald-950/15 px-3 py-2.5 uppercase" /><input required placeholder="الهاتف" value={shippingAddress.phone} onChange={(event) => setShippingAddress({ ...shippingAddress, phone: event.target.value })} className="rounded-xl border border-emerald-950/15 px-3 py-2.5" /></div></fieldset>}
-        {cart.items.some((item) => item.format === 'ebook') && <div><label className={`flex items-start gap-2 rounded-xl border p-3 text-xs leading-6 text-emerald-950 ${consentError ? 'border-red-300 bg-red-50' : 'border-transparent bg-emerald-50'}`}><input type="checkbox" checked={digitalConsent} onChange={(event) => { setDigitalConsent(event.target.checked); if (event.target.checked) setConsentError(null); }} className="mt-1" />أوافق على البدء الفوري في تنزيل الكتب الإلكترونية، وأعلم أن حق التراجع عن المحتوى الرقمي يسقط بعد بدء التنزيل.</label>{consentError && <p role="alert" className="mt-2 text-sm font-bold text-red-700">{consentError}</p>}</div>}
-        <button type="submit" disabled={checkingOut || !cart.items.length} className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-emerald-900 px-5 py-3.5 font-bold text-white disabled:opacity-50"><CreditCard size={17} /> {checkingOut ? 'جارٍ تحويلك للدفع…' : 'إتمام الدفع الآمن'}</button>
-        <p className="text-center text-xs leading-6 text-slate-500"><ShieldCheck size={13} className="inline" /> دفع آمن عبر Stripe. لا نحتفظ ببيانات البطاقة.</p>
-      </form>
-    </div>}
-  </Container></main></SiteLayout>;
-}
-
 export function BookDetailPage() {
   const { slug = '' } = useParams();
   const language = useSiteLanguage();
   const navigate = useLocalizedNavigate();
   const { user } = useStoryAuth();
-  const { policy: returnPolicy } = useReturnPolicy(language);
-  const returnLine = returnPolicyShortLine(returnPolicy, language);
   const { data: book, loading, error } = useRemote<BookSummary>(`/books/${encodeURIComponent(slug)}`);
   const [quantity, setQuantity] = useState(1);
   const [shippingAddress, setShippingAddress] = useState({
@@ -2394,12 +2138,8 @@ export function BookDetailPage() {
   });
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [checkingOut, setCheckingOut] = useState(false);
-  const [digitalConsent, setDigitalConsent] = useState(false);
-  const [consentError, setConsentError] = useState<string | null>(null);
-  const [cartBusy, setCartBusy] = useState(false);
-  const [cartNotice, setCartNotice] = useState<string | null>(null);
+  const [promoCode, setPromoCode] = useState('');
   const [canDownload, setCanDownload] = useState(false);
-  const [downloaded, setDownloaded] = useState(false);
   const [checkingAccess, setCheckingAccess] = useState(false);
   const [downloadBusy, setDownloadBusy] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
@@ -2407,21 +2147,15 @@ export function BookDetailPage() {
   useEffect(() => {
     if (!book || book.format !== 'ebook' || !user) {
       setCanDownload(false);
-      setDownloaded(false);
       setCheckingAccess(false);
       return;
     }
     let active = true;
     setCanDownload(false);
-    setDownloaded(false);
     setCheckingAccess(true);
     setDownloadError(null);
-    api.get<{ canDownload: boolean; downloaded?: boolean }>(`/books/${encodeURIComponent(book.slug)}/access`)
-      .then(({ canDownload: access, downloaded: alreadyDownloaded }) => {
-        if (!active) return;
-        setCanDownload(access);
-        setDownloaded(Boolean(alreadyDownloaded));
-      })
+    api.get<{ canDownload: boolean }>(`/books/${encodeURIComponent(book.slug)}/access`)
+      .then(({ canDownload: access }) => { if (active) setCanDownload(access); })
       .catch((caught: unknown) => {
         if (active) setDownloadError(caught instanceof Error ? caught.message : 'تعذر التحقق من صلاحية التنزيل.');
       })
@@ -2437,8 +2171,6 @@ export function BookDetailPage() {
       const result = await api.get<{ url: string; requiresAuth?: boolean }>(`/books/${encodeURIComponent(book.slug)}/download`);
       if (result.requiresAuth) {
         const file = await api.getBlob(result.url);
-        setCanDownload(false);
-        setDownloaded(true);
         const objectUrl = URL.createObjectURL(file);
         const anchor = document.createElement('a');
         anchor.href = objectUrl;
@@ -2446,48 +2178,12 @@ export function BookDetailPage() {
         anchor.click();
         window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
       } else {
-        setCanDownload(false);
-        setDownloaded(true);
         window.location.assign(result.url);
       }
     } catch (caught) {
       setDownloadError(caught instanceof Error ? caught.message : 'تعذر تنزيل الكتاب الإلكتروني.');
     } finally {
       setDownloadBusy(false);
-    }
-  }
-
-  async function addToCart() {
-    if (!book) return;
-    if (!user) {
-      const lines = readGuestCart();
-      const existing = lines.find((line) => line.bookId === book.id);
-      if (existing && book.format === 'ebook') {
-        setCheckoutError('هذا الكتاب موجود بالفعل في سلتك.');
-        return;
-      }
-      if (existing) existing.quantity = Math.min(20, existing.quantity + quantity);
-      else lines.push({ bookId: book.id, quantity: book.format === 'ebook' ? 1 : quantity });
-      writeGuestCart(lines);
-      setCartNotice('أُضيف الكتاب إلى سلتك. ستُدمج السلة بعد تسجيل الدخول.');
-      return;
-    }
-    if (user.role !== 'READER') { navigate('/login'); return; }
-    setCartBusy(true);
-    setCheckoutError(null);
-    setCartNotice(null);
-    try {
-      await api.post('/cart/items', { bookId: book.id, quantity: book.format === 'print' ? quantity : 1 });
-      setCartNotice(t('تمت إضافة الكتاب إلى السلة.', language));
-      window.dispatchEvent(new Event('cart:changed'));
-    } catch (caught) {
-      if (caught instanceof ApiError && caught.code === 'ALREADY_IN_CART') {
-        setCheckoutError('هذا الكتاب موجود بالفعل في سلتك.');
-      } else {
-        setCheckoutError(caught instanceof Error ? caught.message : 'تعذر إضافة الكتاب إلى السلة.');
-      }
-    } finally {
-      setCartBusy(false);
     }
   }
 
@@ -2498,18 +2194,13 @@ export function BookDetailPage() {
       navigate('/login');
       return;
     }
-    setConsentError(null);
-    if (book.format === 'ebook' && !digitalConsent) {
-      setConsentError(t('يجب الموافقة على شروط التنزيل الرقمي قبل المتابعة.', language));
-      return;
-    }
     setCheckingOut(true);
     setCheckoutError(null);
     try {
       const response = await api.post<{ checkoutUrl: string }>('/payments/books/checkout', {
         items: [{ bookId: book.id, quantity }],
         language,
-        digitalConsent: book.format === 'ebook' ? digitalConsent : false,
+        ...(promoCode.trim() ? { promoCode: promoCode.trim() } : {}),
         ...(book.format === 'print' ? { shippingAddress } : {})
       });
       window.location.assign(response.checkoutUrl);
@@ -2523,24 +2214,18 @@ export function BookDetailPage() {
     {loading && <LoadingState />}{error && <ErrorState message={error} />}
     {book && <div className="grid gap-9 md:grid-cols-[0.8fr_1.2fr]">
       <div className="overflow-hidden rounded-3xl border border-emerald-950/10 bg-[#efe8d8]">
-        {book.cover ? <img src={book.cover} alt={book.title} className="aspect-[0.9] h-full w-full object-cover" /> : <div className="grid aspect-[0.9] place-items-center bg-gradient-to-br from-amber-100 via-[#e5d7b8] to-emerald-100"><BookOpen size={54} strokeWidth={1.2} className="text-emerald-800/70" /></div>}
+        {book.cover ? <img src={book.cover} alt="" className="aspect-[0.9] h-full w-full object-cover" /> : <div className="grid aspect-[0.9] place-items-center bg-gradient-to-br from-amber-100 via-[#e5d7b8] to-emerald-100"><BookOpen size={54} strokeWidth={1.2} className="text-emerald-800/70" /></div>}
       </div>
       <div className="self-center">
         <p className="text-sm font-bold text-emerald-700">من متجر الحكايات</p>
         <h1 className="mt-3 text-3xl font-black leading-relaxed text-emerald-950">{book.title}</h1>
         <p className="mt-5 leading-8 text-slate-600">{book.description || 'كتاب يجمع بين متعة الحكاية وقيمها.'}</p>
         <p className="mt-5 text-xl font-extrabold text-emerald-800">{formatPrice(book.price, book.currency, language)}</p>
-        {book.format === 'print' && returnLine && <div className="mt-4 rounded-2xl border border-emerald-950/10 bg-emerald-50/70 p-4 text-sm leading-7 text-emerald-950">
-          <p className="font-semibold">{returnLine}</p>
-          <Link to={`/${language}/policy/returns`} className="mt-1 inline-block font-bold text-emerald-800 underline">{t('اقرأ سياسة الإرجاع الكاملة', language)}</Link>
-        </div>}
         {book.format === 'ebook' && <p className="mt-2 text-sm leading-6 text-slate-600">{t('يُشترى هذا الكتاب الإلكتروني بشكل منفصل، ولا يشمله الاشتراك.', language)}</p>}
         {book.format === 'print' && book.stockQuantity !== null && book.stockQuantity !== undefined && <p className="mt-2 text-sm text-slate-500">المتوفر: {book.stockQuantity}</p>}
         {!user && <p className="mt-5 text-sm text-slate-600">أكمل الطلب بعد <Link to="/login" className="font-bold text-emerald-800 underline">تسجيل الدخول</Link>.</p>}
         {checkoutError && <div className="mt-5"><ErrorState message={checkoutError} /></div>}
-        {cartNotice && <p role="status" className="mt-5 rounded-xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-900">{cartNotice} <Link to="/cart" className="underline">عرض السلة</Link></p>}
         {downloadError && <div className="mt-5"><ErrorState message={downloadError} /></div>}
-        {book.format === 'ebook' && downloaded && !canDownload && !checkingAccess && <p role="status" className="mt-5 rounded-xl bg-amber-50 p-3 text-sm font-semibold leading-6 text-amber-900">{t('لقد نزّلت هذا الكتاب بالفعل. لتنزيل نسخة جديدة يجب شراء الكتاب مرة أخرى.', language)}</p>}
         {book.format === 'ebook' && canDownload ? <button type="button" onClick={downloadEbook} disabled={downloadBusy || checkingAccess} className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-full bg-emerald-900 px-5 py-3 font-bold text-white disabled:opacity-50"><BookOpen size={17} /> {t(downloadBusy ? 'جارٍ تجهيز التنزيل…' : 'تنزيل الكتاب الإلكتروني', language)}</button> :
         <form onSubmit={checkout} className="mt-6 space-y-4 rounded-2xl border border-emerald-950/10 bg-white p-5">
           {book.format === 'print' && <>
@@ -2555,20 +2240,11 @@ export function BookDetailPage() {
             </div>
             {book.stockQuantity !== null && book.stockQuantity !== undefined && book.stockQuantity > 0 && <label className="block text-sm font-semibold text-slate-700">الكمية<select value={quantity} onChange={(event) => setQuantity(Number(event.target.value))} className="mt-2 w-full rounded-xl border border-emerald-950/15 px-3 py-2.5">{Array.from({ length: Math.min(book.stockQuantity, 10) }, (_, index) => index + 1).map((count) => <option key={count} value={count}>{count}</option>)}</select></label>}
           </>}
-          {book.format === 'print' && <p className="text-xs leading-6 text-slate-500">تُحسب تكلفة الشحن من إعدادات المتجر وتظهر بوضوح قبل تأكيد الدفع.</p>}
-          {book.format === 'ebook' && <div><label className={`flex items-start gap-2 rounded-xl border p-3 text-xs leading-6 text-emerald-950 ${consentError ? 'border-red-300 bg-red-50' : 'border-transparent bg-emerald-50'}`}><input type="checkbox" checked={digitalConsent} onChange={(event) => { setDigitalConsent(event.target.checked); if (event.target.checked) setConsentError(null); }} className="mt-1" />أوافق على البدء الفوري في تنزيل الكتاب الإلكتروني، وأعلم أن حقي في التراجع عن المحتوى الرقمي يسقط بعد بدء التنزيل.</label>{consentError && <p role="alert" className="mt-2 text-sm font-bold text-red-700">{consentError}</p>}</div>}
-          {book.format === 'print' && returnLine && <p className="rounded-xl bg-emerald-50 p-3 text-xs leading-6 text-emerald-950">
-            {returnLine}{' '}
-            <Link to={`/${language}/policy/returns`} className="font-bold underline">{t('سياسة الإرجاع', language)}</Link>
-          </p>}
-          <div className="grid gap-3 sm:grid-cols-2">
-            <button type="button" onClick={() => void addToCart()} disabled={cartBusy || (book.format === 'print' && book.stockQuantity === 0)} className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-emerald-900/20 bg-white px-5 py-3 font-bold text-emerald-900 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50">
-              <ShoppingBag size={17} /> {cartBusy ? 'جارٍ الإضافة…' : 'أضف إلى السلة'}
-            </button>
-            <button type="submit" disabled={checkingOut || (book.format === 'print' && book.stockQuantity === 0)} className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-emerald-900 px-5 py-3 font-bold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50">
-              <CreditCard size={17} /> {checkingOut ? 'جارٍ تحويلك للدفع…' : 'اشترِ الآن'}
-            </button>
-          </div>
+          <label className="block text-sm font-semibold text-slate-700">{t('رمز الخصم (اختياري)', language)}<input value={promoCode} onChange={(event) => setPromoCode(event.target.value.toUpperCase())} maxLength={64} dir="ltr" className="mt-2 w-full rounded-xl border border-emerald-950/15 px-3 py-2.5 outline-none focus:border-emerald-700" /></label>
+          <p className="text-xs leading-6 text-slate-500">سيظهر مبلغ الشحن عند إتمام الدفع الآمن.</p>
+          <button type="submit" disabled={checkingOut || (book.format === 'print' && book.stockQuantity === 0)} className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-emerald-900 px-5 py-3 font-bold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50">
+            <CreditCard size={17} /> {checkingOut ? 'جارٍ تحويلك للدفع…' : 'المتابعة إلى الدفع الآمن'}
+          </button>
         </form>
         }
         <Link to="/books" className="mt-6 inline-flex items-center gap-2 font-bold text-emerald-800"><ArrowLeft size={17} /> العودة إلى المتجر</Link>
@@ -2702,6 +2378,294 @@ export function ReaderAuthPage({ mode }: { mode: ReaderAuthMode }) {
   );
 }
 
+type ReaderTeam = {
+  id: number;
+  name: string;
+  inviteCode?: string;
+  members: Array<{ displayName: string; completedParts: number }>;
+};
+
+function TeamAccountPanel() {
+  const language = useSiteLanguage();
+  const [reloadKey, setReloadKey] = useState(0);
+  const [teamName, setTeamName] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [inviteCode, setInviteCode] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const { data: team, loading, error: loadError } = useRemote<ReaderTeam>(`/teams/me?refresh=${reloadKey}`);
+
+  async function submit(action: 'create' | 'join') {
+    setBusy(true);
+    setError(null);
+    try {
+      if (action === 'create') {
+        await api.post('/teams', { name: teamName, displayName });
+      } else {
+        await api.post('/teams/join', { inviteCode, displayName });
+      }
+      setReloadKey((value) => value + 1);
+      setTeamName('');
+      setInviteCode('');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : t('تعذر تحديث الفريق.', language));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return <section className="mt-12">
+    <SectionHeading title={t('فريقي وتقدّمنا', language)} />
+    {loading && <LoadingState />}
+    {loadError && <ErrorState message={loadError} />}
+    {team ? <article className="rounded-2xl border border-emerald-950/10 bg-white p-5">
+      <h3 className="text-lg font-bold text-emerald-950">{team.name}</h3>
+      {team.inviteCode && <p className="mt-2 text-sm text-slate-600">{t('رمز دعوة الفريق', language)}: <code dir="ltr" className="font-bold">{team.inviteCode}</code></p>}
+      <ul className="mt-4 grid gap-2 sm:grid-cols-2">{team.members.map((member, index) => <li key={`${member.displayName}-${index}`} className="flex justify-between rounded-xl bg-emerald-50 p-3 text-sm"><span>{member.displayName}</span><span>{member.completedParts} · {t('أجزاء مكتملة', language)}</span></li>)}</ul>
+    </article> : !loading && <div className="grid gap-4 md:grid-cols-2">
+      <form onSubmit={(event) => { event.preventDefault(); void submit('create'); }} className="rounded-2xl border border-emerald-950/10 bg-white p-5">
+        <h3 className="font-bold">{t('إنشاء فريق', language)}</h3>
+        <label className="mt-3 block text-sm font-semibold">{t('اسم الفريق', language)}<input required maxLength={120} value={teamName} onChange={(event) => setTeamName(event.target.value)} className="mt-1 w-full rounded-xl border px-3 py-2" /></label>
+        <label className="mt-3 block text-sm font-semibold">{t('اسم العرض أو الاسم المستعار', language)}<input required maxLength={80} value={displayName} onChange={(event) => setDisplayName(event.target.value)} className="mt-1 w-full rounded-xl border px-3 py-2" /></label>
+        <button disabled={busy} className="mt-4 rounded-full bg-emerald-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{t('إنشاء الفريق', language)}</button>
+      </form>
+      <form onSubmit={(event) => { event.preventDefault(); void submit('join'); }} className="rounded-2xl border border-emerald-950/10 bg-white p-5">
+        <h3 className="font-bold">{t('الانضمام إلى فريق', language)}</h3>
+        <label className="mt-3 block text-sm font-semibold">{t('رمز الدعوة', language)}<input required value={inviteCode} onChange={(event) => setInviteCode(event.target.value)} dir="ltr" className="mt-1 w-full rounded-xl border px-3 py-2 text-left" /></label>
+        <label className="mt-3 block text-sm font-semibold">{t('اسم العرض أو الاسم المستعار', language)}<input required maxLength={80} value={displayName} onChange={(event) => setDisplayName(event.target.value)} className="mt-1 w-full rounded-xl border px-3 py-2" /></label>
+        <button disabled={busy} className="mt-4 rounded-full bg-emerald-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{t('انضمام', language)}</button>
+      </form>
+    </div>}
+    {error && <div className="mt-4"><ErrorState message={error} /></div>}
+  </section>;
+}
+
+export function AccountPage() {
+  const language = useSiteLanguage();
+  const { user, isLoading, logout, refreshUser, error: authError } = useStoryAuth();
+  const [refreshing, setRefreshing] = useState(false);
+  const [updatingSubscriptionId, setUpdatingSubscriptionId] = useState<number | null>(null);
+  const [subscriptionActionError, setSubscriptionActionError] = useState<string | null>(null);
+  const [planCheckoutId, setPlanCheckoutId] = useState<number | null>(null);
+  const [planCheckoutError, setPlanCheckoutError] = useState<string | null>(null);
+  const [promoCode, setPromoCode] = useState('');
+  const [giftCode, setGiftCode] = useState('');
+  const [giftCodeBusy, setGiftCodeBusy] = useState(false);
+  const [giftCodeError, setGiftCodeError] = useState<string | null>(null);
+  const [giftCodeNotice, setGiftCodeNotice] = useState<string | null>(null);
+  const [emailPreferences, setEmailPreferences] = useState({ marketing: true, reminders: true });
+  const [savingEmailPreferences, setSavingEmailPreferences] = useState(false);
+  const [emailPreferencesError, setEmailPreferencesError] = useState<string | null>(null);
+  const [emailPreferencesNotice, setEmailPreferencesNotice] = useState<string | null>(null);
+  const { data: progress, loading, error } = useRemote<Array<{
+    id: number;
+    storyId: number;
+    completedParts: number[];
+    nextPart?: { id: number; partNumber: number } | null;
+    story?: { title: string; slug: string; cover?: string | null };
+  }>>('/reading-progress');
+  const { data: plans, loading: plansLoading, error: plansError } = useRemote<SubscriptionPlan[]>('/plans');
+  const { data: quizAttempts, loading: quizAttemptsLoading, error: quizAttemptsError } = useRemote<Array<{
+    id: number;
+    score: number;
+    passed: boolean;
+    finishedAt: string;
+    quiz: { title: string; story?: { title: string; slug: string } | null } | null;
+  }>>('/quiz-attempts');
+  const { data: badges, loading: badgesLoading, error: badgesError } = useRemote<Array<{
+    id: number;
+    code: string;
+    name: string;
+    icon: string;
+    awardedAt: string;
+  }>>('/badges');
+  const { data: certificates, loading: certificatesLoading, error: certificatesError } = useRemote<Array<{
+    id: number;
+    title: string;
+    verificationCode: string;
+    issuedAt: string;
+    downloadUrl: string;
+  }>>('/certificates');
+  const { data: recurringDonations, loading: recurringDonationsLoading, error: recurringDonationsError } = useRemote<Array<{
+    id: number;
+    amount: number | string;
+    currency: string;
+    status: string;
+    campaign: string;
+    cancelAtPeriodEnd: boolean;
+    createdAt: string;
+  }>>(user ? '/donations/recurring' : '');
+  const [recurringDonationItems, setRecurringDonationItems] = useState<Array<{
+    id: number;
+    amount: number | string;
+    currency: string;
+    status: string;
+    campaign: string;
+    cancelAtPeriodEnd: boolean;
+    createdAt: string;
+  }>>([]);
+  const [recurringDonationError, setRecurringDonationError] = useState<string | null>(null);
+  const [cancelingDonationId, setCancelingDonationId] = useState<number | null>(null);
+  const subscriptions: ReaderSubscription[] = user?.subscriptions || [];
+  useEffect(() => {
+    if (user?.emailPreferences) setEmailPreferences(user.emailPreferences);
+  }, [user?.emailPreferences]);
+  useEffect(() => {
+    if (recurringDonations) setRecurringDonationItems(recurringDonations);
+  }, [recurringDonations]);
+  const isAdminAccount = Boolean(user && ['ADMIN', 'SUPER_ADMIN', 'EDITOR', 'REVIEWER'].includes(user.role));
+  useEffect(() => {
+    if (!isAdminAccount) return;
+    const adminUrl = import.meta.env.VITE_ADMIN_URL;
+    if (!adminUrl) return;
+    window.location.replace(new URL(`/${language}/admin`, adminUrl).toString());
+  }, [isAdminAccount, language]);
+  if (isLoading) return <SiteLayout><Container className="py-16"><LoadingState /></Container></SiteLayout>;
+  if (!user) return <Navigate to="/login" replace />;
+  if (isAdminAccount) return <main className="p-12 text-center">{t('Redirection vers le portail administrateur…', language)}</main>;
+
+  async function startPlanCheckout(planId: number) {
+    setPlanCheckoutId(planId);
+    setPlanCheckoutError(null);
+    try {
+      const response = await api.post<{ checkoutUrl: string }>('/payments/subscriptions/checkout', {
+        planId,
+        language,
+        ...(promoCode.trim() ? { promoCode: promoCode.trim() } : {})
+      });
+      window.location.assign(response.checkoutUrl);
+    } catch (caught) {
+      setPlanCheckoutError(caught instanceof Error ? caught.message : 'تعذر بدء الاشتراك.');
+      setPlanCheckoutId(null);
+    }
+  }
+
+  async function updateSubscription(subscriptionId: number, action: 'cancel' | 'resume') {
+    setUpdatingSubscriptionId(subscriptionId);
+    setSubscriptionActionError(null);
+    try {
+      await api.post(`/subscriptions/${subscriptionId}/${action}`, {});
+      await refreshUser();
+    } catch (caught) {
+      setSubscriptionActionError(caught instanceof Error ? caught.message : 'تعذر تحديث الاشتراك.');
+    } finally {
+      setUpdatingSubscriptionId(null);
+    }
+  }
+
+  async function redeemGiftCode(event: FormEvent) {
+      event.preventDefault();
+      setGiftCodeBusy(true);
+      setGiftCodeError(null);
+      setGiftCodeNotice(null);
+      try {
+        const result = await api.post<{ plan: string; expiresAt: string }>('/gift-codes/redeem', { code: giftCode.trim() });
+        setGiftCode('');
+        setGiftCodeNotice(`${t('تم تفعيل الهدية', language)}: ${result.plan} · ${new Date(result.expiresAt).toLocaleDateString(language)}`);
+        await refreshUser();
+      } catch (caught) {
+        setGiftCodeError(caught instanceof Error ? caught.message : t('تعذر استخدام رمز الهدية.', language));
+      } finally {
+        setGiftCodeBusy(false);
+      }
+  }
+
+  async function cancelRecurringDonation(id: number) {
+    setCancelingDonationId(id);
+    setRecurringDonationError(null);
+    try {
+      await api.post(`/donations/recurring/${id}/cancel`, {});
+      setRecurringDonationItems((current) => current.map((item) =>
+        item.id === id ? { ...item, cancelAtPeriodEnd: true } : item
+      ));
+    } catch (caught) {
+      setRecurringDonationError(caught instanceof Error ? caught.message : t('تعذر إلغاء التبرع المتكرر.', language));
+    } finally {
+      setCancelingDonationId(null);
+    }
+  }
+
+  async function saveEmailPreferences(event: FormEvent) {
+    event.preventDefault();
+    setSavingEmailPreferences(true);
+    setEmailPreferencesError(null);
+    setEmailPreferencesNotice(null);
+    try {
+      const result = await api.patch<{ emailPreferences: typeof emailPreferences }>('/account/email-preferences', emailPreferences);
+      setEmailPreferences(result.emailPreferences);
+      setEmailPreferencesNotice(t('تم حفظ تفضيلات البريد الإلكتروني.', language));
+    } catch (caught) {
+      setEmailPreferencesError(caught instanceof Error ? caught.message : t('تعذر حفظ تفضيلات البريد الإلكتروني.', language));
+    } finally {
+      setSavingEmailPreferences(false);
+    }
+  }
+
+  return <SiteLayout><main><Container className="py-12 sm:py-16">
+    <p className="text-sm font-bold tracking-widest text-emerald-700">مساحتك</p>
+    <div className="mt-3 flex flex-wrap items-center justify-between gap-4"><div><h1 className="text-3xl font-black text-emerald-950">أهلًا، {user.firstName}</h1><p className="mt-2 text-slate-600">{user.email}</p></div><div className="flex gap-2"><button onClick={async () => { setRefreshing(true); await refreshUser(); setRefreshing(false); }} disabled={refreshing} className="rounded-full border border-emerald-950/15 px-5 py-2.5 text-sm font-bold text-emerald-900 hover:bg-emerald-50 disabled:opacity-60">{refreshing ? 'جارٍ التحديث…' : 'تحديث الحالة'}</button><button onClick={logout} className="rounded-full border border-emerald-950/15 px-5 py-2.5 text-sm font-bold text-emerald-900 hover:bg-emerald-50">تسجيل الخروج</button></div></div>
+    {authError && <div className="mt-5"><ErrorState message={authError} /></div>}
+    <form onSubmit={saveEmailPreferences} className="mt-6 rounded-2xl border border-emerald-950/10 bg-white p-5">
+      <h2 className="text-lg font-extrabold">{t('تفضيلات البريد الإلكتروني', language)}</h2>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <label className="flex items-start gap-2 text-sm leading-6"><input type="checkbox" checked={emailPreferences.marketing} onChange={(event) => setEmailPreferences((current) => ({ ...current, marketing: event.target.checked }))} /><span>{t('رسائل القصص الجديدة والعروض', language)}</span></label>
+        <label className="flex items-start gap-2 text-sm leading-6"><input type="checkbox" checked={emailPreferences.reminders} onChange={(event) => setEmailPreferences((current) => ({ ...current, reminders: event.target.checked }))} /><span>{t('التذكيرات المجدولة', language)}</span></label>
+      </div>
+      <button disabled={savingEmailPreferences} className="mt-4 rounded-full border border-emerald-900 px-4 py-2 text-sm font-bold text-emerald-900 disabled:opacity-50">{t(savingEmailPreferences ? 'جارٍ الحفظ…' : 'حفظ تفضيلات البريد الإلكتروني', language)}</button>
+      {emailPreferencesError && <div className="mt-3"><ErrorState message={emailPreferencesError} /></div>}
+      {emailPreferencesNotice && <p role="status" className="mt-3 text-sm text-emerald-800">{emailPreferencesNotice}</p>}
+    </form>
+    <TeamAccountPanel />
+    <div className="mt-10 grid gap-8 lg:grid-cols-[1.25fr_0.75fr]">
+      <section><SectionHeading title="تابع القراءة" />{loading && <LoadingState />}{error && <ErrorState message={error} />}{!loading && !error && !progress?.length && <EmptyState>لم تحفظ أي تقدّم بعد. <Link to="/stories" className="font-bold text-emerald-800 underline">اكتشف القصص</Link></EmptyState>}{!!progress?.length && <div className="space-y-3">{progress.map((item) => <Link key={item.id} to={item.nextPart ? `/stories/${item.story?.slug || ''}/read/${item.nextPart.partNumber}` : `/stories/${item.story?.slug || ''}`} className="flex items-center justify-between gap-4 rounded-2xl border border-emerald-950/10 bg-white p-5 hover:border-emerald-700"><div><h3 className="font-bold text-emerald-950">{item.story?.title || 'حكاية'}</h3><p className="mt-1 text-sm text-slate-500">{t('أتممت', language)} {item.completedParts.length} {t('أجزاء', language)} · {item.nextPart ? `${t('التالي', language)} ${item.nextPart.partNumber}` : t('افتح الحكاية', language)}</p></div><ChevronLeft size={20} className="text-emerald-700" /></Link>)}</div>}</section>
+      <section><SectionHeading title="حالة الاشتراك" /><div className="rounded-3xl border border-emerald-950/10 bg-white p-6">
+        {!subscriptions.length ? <><span className="grid h-12 w-12 place-items-center rounded-2xl bg-amber-50 text-amber-700"><Star size={22} /></span><h3 className="mt-4 font-bold text-emerald-950">لا يوجد اشتراك حالي</h3><p className="mt-2 text-sm leading-7 text-slate-600">تابع قراءة الأجزاء المجانية أو اختر إحدى الباقات المتاحة أدناه.</p></> :
+          <div className="space-y-4">{subscriptions.map((subscription) => <SubscriptionCard key={subscription.id} subscription={subscription} busy={updatingSubscriptionId === subscription.id} onCancel={() => updateSubscription(subscription.id, 'cancel')} onResume={() => updateSubscription(subscription.id, 'resume')} />)}</div>}
+        {subscriptionActionError && <div className="mt-4"><ErrorState message={subscriptionActionError} /></div>}
+      </div></section>
+    </div>
+    <section className="mt-12">
+      <SectionHeading title={t('سجل الاختبارات', language)} />
+      {quizAttemptsLoading && <LoadingState />}
+      {quizAttemptsError && <ErrorState message={quizAttemptsError} />}
+      {!quizAttemptsLoading && !quizAttemptsError && !quizAttempts?.length && <EmptyState>{t('لم تسجل أي محاولات اختبار بعد.', language)}</EmptyState>}
+      {!!quizAttempts?.length && <div className="space-y-3">{quizAttempts.map((attempt) => <article key={attempt.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-emerald-950/10 bg-white p-5"><div><h3 className="font-bold text-emerald-950">{attempt.quiz?.title || t('اختبار', language)}</h3><p className="mt-1 text-sm text-slate-500">{attempt.quiz?.story?.title || ''} · {new Date(attempt.finishedAt).toLocaleDateString(language)}</p></div><div className="flex items-center gap-3"><span className="font-extrabold">{attempt.score}%</span><span className={`rounded-full px-3 py-1 text-xs font-bold ${attempt.passed ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900'}`}>{t(attempt.passed ? 'ناجح' : 'لم يجتز', language)}</span></div></article>)}</div>}
+    </section>
+    <section className="mt-12">
+      <SectionHeading title={t('شاراتي والشهادات', language)} />
+      {badgesLoading && <LoadingState />}
+      {badgesError && <ErrorState message={badgesError} />}
+      {!badgesLoading && !badgesError && !badges?.length && <EmptyState>{t('لا توجد شهادات أو شارات بعد.', language)}</EmptyState>}
+      {!!badges?.length && <div className="grid gap-3 md:grid-cols-2">{badges.map((badge) => <article key={badge.id} className="rounded-2xl border border-emerald-950/10 bg-white p-5"><div className="flex items-center justify-between gap-3"><div><h3 className="font-bold text-emerald-950">{badge.name}</h3><p className="text-xs text-slate-500">{badge.code}</p></div><span className="grid h-12 w-12 place-items-center rounded-2xl bg-emerald-50 text-lg">{badge.icon || '🏅'}</span></div><p className="mt-3 text-sm text-slate-500">{new Date(badge.awardedAt).toLocaleDateString(language)}</p></article>)}</div>}
+      {certificatesLoading && <LoadingState />}
+      {certificatesError && <ErrorState message={certificatesError} />}
+      {!certificatesLoading && !certificatesError && !!certificates?.length && <div className="mt-4 space-y-3">{certificates.map((certificate) => <article key={certificate.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-emerald-950/10 bg-white p-5"><div><h3 className="font-bold text-emerald-950">{certificate.title}</h3><p className="mt-1 text-sm text-slate-500">{certificate.verificationCode}</p></div><a href={certificate.downloadUrl} className="rounded-full border border-emerald-950/15 px-4 py-2 text-sm font-bold text-emerald-900">{t('تحميل الشهادة', language)}</a></article>)}</div>}
+    </section>
+    <section className="mt-12">
+      <SectionHeading eyebrow="اختر ما يناسب عائلتك" title="باقات القراءة" />
+      <section className="mb-6 rounded-2xl border border-emerald-950/10 bg-white p-5">
+        <h2 className="text-xl font-extrabold">{t('تبرعاتي الشهرية', language)}</h2>
+        {recurringDonationsLoading && <LoadingState />}
+        {(recurringDonationsError || recurringDonationError) && <div className="mt-3"><ErrorState message={recurringDonationError || recurringDonationsError || ''} /></div>}
+        {!recurringDonationsLoading && !recurringDonationsError && !recurringDonationItems.length && <p className="mt-3 text-sm text-slate-500">{t('لا توجد تبرعات شهرية.', language)}</p>}
+        <div className="mt-3 space-y-3">{recurringDonationItems.map((donation) => <article key={donation.id} className="flex flex-wrap items-center justify-between gap-3 border-t pt-3 text-sm"><div><p className="font-bold">{donation.campaign} · {Number(donation.amount).toFixed(2)} {donation.currency}</p><p className="text-slate-500">{donation.status}{donation.cancelAtPeriodEnd ? ` · ${t('سيُلغى بنهاية الفترة', language)}` : ''}</p></div>{['active', 'past_due'].includes(donation.status) && !donation.cancelAtPeriodEnd && <button onClick={() => void cancelRecurringDonation(donation.id)} disabled={cancelingDonationId === donation.id} className="rounded-lg border border-red-200 px-3 py-2 font-bold text-red-700 disabled:opacity-50">{t(cancelingDonationId === donation.id ? 'جارٍ الإلغاء…' : 'إلغاء التبرع', language)}</button>}</article>)}</div>
+      </section>
+      <form onSubmit={redeemGiftCode} className="mb-5 flex flex-wrap items-end gap-3 rounded-2xl border border-emerald-950/10 bg-white p-5">
+        <label className="min-w-[220px] flex-1 text-sm font-semibold">{t('استخدم رمز هدية الاشتراك', language)}<input required maxLength={64} value={giftCode} onChange={(event) => setGiftCode(event.target.value.toUpperCase())} dir="ltr" className="mt-2 w-full rounded-xl border border-emerald-950/15 px-3 py-2.5" /></label>
+        <button disabled={giftCodeBusy} className="rounded-full bg-emerald-900 px-5 py-2.5 font-bold text-white disabled:opacity-50">{t(giftCodeBusy ? 'جارٍ التفعيل…' : 'تفعيل الهدية', language)}</button>
+      </form>
+      {giftCodeError && <div className="mb-4"><ErrorState message={giftCodeError} /></div>}
+      {giftCodeNotice && <p role="status" className="mb-4 rounded-xl bg-emerald-50 p-4 text-emerald-900">{giftCodeNotice}</p>}
+      <label className="mb-5 block max-w-xl text-sm font-semibold text-slate-700">{t('رمز الخصم للاشتراك (اختياري)', language)}<input value={promoCode} onChange={(event) => setPromoCode(event.target.value.toUpperCase())} maxLength={64} dir="ltr" className="mt-2 w-full rounded-xl border border-emerald-950/15 bg-white px-3 py-2.5" /></label>
+      {plansLoading && <LoadingState />}
+      {plansError && <ErrorState message={plansError} />}
+      {!plansLoading && !plansError && !plans?.length && <EmptyState>لا توجد باقات متاحة حاليًا. ستُعلن هنا عند إعدادها.</EmptyState>}
+      {!!plans?.length && <div className="grid gap-5 md:grid-cols-2">{plans.map((plan) => <article key={plan.id} className="rounded-3xl border border-emerald-950/10 bg-white p-6"><div className="flex items-start justify-between gap-4"><div><h3 className="text-xl font-extrabold text-emerald-950">{plan.name}</h3><p className="mt-1 text-sm text-slate-500">{t(plan.isFamily ? 'باقة عائلية' : 'باقة فردية', language)}</p></div><span className="rounded-xl bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-800">{formatPrice(plan.price, plan.currency, language)} / {t(plan.interval === 'month' ? 'شهر' : 'سنة', language)}</span></div><ul className="mt-5 space-y-2 text-sm leading-7 text-slate-600">{plan.features.map((feature) => <li key={feature} className="flex gap-2"><Check size={16} className="mt-1 shrink-0 text-emerald-700" />{feature}</li>)}</ul><button onClick={() => startPlanCheckout(plan.id)} disabled={planCheckoutId !== null || subscriptions.some((item) => item.accessActive)} className="mt-6 w-full rounded-full bg-emerald-900 px-5 py-3 font-bold text-white disabled:opacity-50">{t(planCheckoutId === plan.id ? 'جارٍ تحويلك للدفع…' : 'الاشتراك الآمن', language)}</button></article>)}</div>}
+      {planCheckoutError && <div className="mt-5"><ErrorState message={planCheckoutError} /></div>}
+    </section>
+  </Container></main></SiteLayout>;
+}
+
 type SubscriptionPlan = {
   id: number;
   name: string;
@@ -2819,6 +2783,29 @@ export function StoryRequestPage() {
   </Container></main></SiteLayout>;
 }
 
+function SubscriptionCard({ subscription, busy, onCancel, onResume }: {
+  subscription: ReaderSubscription;
+  busy: boolean;
+  onCancel: () => void;
+  onResume: () => void;
+}) {
+  const language = useSiteLanguage();
+  const labels: Record<ReaderSubscription['status'], string> = {
+    active: 'نشط', trialing: 'فترة تجريبية', past_due: 'متأخر السداد', canceled: 'ملغي',
+    incomplete: 'غير مكتمل', incomplete_expired: 'انتهت مهلة الدفع', unpaid: 'غير مدفوع',
+    paused: 'متوقف', expired: 'منتهي'
+  };
+  const statusColor = subscription.accessActive ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900';
+  return <article className="border-b border-emerald-950/10 pb-4 last:border-0 last:pb-0">
+    <div className="flex flex-wrap items-center justify-between gap-3"><h3 className="font-bold text-emerald-950">{subscription.plan ? localizedPlanName(subscription.plan, language) : t('اشتراك', language)}</h3><span className={`rounded-full px-3 py-1 text-xs font-bold ${statusColor}`}>{t(labels[subscription.status], language)}</span></div>
+    <p className="mt-2 text-sm text-slate-600">{t(subscription.accessActive ? 'الوصول إلى المحتوى مفعّل' : 'الوصول إلى المحتوى غير مفعّل', language)}</p>
+    {subscription.expiresAt && <p className="mt-1 text-xs text-slate-500">{t('تاريخ الانتهاء:', language)} {new Intl.DateTimeFormat(language).format(new Date(subscription.expiresAt))}</p>}
+    {subscription.cancelAtPeriodEnd && <p className="mt-1 text-xs text-amber-800">{t('سيتوقف التجديد في نهاية الفترة الحالية.', language)}</p>}
+    {subscription.canManageRenewal && subscription.status === 'active' && !subscription.cancelAtPeriodEnd && <button onClick={onCancel} disabled={busy} className="mt-3 text-xs font-bold text-red-700 underline disabled:opacity-50">{t(busy ? 'جارٍ التحديث…' : 'إيقاف التجديد', language)}</button>}
+    {subscription.canManageRenewal && subscription.cancelAtPeriodEnd && <button onClick={onResume} disabled={busy} className="mt-3 text-xs font-bold text-emerald-800 underline disabled:opacity-50">{t(busy ? 'جارٍ التحديث…' : 'استمرار التجديد', language)}</button>}
+  </article>;
+}
+
 export function AdminLoginPage() {
   const navigate = useLocalizedNavigate();
   const language = useSiteLanguage();
@@ -2878,8 +2865,6 @@ type AdminSubscription = ReaderSubscription & {
 
 type AdminStoreOrder = {
   id: number;
-  orderNumber: string | null;
-  status: string;
   currency: string;
   total: number | string;
   createdAt: string;
@@ -2894,27 +2879,8 @@ type AdminStoreOrder = {
     country: string;
     phone: string;
   } | null;
-  customer: { firstName: string; lastName: string; email: string } | null;
-  items: Array<{ quantity: number; title: string; format: 'print' | 'ebook' | null }>;
-  downloads?: Array<{
-    orderItemId: number;
-    entitlementId: number | null;
-    title: string;
-    canDownload: boolean;
-    revokedAt: string | null;
-    downloadLimit: number | null;
-    downloadCount: number;
-    downloadsRemaining: number | null;
-  }>;
-  refundApproval?: {
-    id: number;
-    amount: number | string;
-    currency: string;
-    status: 'pending' | 'approved' | 'rejected' | 'executed' | 'failed';
-    requestedByAdminId: number | null;
-    approvedByAdminId: number | null;
-    requestedAt: string | null;
-  } | null;
+  user: { firstName: string; lastName: string; email: string };
+  items: Array<{ quantity: number; titleSnapshot: string; book: { title: string; format: 'print' | 'ebook' } }>;
 };
 
 const fulfillmentLabels: Record<AdminStoreOrder['fulfillmentStatus'], string> = {
@@ -2933,9 +2899,7 @@ export function AdminStoreOrdersPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<number, { fulfillmentStatus: AdminStoreOrder['fulfillmentStatus']; trackingNumber: string }>>({});
-  const { data: ordersPage, loading, error: loadError } = useRemote<{ items: AdminStoreOrder[] }>(`/admin/store-orders?refresh=${reloadKey}`);
-  const orders = ordersPage?.items || [];
-  const { data: health } = useRemote<{ stripeConfigured: boolean; stripeMode: string; webhookSecretConfigured: boolean; pendingOrders: number; failedEvents: number; amountMismatchOrders: number }>(`/admin/payments/health?refresh=${reloadKey}`);
+  const { data: orders, loading, error: loadError } = useRemote<AdminStoreOrder[]>(`/admin/store-orders?refresh=${reloadKey}`);
 
   if (isLoading) return translateTree(<main className="p-8"><LoadingState /></main>, language);
   if (!user) return <Navigate to={`/${language}/admin/login`} replace />;
@@ -2963,158 +2927,32 @@ export function AdminStoreOrdersPage() {
     }
   }
 
-  async function syncOrder(order: AdminStoreOrder) {
-    setBusyId(order.id);
-    setError(null);
-    setNotice(null);
-    try {
-      const result = await api.post<{ reconciliation: { status?: string; reason?: string; reconciled?: boolean } }>(`/admin/store-orders/${order.id}/sync`, {});
-      setNotice(`تمت مزامنة الطلب ${order.orderNumber || order.id}: ${result.reconciliation?.status || result.reconciliation?.reason || 'محدّث'}.`);
-      setReloadKey((value) => value + 1);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'تعذرت مزامنة الطلب مع Stripe.');
-    } finally {
-      setBusyId(null);
-    }
-  }
-
-  async function resendConfirmation(order: AdminStoreOrder) {
-    setBusyId(order.id);
-    setError(null);
-    setNotice(null);
-    try {
-      await api.post(`/admin/store-orders/${order.id}/resend-confirmation`, {});
-      setNotice(`أُعيد إرسال تأكيد الطلب ${order.orderNumber || order.id}.`);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'تعذر إرسال البريد.');
-    } finally {
-      setBusyId(null);
-    }
-  }
-
-  async function refundOrder(order: AdminStoreOrder) {
-    if (!window.confirm(`ردّ المبلغ كاملًا للطلب ${order.orderNumber || order.id} عبر Stripe؟`)) return;
-    setBusyId(order.id);
-    setError(null);
-    setNotice(null);
-    try {
-      const result = await api.post<{ approvalRequired?: boolean }>(`/admin/store-orders/${order.id}/refund`, {});
-      if (result?.approvalRequired) {
-        setNotice(`ردّ مبلغ الطلب ${order.orderNumber || order.id} يتطلب موافقة مسؤول ثانٍ؛ لم يُنفَّذ أي رد عبر Stripe بعد.`);
-      } else {
-        setNotice(`تم ردّ مبلغ الطلب ${order.orderNumber || order.id} وإلغاء حقوق التنزيل.`);
-      }
-      setReloadKey((value) => value + 1);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'تعذر ردّ المبلغ عبر Stripe.');
-    } finally {
-      setBusyId(null);
-    }
-  }
-
-  async function decideRefund(order: AdminStoreOrder, decision: 'approve' | 'reject') {
-    let note = '';
-    if (decision === 'reject') {
-      note = window.prompt('سبب رفض الردّ (إلزامي):')?.trim() || '';
-      if (note.length < 3) return;
-    } else if (!window.confirm(`اعتماد ردّ مبلغ الطلب ${order.orderNumber || order.id} وتنفيذه عبر Stripe؟`)) {
-      return;
-    }
-    setBusyId(order.id);
-    setError(null);
-    setNotice(null);
-    try {
-      await api.post(`/admin/store-orders/${order.id}/refund/approval`, { decision, ...(note ? { note } : {}) });
-      setNotice(decision === 'approve'
-        ? `تم اعتماد ردّ مبلغ الطلب ${order.orderNumber || order.id} وتنفيذه عبر Stripe.`
-        : `تم رفض طلب ردّ مبلغ الطلب ${order.orderNumber || order.id}.`);
-      setReloadKey((value) => value + 1);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'تعذر معالجة طلب الردّ.');
-    } finally {
-      setBusyId(null);
-    }
-  }
-
-  async function grantEntitlement(order: AdminStoreOrder, orderItemId: number) {
-    const reason = window.prompt('سبب منح حق التنزيل (إلزامي):')?.trim();
-    if (!reason || reason.length < 3) return;
-    setBusyId(order.id);
-    setError(null);
-    setNotice(null);
-    try {
-      await api.post(`/admin/store-orders/${order.id}/entitlements/grant`, { orderItemId, reason });
-      setNotice('أُعيد تفعيل حق التنزيل.');
-      setReloadKey((value) => value + 1);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'تعذر منح حق التنزيل.');
-    } finally {
-      setBusyId(null);
-    }
-  }
-
-  async function revokeEntitlement(order: AdminStoreOrder, entitlementId: number) {
-    const reason = window.prompt('سبب إلغاء حق التنزيل (إلزامي):')?.trim();
-    if (!reason || reason.length < 3) return;
-    setBusyId(order.id);
-    setError(null);
-    setNotice(null);
-    try {
-      await api.post(`/admin/entitlements/${entitlementId}/revoke`, { reason });
-      setNotice('أُلغي حق التنزيل وسُجّل السبب في التدقيق.');
-      setReloadKey((value) => value + 1);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'تعذر إلغاء حق التنزيل.');
-    } finally {
-      setBusyId(null);
-    }
-  }
-
-  async function resetDownloads(order: AdminStoreOrder, entitlementId: number) {
-    setBusyId(order.id);
-    setError(null);
-    setNotice(null);
-    try {
-      await api.post(`/admin/entitlements/${entitlementId}/reset-downloads`, {});
-      setNotice('أُعيد ضبط عدّاد تنزيلات الكتاب.');
-      setReloadKey((value) => value + 1);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'تعذر إعادة ضبط التنزيلات.');
-    } finally {
-      setBusyId(null);
-    }
-  }
-
   return translateTree(<main><Container className="max-w-7xl space-y-6">
     <div className="flex flex-wrap items-end justify-between gap-4">
-      <div><h1 className="text-2xl font-black text-emerald-950">طلبات المتجر</h1><p className="mt-2 text-slate-600">كل الطلبات، بما فيها المعلّقة والفاشلة، مع حالة الدفع والتجهيز.</p></div>
+      <div><h1 className="text-2xl font-black text-emerald-950">طلبات الكتب الورقية</h1><p className="mt-2 text-slate-600">الطلبات المدفوعة وعناوين الشحن وحالة التجهيز.</p></div>
       <button onClick={() => setReloadKey((value) => value + 1)} className="rounded-xl border border-emerald-950/15 px-4 py-2 text-sm font-bold text-emerald-900">تحديث</button>
     </div>
-    {health && <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5"><div className="rounded-2xl border border-slate-200 bg-white p-4"><p className="text-xs font-bold text-slate-500">Stripe</p><p className="mt-1 font-black text-emerald-950">{health.stripeConfigured ? health.stripeMode : 'غير مهيأ'}</p></div><div className="rounded-2xl border border-slate-200 bg-white p-4"><p className="text-xs font-bold text-slate-500">سر الويبهوك</p><p className="mt-1 font-black text-emerald-950">{health.webhookSecretConfigured ? 'مُعرّف' : 'ناقص'}</p></div><div className="rounded-2xl border border-amber-200 bg-amber-50 p-4"><p className="text-xs font-bold text-amber-800">مدفوعات معلّقة</p><p className="mt-1 font-black text-amber-950">{health.pendingOrders}</p></div><div className="rounded-2xl border border-red-200 bg-red-50 p-4"><p className="text-xs font-bold text-red-700">أحداث فاشلة</p><p className="mt-1 font-black text-red-950">{health.failedEvents}</p></div><div className="rounded-2xl border border-red-200 bg-red-50 p-4"><p className="text-xs font-bold text-red-700">عدم تطابق المبلغ</p><p className="mt-1 font-black text-red-950">{health.amountMismatchOrders}</p></div></div>}
     {error && <div className="mt-6"><ErrorState message={error} /></div>}{loadError && <div className="mt-6"><ErrorState message={loadError} /></div>}{notice && <p className="mt-5 rounded-xl bg-emerald-50 p-4 text-sm text-emerald-900" role="status">{notice}</p>}
     <section className="mt-8 space-y-4">
       {loading && <LoadingState />}
-      {!loading && !loadError && !orders.length && <EmptyState>لا توجد طلبات بعد.</EmptyState>}
-      {orders.map((order) => {
+      {!loading && !loadError && !orders?.length && <EmptyState>لا توجد طلبات ورقية مدفوعة تحتاج إلى تجهيز.</EmptyState>}
+      {orders?.map((order) => {
         const draft = drafts[order.id] || {
           fulfillmentStatus: order.fulfillmentStatus,
           trackingNumber: order.trackingNumber || ''
         };
         return <article key={order.id} className="rounded-2xl border border-emerald-950/10 bg-white p-5 sm:p-6">
           <div className="flex flex-wrap items-start justify-between gap-4">
-            <div><h2 className="font-bold text-emerald-950">طلب {order.orderNumber || `#${order.id}`} · {formatPrice(order.total, order.currency, language)}</h2><p className="mt-1 text-sm text-slate-600">{order.customer ? `${order.customer.firstName} ${order.customer.lastName} · ${order.customer.email}` : '—'}</p><p className="mt-1 text-xs text-slate-500">{new Date(order.createdAt).toLocaleDateString(language)}</p></div>
-            <div className="flex flex-wrap items-center gap-2"><span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-800">{order.status}</span><span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-900">{fulfillmentLabels[order.fulfillmentStatus]}</span><button type="button" onClick={() => void syncOrder(order)} disabled={busyId === order.id} className="rounded-lg border border-emerald-200 px-3 py-1.5 text-xs font-bold text-emerald-800 disabled:opacity-50">مزامنة Stripe</button>{['paid', 'fulfilled'].includes(order.status) && <><button type="button" onClick={() => void resendConfirmation(order)} disabled={busyId === order.id} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-bold text-slate-700 disabled:opacity-50">إعادة إرسال التأكيد</button>{order.refundApproval?.status === 'pending'
-                  ? <><span className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-900">ردّ بانتظار موافقة مسؤول ثانٍ</span><button type="button" onClick={() => void decideRefund(order, 'approve')} disabled={busyId === order.id} className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800 disabled:opacity-50">اعتماد الردّ</button><button type="button" onClick={() => void decideRefund(order, 'reject')} disabled={busyId === order.id} className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-bold text-red-700 disabled:opacity-50">رفض الردّ</button></>
-                  : <button type="button" onClick={() => void refundOrder(order)} disabled={busyId === order.id} className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-bold text-red-700 disabled:opacity-50">ردّ عبر Stripe</button>}</>}</div>
+            <div><h2 className="font-bold text-emerald-950">طلب رقم {order.id} · {formatPrice(order.total, order.currency, language)}</h2><p className="mt-1 text-sm text-slate-600">{order.user.firstName} {order.user.lastName} · {order.user.email}</p><p className="mt-1 text-xs text-slate-500">{new Date(order.createdAt).toLocaleDateString(language)}</p></div>
+            <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-900">{fulfillmentLabels[order.fulfillmentStatus]}</span>
           </div>
-          <ul className="mt-4 list-inside list-disc text-sm text-slate-700">{order.items.map((item, index) => <li key={`${order.id}-${index}`}>{item.title} × {item.quantity} <span className="text-slate-500">({item.format === 'ebook' ? 'إلكتروني' : 'ورقي'})</span></li>)}</ul>
-          {!!order.downloads?.length && <div className="mt-4 rounded-xl border border-emerald-950/10 bg-[#f7f6f0] p-4"><h3 className="text-sm font-bold text-emerald-950">حقوق التنزيل</h3><div className="mt-2 space-y-2">{(order.downloads || []).map((download) => <div key={download.orderItemId} className="flex flex-wrap items-center justify-between gap-2 text-xs"><span className="font-semibold text-slate-700">{download.title} · {download.downloadsRemaining === null ? 'غير محدود' : `${download.downloadsRemaining} من ${download.downloadLimit}`}</span><span className="flex flex-wrap gap-1">{download.entitlementId && <button type="button" onClick={() => void resetDownloads(order, download.entitlementId as number)} disabled={busyId === order.id} className="rounded border border-emerald-200 px-2 py-1 font-bold text-emerald-800 disabled:opacity-50">إعادة ضبط التنزيلات</button>}{download.canDownload && download.entitlementId ? <button type="button" onClick={() => void revokeEntitlement(order, download.entitlementId as number)} disabled={busyId === order.id} className="rounded border border-red-200 px-2 py-1 font-bold text-red-700 disabled:opacity-50">إلغاء الحق</button> : <button type="button" onClick={() => void grantEntitlement(order, download.orderItemId)} disabled={busyId === order.id} className="rounded border border-emerald-200 px-2 py-1 font-bold text-emerald-800 disabled:opacity-50">منح الحق</button>}</span></div>)}</div></div>}
+          <ul className="mt-4 list-inside list-disc text-sm text-slate-700">{order.items.map((item, index) => <li key={`${order.id}-${index}`}>{item.titleSnapshot || item.book.title} × {item.quantity}</li>)}</ul>
           {order.shippingAddress && <div className="mt-4 rounded-xl bg-[#f7f6f0] p-4 text-sm leading-7 text-slate-700"><p className="font-bold text-emerald-950">{order.shippingAddress.name} · {order.shippingAddress.phone}</p><p>{order.shippingAddress.line1}{order.shippingAddress.line2 ? `، ${order.shippingAddress.line2}` : ''}</p><p>{order.shippingAddress.postalCode} {order.shippingAddress.city}، {order.shippingAddress.country}</p></div>}
-          {['paid', 'fulfilled'].includes(order.status) && order.items.some((item) => item.format === 'print') && <div className="mt-4 flex flex-wrap items-end gap-3">
+          <div className="mt-4 flex flex-wrap items-end gap-3">
             <label className="text-sm font-semibold text-slate-700">حالة التجهيز<select value={draft.fulfillmentStatus} onChange={(event) => setDrafts((value) => ({ ...value, [order.id]: { ...draft, fulfillmentStatus: event.target.value as AdminStoreOrder['fulfillmentStatus'] } }))} className="mt-1 block rounded-xl border border-emerald-950/15 px-3 py-2">{fulfillmentOrder.map((status) => <option key={status} value={status} disabled={fulfillmentOrder.indexOf(status) < fulfillmentOrder.indexOf(order.fulfillmentStatus)}>{fulfillmentLabels[status]}</option>)}</select></label>
             <label className="min-w-52 flex-1 text-sm font-semibold text-slate-700">رقم التتبع<input dir="ltr" value={draft.trackingNumber} onChange={(event) => setDrafts((value) => ({ ...value, [order.id]: { ...draft, trackingNumber: event.target.value } }))} className="mt-1 block w-full rounded-xl border border-emerald-950/15 px-3 py-2 text-left" /></label>
             <button onClick={() => saveOrder(order)} disabled={busyId === order.id || (draft.fulfillmentStatus === order.fulfillmentStatus && draft.trackingNumber === (order.trackingNumber || ''))} className="rounded-full bg-emerald-900 px-5 py-2.5 text-sm font-bold text-white disabled:opacity-50">{busyId === order.id ? 'جارٍ الحفظ…' : 'حفظ التحديث'}</button>
-          </div>}
+          </div>
         </article>;
       })}
     </section>
@@ -3177,6 +3015,7 @@ export function AdminSubscriptionsPage() {
     try {
       const payload = {
         name: planDraft.translations.ar.name,
+        slug: planDraft.slug,
         price: Number(planDraft.price),
         currency: 'EUR',
         interval: planDraft.interval,
@@ -3217,6 +3056,7 @@ export function AdminSubscriptionsPage() {
     }])) as PlanDraft['translations'];
     setEditingPlanId(plan.id);
     setPlanDraft({
+      slug: plan.slug,
       price: String(plan.price),
       interval: plan.interval,
       translations: translationDraft
@@ -3253,6 +3093,7 @@ export function AdminSubscriptionsPage() {
             <label className="block text-sm font-semibold text-slate-700">اسم الباقة<input required value={planDraft.translations[code].name} onChange={(event) => setPlanDraft((current) => ({ ...current, translations: { ...current.translations, [code]: { ...current.translations[code], name: event.target.value } } }))} dir={code === 'ar' ? 'rtl' : 'ltr'} className="mt-2 w-full rounded-xl border border-emerald-950/15 px-3 py-2.5" /></label>
             <label className="block text-sm font-semibold text-slate-700">المزايا (ميزة واحدة في كل سطر)<textarea required rows={3} value={planDraft.translations[code].features} onChange={(event) => setPlanDraft((current) => ({ ...current, translations: { ...current.translations, [code]: { ...current.translations[code], features: event.target.value } } }))} dir={code === 'ar' ? 'rtl' : 'ltr'} className="mt-2 w-full rounded-xl border border-emerald-950/15 px-3 py-2.5" /></label>
           </fieldset>)}
+          <label className="block text-sm font-semibold text-slate-700">الرابط المختصر (slug)<input required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" value={planDraft.slug} onChange={(event) => setPlanDraft({ ...planDraft, slug: event.target.value })} dir="ltr" className="mt-2 w-full rounded-xl border border-emerald-950/15 px-3 py-2.5 text-left" /></label>
           <div className="grid grid-cols-2 gap-3"><label className="text-sm font-semibold text-slate-700">السعر باليورو<input required type="number" min="0.01" step="0.01" value={planDraft.price} onChange={(event) => setPlanDraft({ ...planDraft, price: event.target.value })} className="mt-2 w-full rounded-xl border border-emerald-950/15 px-3 py-2.5" /></label><label className="text-sm font-semibold text-slate-700">الفترة<select value={planDraft.interval} onChange={(event) => setPlanDraft({ ...planDraft, interval: event.target.value as 'month' | 'year' })} className="mt-2 w-full rounded-xl border border-emerald-950/15 px-3 py-2.5"><option value="month">شهرية</option><option value="year">سنوية</option></select></label></div>
           <div className="flex gap-3">
             <button disabled={planBusy} className="flex-1 rounded-full bg-emerald-900 px-5 py-3 font-bold text-white disabled:opacity-50">{planBusy ? 'جارٍ الحفظ…' : editingPlanId ? 'حفظ الباقة' : 'إنشاء الباقة'}</button>
@@ -3265,193 +3106,41 @@ export function AdminSubscriptionsPage() {
   </Container></main>, language);
 }
 
-type CheckoutDownload = {
-  orderItemId: number;
-  bookId: number;
-  slug: string;
-  title: string;
-  cover: string | null;
-  canDownload: boolean;
-  downloadsRemaining: number | null;
-  downloadLimit: number | null;
-  downloadCount: number;
-};
-
-type CheckoutOrder = {
-  id: number;
-  orderNumber: string | null;
-  status: string;
-  normalizedStatus: string;
-  currency: string;
-  total: string;
-  totalMinor: number | null;
-  createdAt: string;
-  items: Array<{ id: number; title: string; quantity: number; format: string | null }>;
-  downloads: CheckoutDownload[];
-};
-
 type CheckoutResult = {
   kind: 'book' | 'subscription' | 'donation';
   status: string;
-  orderId?: number;
-  order?: CheckoutOrder;
   recurring?: boolean;
   accessActive?: boolean;
   plan?: { name: string; translations?: PlanTranslations };
 };
 
-function checkoutIsPaid(result: CheckoutResult | null) {
-  if (!result) return false;
-  return ['paid', 'fulfilled', 'active'].includes(result.order?.normalizedStatus || result.order?.status || result.status) || Boolean(result.accessActive);
-}
-
-function checkoutIsTerminalFailure(result: CheckoutResult | null) {
-  const status = result?.order?.normalizedStatus || result?.order?.status || result?.status;
-  return ['failed', 'expired', 'canceled', 'cancelled', 'amount_mismatch', 'refunded'].includes(status || '');
-}
-
-export function OrderThankYouPage() {
-  const { id = '' } = useParams();
-  return <CheckoutResultPage orderIdOverride={id} />;
-}
-
-export function CheckoutResultPage({ orderIdOverride }: { orderIdOverride?: string } = {}) {
+export function CheckoutResultPage() {
   const [searchParams] = useSearchParams();
   const language = useSiteLanguage();
   const sessionId = searchParams.get('session_id');
-  const orderId = orderIdOverride || searchParams.get('order_id');
   const { user, isLoading } = useStoryAuth();
-  const [result, setResult] = useState<CheckoutResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [timedOut, setTimedOut] = useState(false);
-  const [attempt, setAttempt] = useState(0);
-  const [downloadError, setDownloadError] = useState<string | null>(null);
-  const [downloadBusy, setDownloadBusy] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!user || (!sessionId && !orderId)) { setLoading(false); return; }
-    let active = true;
-    let timer: number | undefined;
-    let attempts = 0;
-    async function check() {
-      attempts += 1;
-      try {
-        const response = orderId
-          ? await api.get<{ order: CheckoutOrder }>(`/orders/${orderId}/status`).then((value) => ({ kind: 'book' as const, status: value.order.normalizedStatus, orderId: value.order.id, order: value.order }))
-          : await api.get<CheckoutResult>(`/payments/session/${encodeURIComponent(sessionId || '')}`);
-        if (!active) return;
-        setResult(response);
-        setError(null);
-        setLoading(false);
-        if (checkoutIsPaid(response)) {
-          window.dispatchEvent(new Event('cart:changed'));
-          window.localStorage.removeItem(GUEST_CART_KEY);
-        }
-        if (checkoutIsPaid(response) || checkoutIsTerminalFailure(response)) return;
-        if (attempts >= 30) { setTimedOut(true); return; }
-        timer = window.setTimeout(check, 2000);
-      } catch (caught) {
-        if (!active) return;
-        setError(caught instanceof Error ? caught.message : 'تعذر التحقق من حالة الدفع.');
-        setLoading(false);
-        if (attempts >= 30) setTimedOut(true);
-        else timer = window.setTimeout(check, 2000);
-      }
-    }
-    setLoading(true);
-    setTimedOut(false);
-    void check();
-    return () => { active = false; if (timer) window.clearTimeout(timer); };
-  }, [user, sessionId, orderId, attempt]);
-
-  async function downloadBook(download: CheckoutDownload) {
-    setDownloadBusy(download.slug);
-    setDownloadError(null);
-    try {
-      const token = await api.post<{ url: string; downloadsRemaining: number | null }>(`/books/${encodeURIComponent(download.slug)}/download-token`, {});
-      setResult((current) => current?.order ? {
-        ...current,
-        order: {
-          ...current.order,
-          downloads: current.order.downloads.map((entry) => entry.orderItemId === download.orderItemId
-            ? { ...entry, downloadCount: entry.downloadCount + 1, downloadsRemaining: token.downloadsRemaining ?? 0 }
-            : entry)
-        }
-      } : current);
-      window.location.assign(token.url);
-    } catch (caught) {
-      if (caught instanceof ApiError && caught.code === 'DOWNLOAD_LIMIT_REACHED') {
-        setResult((current) => current?.order ? {
-          ...current,
-          order: {
-            ...current.order,
-            downloads: current.order.downloads.map((entry) => entry.orderItemId === download.orderItemId
-              ? { ...entry, downloadsRemaining: 0 }
-              : entry)
-          }
-        } : current);
-        setDownloadError('لقد نزّلت هذا الكتاب بالفعل. يمكنك العثور عليه في حسابك، ولا يُسمح بتنزيله مرة أخرى.');
-      } else {
-        setDownloadError(caught instanceof Error ? caught.message : 'تعذر تجهيز رابط التنزيل.');
-      }
-    } finally {
-      setDownloadBusy(null);
-    }
-  }
-
+  const { data: result, error, loading } = useRemote<CheckoutResult>(
+    sessionId ? `/payments/session/${encodeURIComponent(sessionId)}` : ''
+  );
   if (isLoading) return <SiteLayout><Container className="py-16"><LoadingState /></Container></SiteLayout>;
   if (!user) return <Navigate to="/login" replace />;
-  const paid = checkoutIsPaid(result);
-  const failed = checkoutIsTerminalFailure(result);
-  const order = result?.order;
+  const paid = result?.status === 'paid' || result?.status === 'active' || result?.accessActive;
 
-  return <SiteLayout><main><Container className="max-w-4xl py-14 sm:py-20">
-    <div className={`rounded-[2rem] border p-7 sm:p-10 ${paid ? 'border-emerald-200 bg-emerald-50/70' : failed ? 'border-red-200 bg-red-50/60' : 'border-amber-200 bg-amber-50/60'}`}>
-      <span className={`grid h-14 w-14 place-items-center rounded-2xl ${paid ? 'bg-emerald-100 text-emerald-800' : failed ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'}`}>
-        {paid ? <Check size={25} /> : failed ? <X size={25} /> : <CreditCard size={24} />}
-      </span>
-      <h1 className="mt-6 text-3xl font-black leading-relaxed text-emerald-950">
-        {paid ? (order ? 'تم تأكيد طلبك' : 'تم تأكيد الدفع') : failed ? 'لم يكتمل الدفع' : 'جارٍ تأكيد عملية الدفع'}
-      </h1>
-      {loading && <p role="status" className="mt-4 flex items-center gap-2 text-slate-600"><RefreshCw size={16} className="animate-spin" /> نتحقق من حالة الطلب مباشرة لدى Stripe…</p>}
-      {error && <div className="mt-5"><ErrorState message={error} /></div>}
-      {paid && <p className="mt-4 leading-8 text-slate-700">استلمنا دفعتك. كل روابط التنزيل الخاصة بهذا الطلب موجودة أدناه وفي مكتبتك.</p>}
-      {failed && <p className="mt-4 leading-8 text-slate-700">لم يُخصم المبلغ أو تم إلغاء العملية. يمكنك العودة إلى السلة والمحاولة مرة أخرى.</p>}
-      {!paid && !failed && !error && <p className="mt-4 leading-8 text-slate-700">قد يستغرق تأكيد Stripe بضع ثوان. لا تغلق الصفحة؛ نتحقق تلقائيًا كل ثانيتين.</p>}
-      {timedOut && !paid && !failed && <div className="mt-5 rounded-2xl bg-white/70 p-4 text-sm leading-7 text-slate-700">
-        <p>التأكيد يتأخر أكثر من المعتاد. إذا وصلتك رسالة الدفع من Stripe فاضغط «تحقق مرة أخرى»، أو تواصل مع الدعم مع رقم الطلب.</p>
-        <a href="mailto:support@example.com" className="mt-2 inline-block font-bold text-emerald-800 underline">تواصل مع الدعم</a>
-      </div>}
-      <div className="mt-7 flex flex-wrap items-center gap-3">
-        {!paid && !failed && <button type="button" onClick={() => setAttempt((value) => value + 1)} className="inline-flex items-center gap-2 rounded-full bg-emerald-900 px-6 py-3 font-bold text-white"><RefreshCw size={16} /> تحقق مرة أخرى</button>}
-        <Link to={failed ? '/cart' : result?.kind === 'donation' ? '/donations' : '/account'} className="inline-flex items-center gap-2 rounded-full border border-emerald-900/20 bg-white px-6 py-3 font-bold text-emerald-900">
-          {failed ? 'العودة إلى السلة' : 'متابعة'}
-        </Link>
-        {order && <Link to="/account" className="font-bold text-emerald-800 underline">طلباتي ومكتبتي</Link>}
-      </div>
-    </div>
-
-    {order && <section className="mt-8 rounded-[2rem] border border-emerald-950/10 bg-white p-7 sm:p-9">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div><h2 className="text-2xl font-black text-emerald-950">ملخص الطلب</h2><p className="mt-1 text-sm text-slate-500">رقم {order.orderNumber || order.id} · {new Date(order.createdAt).toLocaleDateString(language)}</p></div>
-        <span className="rounded-full bg-emerald-100 px-4 py-2 text-sm font-bold text-emerald-900">{order.normalizedStatus}</span>
-      </div>
-      <ul className="mt-5 divide-y divide-slate-100">{order.items.map((item) => <li key={item.id} className="flex justify-between gap-3 py-3 text-sm"><span className="font-semibold text-slate-800">{item.title} <span className="font-normal text-slate-500">× {item.quantity}</span></span><span className="text-slate-500">{item.format === 'ebook' ? 'كتاب إلكتروني' : 'نسخة مطبوعة'}</span></li>)}</ul>
-      <p className="mt-3 text-end text-lg font-black text-emerald-950">{formatPrice(order.total, order.currency, language)}</p>
-
-      {!!order.downloads.length && <div className="mt-8 border-t border-slate-100 pt-7">
-        <h3 className="text-xl font-extrabold text-emerald-950">تنزيلاتك</h3>
-        <p className="mt-1 text-sm text-slate-500">كل كتاب إلكتروني في الطلب، مع عدد التنزيلات المتبقية.</p>
-        {downloadError && <div className="mt-4"><ErrorState message={downloadError} /></div>}
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">{order.downloads.map((download) => <article key={download.orderItemId} className="flex gap-3 rounded-2xl border border-emerald-950/10 p-4">
-          <div className="h-16 w-12 shrink-0 overflow-hidden rounded-lg bg-[#efe8d8]">{download.cover ? <img src={download.cover} alt="" className="h-full w-full object-cover" /> : <BookOpen className="m-3 text-emerald-800" size={24} />}</div>
-          <div className="min-w-0 flex-1"><h4 className="line-clamp-2 font-bold text-emerald-950">{download.title}</h4><p className="mt-1 text-xs text-slate-500">{download.downloadsRemaining === null ? 'تنزيلات غير محدودة' : download.downloadCount > 0 || download.downloadsRemaining === 0 ? 'تم تنزيل هذا الكتاب بالفعل' : 'تنزيل واحد متاح'}</p>
-            {download.canDownload && download.downloadsRemaining !== 0 ? <><button type="button" onClick={() => void downloadBook(download)} disabled={downloadBusy === download.slug} className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-emerald-900 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"><BookOpen size={14} /> {downloadBusy === download.slug ? 'جارٍ التجهيز…' : 'تنزيل PDF (مرة واحدة)'}</button><p className="mt-2 text-xs leading-5 text-slate-500">بعد التنزيل مرة واحدة، يبقى الكتاب متاحًا في حسابك دون تنزيل جديد.</p></> : <><p className="mt-2 text-xs font-bold leading-5 text-amber-800">{download.downloadCount > 0 ? 'لقد نزّلت هذا الكتاب بالفعل. لا يُسمح بتنزيله مرة أخرى.' : 'يمكنك تنزيل هذا الكتاب من حسابك.'}</p><Link to="/account" className="mt-2 inline-block text-xs font-bold text-emerald-800 underline">الوصول إلى الكتاب من حسابي</Link></>}
-          </div>
-        </article>)}</div>
-      </div>}
-    </section>}
+  return <SiteLayout><main><Container className="max-w-3xl py-14 sm:py-20">
+    <span className={`grid h-14 w-14 place-items-center rounded-2xl ${paid ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>{paid ? <Check size={25} /> : <CreditCard size={24} />}</span>
+    <h1 className="mt-6 text-3xl font-black leading-relaxed text-emerald-950">{paid ? 'تم تأكيد الدفع' : 'جارٍ تأكيد عملية الدفع'}</h1>
+    {loading && <p className="mt-4 text-slate-600">نتحقق من حالة الطلب الآمنة…</p>}
+    {error && <div className="mt-5"><ErrorState message={error} /></div>}
+    {result && <p className="mt-4 leading-8 text-slate-600">{paid
+      ? result.kind === 'book'
+        ? 'استلمنا دفعتك، وسيصلك تأكيد الطلب على بريدك الإلكتروني.'
+        : result.kind === 'donation'
+          ? t(result.recurring ? 'شكرًا لدعمك؛ تم تسجيل تبرعك الشهري.' : 'شكرًا لدعمك؛ تم تسجيل تبرعك.', language)
+        : <>{t('اشتراكك في', language)} {result.plan?.translations?.[language]?.name || (language === 'ar' ? result.plan?.name : t('اشتراك', language)) || t('باقة', language)} {t('فعّال الآن.', language)}</>
+      : 'قد يستغرق تحديث الحالة لحظات بعد عودتك من بوابة الدفع.'}</p>}
+    {!sessionId && <p className="mt-4 text-slate-600">لم يتم العثور على رقم جلسة الدفع.</p>}
+    <button onClick={() => window.location.reload()} className="mt-7 inline-flex items-center gap-2 rounded-full bg-emerald-900 px-6 py-3 font-bold text-white"><RefreshCw size={16} /> تحديث حالة الدفع</button>
+    <Link to={result?.kind === 'book' ? '/books' : result?.kind === 'donation' ? '/donations' : '/account'} className="mr-3 mt-7 inline-flex font-bold text-emerald-800">متابعة</Link>
   </Container></main></SiteLayout>;
 }
 
@@ -3464,10 +3153,6 @@ export function MembershipPage() {
     {user ? <Link to="/account" className="mt-7 inline-flex rounded-full bg-emerald-900 px-6 py-3 font-bold text-white">عرض حالة اشتراكي</Link> : <Link to="/register" className="mt-7 inline-flex rounded-full bg-emerald-900 px-6 py-3 font-bold text-white">إنشاء حساب</Link>}
     <p className="mt-5 text-sm text-slate-500">الأجزاء المجانية تبقى متاحة دائمًا وفق سياسة النشر.</p>
   </Container></main></SiteLayout>;
-}
-
-export function ReturnsPolicyRoute() {
-  return <SiteLayout><main><Container><ReturnsPolicyPage /></Container></main></SiteLayout>;
 }
 
 export function PolicyPage({ kind }: { kind: 'overview' | 'sources' | 'depiction' }) {
