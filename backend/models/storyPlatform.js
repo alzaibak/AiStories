@@ -14,6 +14,11 @@ const Collection = sequelize.define('Collection', {
   slug: { type: DataTypes.STRING(255), allowNull: false, unique: true },
   description: { type: DataTypes.TEXT, allowNull: true },
   cover: { type: DataTypes.STRING(1000), allowNull: true },
+  coverImage: { type: DataTypes.STRING(1000), allowNull: true },
+  bannerImage: { type: DataTypes.STRING(1000), allowNull: true },
+  coverAlt: { type: DataTypes.JSON, allowNull: true },
+  bannerAlt: { type: DataTypes.JSON, allowNull: true },
+  focalPoint: { type: DataTypes.JSON, allowNull: true },
   translations: { type: DataTypes.JSON, allowNull: false, defaultValue: {} },
   isFree: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
   sortOrder: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
@@ -32,6 +37,14 @@ const Story = sequelize.define('Story', {
   slug: { type: DataTypes.STRING(255), allowNull: false, unique: true },
   summary: { type: DataTypes.TEXT, allowNull: false },
   cover: { type: DataTypes.STRING(1000), allowNull: true },
+  coverImage: { type: DataTypes.STRING(1000), allowNull: true },
+  heroImage: { type: DataTypes.STRING(1000), allowNull: true },
+  socialImage: { type: DataTypes.STRING(1000), allowNull: true },
+  coverAlt: { type: DataTypes.JSON, allowNull: true },
+  coverVariants: { type: DataTypes.JSON, allowNull: true },
+  focalPoint: { type: DataTypes.JSON, allowNull: true },
+  imageCredit: { type: DataTypes.STRING(300), allowNull: true },
+  hook: { type: DataTypes.STRING(500), allowNull: true },
   translations: { type: DataTypes.JSON, allowNull: false, defaultValue: {} },
   type: {
     type: DataTypes.ENUM('quran', 'sunnah', 'history', 'new'),
@@ -97,6 +110,8 @@ const StoryPart = sequelize.define('StoryPart', {
   partNumber: { type: DataTypes.INTEGER, allowNull: false },
   title: { type: DataTypes.STRING(255), allowNull: false },
   content: { type: DataTypes.TEXT('long'), allowNull: false },
+  illustrationImage: { type: DataTypes.STRING(1000), allowNull: true },
+  illustrationAlt: { type: DataTypes.JSON, allowNull: true },
   translations: { type: DataTypes.JSON, allowNull: false, defaultValue: {} },
   estimatedReadingMinutes: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 5 },
   endingHook: { type: DataTypes.TEXT, allowNull: false },
@@ -282,7 +297,13 @@ const Book = sequelize.define('Book', {
   price: { type: DataTypes.DECIMAL(10, 2), allowNull: false },
   currency: { type: DataTypes.STRING(3), allowNull: false, defaultValue: 'EUR' },
   stockQuantity: { type: DataTypes.INTEGER, allowNull: true },
+  isReturnable: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
+  returnWindowDays: { type: DataTypes.INTEGER, allowNull: true },
   fileStorageKey: { type: DataTypes.STRING(1024), allowNull: true },
+  previewFileKey: { type: DataTypes.STRING(1024), allowNull: true },
+  coverAlt: { type: DataTypes.JSON, allowNull: true },
+  weightGrams: { type: DataTypes.INTEGER, allowNull: true },
+  isbn: { type: DataTypes.STRING(32), allowNull: true },
   stripeProductId: { type: DataTypes.STRING(255), allowNull: true },
   stripePriceId: { type: DataTypes.STRING(255), allowNull: true },
   isPublished: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
@@ -360,17 +381,48 @@ const StoreCartItem = sequelize.define('StoreCartItem', {
 const StoreOrder = sequelize.define('StoreOrder', {
   id,
   userId: { type: DataTypes.INTEGER, allowNull: false, references: { model: 'users', key: 'id' }, onDelete: 'RESTRICT' },
-  status: { type: DataTypes.ENUM('pending', 'paid', 'failed', 'refunded', 'cancelled'), allowNull: false, defaultValue: 'pending' },
+  orderNumber: { type: DataTypes.STRING(32), allowNull: true, unique: true },
+  status: {
+    type: DataTypes.ENUM(
+      'pending', 'pending_payment', 'paid', 'fulfilled', 'failed', 'expired',
+      'canceled', 'cancelled', 'refunded', 'partially_refunded', 'amount_mismatch'
+    ),
+    allowNull: false,
+    defaultValue: 'pending_payment'
+  },
   fulfillmentStatus: {
     type: DataTypes.ENUM('unfulfilled', 'processing', 'shipped', 'delivered'),
     allowNull: false,
     defaultValue: 'unfulfilled'
   },
   trackingNumber: { type: DataTypes.STRING(255), allowNull: true },
+  shippedAt: { type: DataTypes.DATE, allowNull: true },
+  deliveredAt: { type: DataTypes.DATE, allowNull: true },
+  returnStatus: {
+    type: DataTypes.ENUM('none', 'requested', 'partial', 'completed'),
+    allowNull: false,
+    defaultValue: 'none'
+  },
   currency: { type: DataTypes.STRING(3), allowNull: false, defaultValue: 'EUR' },
   subtotal: { type: DataTypes.DECIMAL(10, 2), allowNull: false },
   discountAmount: { type: DataTypes.DECIMAL(10, 2), allowNull: false, defaultValue: 0 },
+  shippingAmount: { type: DataTypes.DECIMAL(10, 2), allowNull: false, defaultValue: 0 },
   total: { type: DataTypes.DECIMAL(10, 2), allowNull: false },
+  subtotalMinor: { type: DataTypes.INTEGER, allowNull: true },
+  discountMinor: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+  shippingMinor: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+  taxMinor: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+  totalMinor: { type: DataTypes.INTEGER, allowNull: true },
+  customerEmail: { type: DataTypes.STRING(255), allowNull: true },
+  idempotencyKey: { type: DataTypes.STRING(120), allowNull: true, unique: true },
+  digitalConsentAt: { type: DataTypes.DATE, allowNull: true },
+  paidAt: { type: DataTypes.DATE, allowNull: true },
+  canceledAt: { type: DataTypes.DATE, allowNull: true },
+  expiresAt: { type: DataTypes.DATE, allowNull: true },
+  lastStripeSyncAt: { type: DataTypes.DATE, allowNull: true },
+  // Amount Stripe actually captured (session.amount_total). Percentage coupons
+  // also apply to shipping, so this is the only exact refund cap.
+  paidAmount: { type: DataTypes.DECIMAL(10, 2), allowNull: true },
   shippingAddress: { type: DataTypes.JSON, allowNull: true },
   stripeCheckoutSessionId: { type: DataTypes.STRING(255), allowNull: true, unique: true },
   stripePaymentIntentId: { type: DataTypes.STRING(255), allowNull: true }
@@ -382,7 +434,17 @@ const StoreOrderItem = sequelize.define('StoreOrderItem', {
   bookId: { type: DataTypes.INTEGER, allowNull: false, references: { model: 'books', key: 'id' }, onDelete: 'RESTRICT' },
   quantity: { type: DataTypes.INTEGER, allowNull: false },
   unitPrice: { type: DataTypes.DECIMAL(10, 2), allowNull: false },
-  titleSnapshot: { type: DataTypes.STRING(255), allowNull: false }
+  lineTotalMinor: { type: DataTypes.INTEGER, allowNull: true },
+  formatSnapshot: { type: DataTypes.STRING(16), allowNull: true },
+  titleSnapshot: { type: DataTypes.STRING(255), allowNull: false },
+  // Snapshot of the return policy at purchase time: editing the policy later
+  // never changes what an existing order is entitled to.
+  isReturnable: { type: DataTypes.BOOLEAN, allowNull: true },
+  returnWindowDays: { type: DataTypes.INTEGER, allowNull: true },
+  legalWithdrawalDays: { type: DataTypes.INTEGER, allowNull: true },
+  definedShippingFee: { type: DataTypes.DECIMAL(10, 2), allowNull: true },
+  shippingFeeCharged: { type: DataTypes.DECIMAL(10, 2), allowNull: true },
+  pricePaidAfterDiscount: { type: DataTypes.DECIMAL(10, 2), allowNull: true }
 }, { ...timestamps, tableName: 'store_order_items' });
 
 const Plan = sequelize.define('Plan', {
@@ -427,6 +489,8 @@ const Entitlement = sequelize.define('Entitlement', {
   expiresAt: { type: DataTypes.DATE, allowNull: true },
   source: { type: DataTypes.ENUM('subscription', 'purchase', 'rental', 'promo', 'gift', 'event', 'admin', 'mystery_box'), allowNull: false },
   revokedAt: { type: DataTypes.DATE, allowNull: true },
+  downloadCount: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+  downloadLimit: { type: DataTypes.INTEGER, allowNull: true },
   // Linked by migration 025 once mystery_box_purchases exists; keeping the model
   // free of a hard reference lets migration 009 create entitlements first.
   mysteryBoxPurchaseId: {
@@ -457,6 +521,25 @@ const BadgeType = sequelize.define('BadgeType', {
   description: { type: DataTypes.TEXT, allowNull: true },
   translations: { type: DataTypes.JSON, allowNull: false, defaultValue: {} },
   icon: { type: DataTypes.STRING(255), allowNull: true },
+  howToEarn: { type: DataTypes.JSON, allowNull: false, defaultValue: {} },
+  iconType: { type: DataTypes.ENUM('library', 'upload'), allowNull: false, defaultValue: 'library' },
+  iconKey: { type: DataTypes.STRING(120), allowNull: true },
+  imageUrl: { type: DataTypes.TEXT, allowNull: true },
+  tier: {
+    type: DataTypes.ENUM('bronze', 'silver', 'gold', 'platinum', 'special'),
+    allowNull: false,
+    defaultValue: 'bronze'
+  },
+  category: {
+    type: DataTypes.ENUM('reading', 'quiz', 'streak', 'collection', 'competition', 'community', 'supporter', 'event'),
+    allowNull: false,
+    defaultValue: 'reading'
+  },
+  colorTheme: { type: DataTypes.JSON, allowNull: false, defaultValue: {} },
+  points: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+  isSecret: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+  sortOrder: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+  eventTag: { type: DataTypes.STRING(120), allowNull: true },
   criteria: { type: DataTypes.JSON, allowNull: false, defaultValue: {} },
   isActive: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true }
 }, { ...timestamps, tableName: 'badge_types' });
@@ -465,9 +548,13 @@ const BadgeAward = sequelize.define('BadgeAward', {
   id,
   userId: { type: DataTypes.INTEGER, allowNull: false, references: { model: 'users', key: 'id' }, onDelete: 'CASCADE' },
   badgeTypeId: { type: DataTypes.INTEGER, allowNull: false, references: { model: 'badge_types', key: 'id' }, onDelete: 'CASCADE' },
-  sourceType: { type: DataTypes.ENUM('story', 'quiz', 'reading', 'custom'), allowNull: false, defaultValue: 'custom' },
+  sourceType: { type: DataTypes.ENUM('story', 'quiz', 'reading', 'custom', 'criteria'), allowNull: false, defaultValue: 'custom' },
   sourceId: { type: DataTypes.INTEGER, allowNull: true },
   metadata: { type: DataTypes.JSON, allowNull: false, defaultValue: {} },
+  progressSnapshot: { type: DataTypes.JSON, allowNull: false, defaultValue: {} },
+  isFeatured: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+  reason: { type: DataTypes.TEXT, allowNull: true },
+  awardedBy: { type: DataTypes.INTEGER, allowNull: true },
   awardedAt: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW }
 }, { ...timestamps, tableName: 'badge_awards', indexes: [{ unique: true, fields: ['userId', 'badgeTypeId', 'sourceType', 'sourceId'] }] });
 
@@ -548,30 +635,69 @@ const DonationCampaign = sequelize.define('DonationCampaign', {
   id,
   slug: { type: DataTypes.STRING(160), allowNull: false, unique: true },
   translations: { type: DataTypes.JSON, allowNull: false, defaultValue: {} },
+  summary: { type: DataTypes.JSON, allowNull: true },
+  coverImage: { type: DataTypes.STRING(1000), allowNull: true },
+  bannerImage: { type: DataTypes.STRING(1000), allowNull: true },
   goalAmount: { type: DataTypes.DECIMAL(10, 2), allowNull: false },
   currency: { type: DataTypes.STRING(3), allowNull: false, defaultValue: 'EUR' },
-  status: { type: DataTypes.ENUM('draft', 'active', 'completed', 'archived'), allowNull: false, defaultValue: 'draft' },
+  campaignType: { type: DataTypes.ENUM('amount_goal', 'items_goal', 'both'), allowNull: false, defaultValue: 'amount_goal' },
+  targetUnits: { type: DataTypes.INTEGER, allowNull: true },
+  unitName: { type: DataTypes.JSON, allowNull: true },
+  costPerUnit: { type: DataTypes.DECIMAL(10, 2), allowNull: true },
+  extraCosts: { type: DataTypes.DECIMAL(10, 2), allowNull: false, defaultValue: 0 },
+  totalCost: { type: DataTypes.DECIMAL(10, 2), allowNull: true },
+  raisedAmount: { type: DataTypes.DECIMAL(10, 2), allowNull: false, defaultValue: 0 },
+  sponsoredUnits: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+  donorCount: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+  status: {
+    type: DataTypes.ENUM('draft', 'scheduled', 'active', 'completed', 'archived'),
+    allowNull: false,
+    defaultValue: 'draft'
+  },
   startsAt: { type: DataTypes.DATE, allowNull: true },
   endsAt: { type: DataTypes.DATE, allowNull: true },
+  allowRecurring: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
+  allowAnonymous: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
+  allowCustomAmount: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
+  minAmount: { type: DataTypes.DECIMAL(10, 2), allowNull: false, defaultValue: 1 },
+  maxAmount: { type: DataTypes.DECIMAL(10, 2), allowNull: true },
+  overfundingPolicy: { type: DataTypes.ENUM('close', 'continue', 'transfer'), allowNull: false, defaultValue: 'close' },
+  taxReceiptsEnabled: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+  linkedStoryId: { type: DataTypes.INTEGER, allowNull: true, references: { model: 'stories', key: 'id' }, onDelete: 'SET NULL' },
+  linkedBookId: { type: DataTypes.INTEGER, allowNull: true, references: { model: 'books', key: 'id' }, onDelete: 'SET NULL' },
+  linkedCollectionId: { type: DataTypes.INTEGER, allowNull: true, references: { model: 'collections', key: 'id' }, onDelete: 'SET NULL' },
+  createdBy: { type: DataTypes.INTEGER, allowNull: true, references: { model: 'users', key: 'id' }, onDelete: 'SET NULL' },
   sponsoredBooksCount: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 }
 }, { ...timestamps, tableName: 'donation_campaigns' });
 
 const Donation = sequelize.define('Donation', {
   id,
-  campaignId: { type: DataTypes.INTEGER, allowNull: false, references: { model: 'donation_campaigns', key: 'id' }, onDelete: 'RESTRICT' },
+  campaignId: { type: DataTypes.INTEGER, allowNull: true, references: { model: 'donation_campaigns', key: 'id' }, onDelete: 'RESTRICT' },
   recurringDonationId: { type: DataTypes.INTEGER, allowNull: true, references: { model: 'recurring_donations', key: 'id' }, onDelete: 'SET NULL' },
   userId: { type: DataTypes.INTEGER, allowNull: true, references: { model: 'users', key: 'id' }, onDelete: 'SET NULL' },
   amount: { type: DataTypes.DECIMAL(10, 2), allowNull: false },
   currency: { type: DataTypes.STRING(3), allowNull: false },
-  status: { type: DataTypes.ENUM('pending', 'paid', 'failed', 'refunded'), allowNull: false, defaultValue: 'pending' },
+  unitsSponsored: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+  isRecurring: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+  isAnonymous: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+  displayName: { type: DataTypes.STRING(120), allowNull: true },
+  message: { type: DataTypes.TEXT, allowNull: true },
+  source: { type: DataTypes.ENUM('stripe', 'manual_cash', 'manual_bank'), allowNull: false, defaultValue: 'stripe' },
+  tierId: { type: DataTypes.INTEGER, allowNull: true },
+  status: {
+    type: DataTypes.ENUM('pending', 'paid', 'failed', 'refunded', 'canceled', 'amount_mismatch'),
+    allowNull: false,
+    defaultValue: 'pending'
+  },
   stripeCheckoutSessionId: { type: DataTypes.STRING(255), allowNull: true, unique: true },
   stripeInvoiceId: { type: DataTypes.STRING(255), allowNull: true, unique: true },
-  stripePaymentIntentId: { type: DataTypes.STRING(255), allowNull: true }
+  stripePaymentIntentId: { type: DataTypes.STRING(255), allowNull: true },
+  paidAt: { type: DataTypes.DATE, allowNull: true }
 }, { ...timestamps, tableName: 'donations' });
 
 const RecurringDonation = sequelize.define('RecurringDonation', {
   id,
-  campaignId: { type: DataTypes.INTEGER, allowNull: false, references: { model: 'donation_campaigns', key: 'id' }, onDelete: 'RESTRICT' },
+  campaignId: { type: DataTypes.INTEGER, allowNull: true, references: { model: 'donation_campaigns', key: 'id' }, onDelete: 'SET NULL' },
   userId: { type: DataTypes.INTEGER, allowNull: false, references: { model: 'users', key: 'id' }, onDelete: 'CASCADE' },
   amount: { type: DataTypes.DECIMAL(10, 2), allowNull: false },
   currency: { type: DataTypes.STRING(3), allowNull: false },
@@ -642,12 +768,115 @@ const PolicyPage = sequelize.define('PolicyPage', {
   updatedBy: { type: DataTypes.INTEGER, allowNull: true, references: { model: 'users', key: 'id' }, onDelete: 'SET NULL' }
 }, { ...timestamps, tableName: 'policy_pages' });
 
+const StoreOrderEvent = sequelize.define('StoreOrderEvent', {
+  id,
+  orderId: { type: DataTypes.INTEGER, allowNull: false, references: { model: 'store_orders', key: 'id' }, onDelete: 'CASCADE' },
+  type: { type: DataTypes.STRING(64), allowNull: false },
+  fromStatus: { type: DataTypes.STRING(32), allowNull: true },
+  toStatus: { type: DataTypes.STRING(32), allowNull: true },
+  message: { type: DataTypes.TEXT, allowNull: true },
+  metadata: { type: DataTypes.JSON, allowNull: false, defaultValue: {} }
+}, { ...timestamps, tableName: 'store_order_events', indexes: [{ fields: ['orderId', 'createdAt'] }] });
+
+const StripeEvent = sequelize.define('StripeEvent', {
+  id,
+  stripeEventId: { type: DataTypes.STRING(255), allowNull: false, unique: true },
+  type: { type: DataTypes.STRING(120), allowNull: false },
+  payloadSummary: { type: DataTypes.JSON, allowNull: false, defaultValue: {} },
+  status: { type: DataTypes.ENUM('received', 'processed', 'ignored', 'failed'), allowNull: false, defaultValue: 'received' },
+  error: { type: DataTypes.TEXT, allowNull: true },
+  receivedAt: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
+  processedAt: { type: DataTypes.DATE, allowNull: true }
+}, { ...timestamps, tableName: 'stripe_events', indexes: [{ fields: ['status', 'receivedAt'] }] });
+
+const DownloadToken = sequelize.define('DownloadToken', {
+  id,
+  tokenHash: { type: DataTypes.STRING(64), allowNull: false, unique: true },
+  userId: { type: DataTypes.INTEGER, allowNull: false, references: { model: 'users', key: 'id' }, onDelete: 'CASCADE' },
+  entitlementId: { type: DataTypes.INTEGER, allowNull: false, references: { model: 'entitlements', key: 'id' }, onDelete: 'CASCADE' },
+  bookId: { type: DataTypes.INTEGER, allowNull: false, references: { model: 'books', key: 'id' }, onDelete: 'CASCADE' },
+  expiresAt: { type: DataTypes.DATE, allowNull: false },
+  usedAt: { type: DataTypes.DATE, allowNull: true }
+}, { ...timestamps, tableName: 'download_tokens', indexes: [{ fields: ['userId', 'expiresAt'] }] });
+
+const DownloadLog = sequelize.define('DownloadLog', {
+  id,
+  userId: { type: DataTypes.INTEGER, allowNull: false, references: { model: 'users', key: 'id' }, onDelete: 'CASCADE' },
+  bookId: { type: DataTypes.INTEGER, allowNull: false, references: { model: 'books', key: 'id' }, onDelete: 'CASCADE' },
+  entitlementId: { type: DataTypes.INTEGER, allowNull: true, references: { model: 'entitlements', key: 'id' }, onDelete: 'SET NULL' },
+  ip: { type: DataTypes.STRING(64), allowNull: true },
+  userAgent: { type: DataTypes.STRING(512), allowNull: true }
+}, { ...timestamps, tableName: 'download_logs', indexes: [{ fields: ['bookId', 'createdAt'] }] });
+
+const SecurityEvent = sequelize.define('SecurityEvent', {
+  id,
+  userId: { type: DataTypes.INTEGER, allowNull: true, references: { model: 'users', key: 'id' }, onDelete: 'SET NULL' },
+  ip: { type: DataTypes.STRING(64), allowNull: true },
+  route: { type: DataTypes.STRING(255), allowNull: false },
+  method: { type: DataTypes.STRING(10), allowNull: false },
+  type: { type: DataTypes.STRING(80), allowNull: false },
+  severity: { type: DataTypes.ENUM('info', 'warning', 'high', 'critical'), allowNull: false, defaultValue: 'warning' },
+  reason: { type: DataTypes.STRING(1000), allowNull: false },
+  metadata: { type: DataTypes.JSON, allowNull: false, defaultValue: {} }
+}, { ...timestamps, tableName: 'security_events', indexes: [{ fields: ['type', 'createdAt'] }, { fields: ['userId', 'createdAt'] }] });
+
+const DonationTier = sequelize.define('DonationTier', {
+  id,
+  campaignId: { type: DataTypes.INTEGER, allowNull: false, references: { model: 'donation_campaigns', key: 'id' }, onDelete: 'CASCADE' },
+  amount: { type: DataTypes.DECIMAL(10, 2), allowNull: false },
+  units: { type: DataTypes.INTEGER, allowNull: true },
+  label: { type: DataTypes.JSON, allowNull: false, defaultValue: {} },
+  sortOrder: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+  isActive: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true }
+}, { ...timestamps, tableName: 'donation_tiers', indexes: [{ fields: ['campaignId', 'sortOrder'] }] });
+
+const CampaignItem = sequelize.define('CampaignItem', {
+  id,
+  campaignId: { type: DataTypes.INTEGER, allowNull: false, references: { model: 'donation_campaigns', key: 'id' }, onDelete: 'CASCADE' },
+  bookId: { type: DataTypes.INTEGER, allowNull: true, references: { model: 'books', key: 'id' }, onDelete: 'SET NULL' },
+  label: { type: DataTypes.JSON, allowNull: false, defaultValue: {} },
+  quantityTarget: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+  unitCost: { type: DataTypes.DECIMAL(10, 2), allowNull: false, defaultValue: 0 },
+  quantitySponsored: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+  quantityDistributed: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 }
+}, { ...timestamps, tableName: 'campaign_items' });
+
+const DistributionPlace = sequelize.define('DistributionPlace', {
+  id,
+  campaignId: { type: DataTypes.INTEGER, allowNull: false, references: { model: 'donation_campaigns', key: 'id' }, onDelete: 'CASCADE' },
+  name: { type: DataTypes.STRING(255), allowNull: false },
+  type: { type: DataTypes.ENUM('school', 'mosque', 'association', 'orphanage', 'library', 'family', 'other'), allowNull: false, defaultValue: 'other' },
+  city: { type: DataTypes.STRING(120), allowNull: true },
+  country: { type: DataTypes.STRING(120), allowNull: true },
+  plannedQuantity: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+  status: { type: DataTypes.ENUM('planned', 'shipped', 'distributed'), allowNull: false, defaultValue: 'planned' },
+  distributionDate: { type: DataTypes.DATE, allowNull: true },
+  notes: { type: DataTypes.TEXT, allowNull: true },
+  reportText: { type: DataTypes.TEXT, allowNull: true },
+  images: { type: DataTypes.JSON, allowNull: false, defaultValue: [] },
+  consentConfirmed: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+  isPublic: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true }
+}, { ...timestamps, tableName: 'distribution_places', indexes: [{ fields: ['campaignId', 'status'] }] });
+
+const CampaignUpdate = sequelize.define('CampaignUpdate', {
+  id,
+  campaignId: { type: DataTypes.INTEGER, allowNull: false, references: { model: 'donation_campaigns', key: 'id' }, onDelete: 'CASCADE' },
+  translations: { type: DataTypes.JSON, allowNull: false, defaultValue: {} },
+  images: { type: DataTypes.JSON, allowNull: false, defaultValue: [] },
+  publishedAt: { type: DataTypes.DATE, allowNull: true }
+}, { ...timestamps, tableName: 'campaign_updates', indexes: [{ fields: ['campaignId', 'publishedAt'] }] });
+
 const models = {
   Collection, Story, StoryPart, StoryVideo, Quiz, Question, QuizOption, QuizAttempt, ReadingProgress,
   Book, SlugRedirect, AdminPasswordReset, MediaAsset, StyleGuide, StoreCart, StoreCartItem, StoreOrder, StoreOrderItem,
-  Plan, Subscription, Entitlement, ProcessedWebhookEvent, ReviewerNote, BadgeType, BadgeAward, Certificate, StoryReview, StoryRequest,
+  Plan, Subscription, Entitlement, ProcessedWebhookEvent, ReviewerNote,   BadgeType,
+  BadgeAward,
+  Notification: require('./badges').Notification,
+  BadgeSettings: require('./badges').BadgeSettings, Certificate, StoryReview, StoryRequest,
   CommunityEvent, EventEntry, Team, TeamMember, DonationCampaign, Donation, RecurringDonation, PromoCode, PromoCodeRedemption,
-  EmailTemplate, ScheduledReminder, PolicyPage
+  EmailTemplate, ScheduledReminder, PolicyPage,
+  StoreOrderEvent, StripeEvent, DownloadToken, DownloadLog, SecurityEvent,
+  DonationTier, CampaignItem, DistributionPlace, CampaignUpdate
 };
 
 Collection.hasMany(Story, { foreignKey: 'collectionId', as: 'stories' });
@@ -768,5 +997,29 @@ PromoCodeRedemption.belongsTo(StoreOrder, { foreignKey: 'orderId', as: 'order' }
 PromoCodeRedemption.belongsTo(Subscription, { foreignKey: 'subscriptionId', as: 'subscription' });
 sequelize.models.User.hasMany(ScheduledReminder, { foreignKey: 'userId', as: 'scheduledReminders' });
 ScheduledReminder.belongsTo(sequelize.models.User, { foreignKey: 'userId', as: 'user' });
+
+StoreOrder.hasMany(StoreOrderEvent, { foreignKey: 'orderId', as: 'events' });
+StoreOrderEvent.belongsTo(StoreOrder, { foreignKey: 'orderId', as: 'order' });
+Entitlement.hasMany(DownloadToken, { foreignKey: 'entitlementId', as: 'downloadTokens' });
+DownloadToken.belongsTo(Entitlement, { foreignKey: 'entitlementId', as: 'entitlement' });
+DownloadToken.belongsTo(Book, { foreignKey: 'bookId', as: 'book' });
+DownloadToken.belongsTo(sequelize.models.User, { foreignKey: 'userId', as: 'user' });
+DownloadLog.belongsTo(Book, { foreignKey: 'bookId', as: 'book' });
+DownloadLog.belongsTo(sequelize.models.User, { foreignKey: 'userId', as: 'user' });
+DonationCampaign.hasMany(DonationTier, { foreignKey: 'campaignId', as: 'tiers' });
+DonationTier.belongsTo(DonationCampaign, { foreignKey: 'campaignId', as: 'campaign' });
+DonationCampaign.hasMany(CampaignItem, { foreignKey: 'campaignId', as: 'items' });
+CampaignItem.belongsTo(DonationCampaign, { foreignKey: 'campaignId', as: 'campaign' });
+CampaignItem.belongsTo(Book, { foreignKey: 'bookId', as: 'book' });
+DonationCampaign.hasMany(DistributionPlace, { foreignKey: 'campaignId', as: 'places' });
+DistributionPlace.belongsTo(DonationCampaign, { foreignKey: 'campaignId', as: 'campaign' });
+DonationCampaign.hasMany(CampaignUpdate, { foreignKey: 'campaignId', as: 'updates' });
+CampaignUpdate.belongsTo(DonationCampaign, { foreignKey: 'campaignId', as: 'campaign' });
+DonationCampaign.belongsTo(Story, { foreignKey: 'linkedStoryId', as: 'story' });
+DonationCampaign.belongsTo(Book, { foreignKey: 'linkedBookId', as: 'book' });
+DonationCampaign.belongsTo(Collection, { foreignKey: 'linkedCollectionId', as: 'collection' });
+Donation.belongsTo(DonationTier, { foreignKey: 'tierId', as: 'tier' });
+sequelize.models.User.hasMany(SecurityEvent, { foreignKey: 'userId', as: 'securityEvents' });
+SecurityEvent.belongsTo(sequelize.models.User, { foreignKey: 'userId', as: 'user' });
 
 module.exports = models;

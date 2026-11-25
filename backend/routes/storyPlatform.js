@@ -39,6 +39,7 @@ const {
   EmailTemplate,
   ScheduledReminder,
   PolicyPage
+  , DownloadToken, DownloadLog
 } = require('../models');
 const { authenticate, optionalAuthenticate, allowRoles } = require('../middleware/authorization');
 const { validateBody } = require('../middleware/validation');
@@ -63,10 +64,15 @@ const {
   deleteDocumentObject
 } = require('../utils/documentStorage');
 const { SAMPLE_EBOOK_STORAGE_KEY, SAMPLE_EBOOK_PATH } = require('../utils/sampleEbook');
+const { createDownloadToken, consumeDownloadToken } = require('../utils/downloadTokens');
+const { findActiveEntitlement, downloadQuota } = require('../utils/bookDownloads');
+const { logSecurityEvent } = require('../utils/securityEvents');
+const { processStoryImage } = require('../utils/publicImages');
+const { deleteBookWithMedia, deleteCollectionWithMedia, deleteStoryWithMedia } = require('../utils/mediaCleanup');
 const { recordAudit } = require('../utils/audit');
 const { requestedLanguage, localizeFields } = require('../utils/contentLocalization');
 const { slugFromLocalized } = require('../utils/slug');
-const { deliverEmail } = require('../utils/email');
+const { deliverEmail, composeTemplateMessage } = require('../utils/email');
 const { processDueReminders } = require('../utils/reminders');
 const { enqueueTemplateEmails } = require('../utils/emailQueue');
 const { getClientAppUrl } = require('../utils/stripe');
@@ -199,6 +205,9 @@ function buildCertificatePdf({ name, title, date, code }) {
   return Buffer.from(pdf, 'latin1');
 }
 
+// Reused by the admin certificates tab to download a sample PDF.
+router.buildCertificatePdf = buildCertificatePdf;
+
 async function ensureBadgeAward(userId, badgeCode, sourceType, sourceId, metadata = {}) {
   let badgeType = await BadgeType.findOne({ where: { code: badgeCode, isActive: true } });
   if (!badgeType) {
@@ -251,11 +260,29 @@ function contentSlug(requestedSlug, title, translations) {
   return slug;
 }
 
+async function slugSuggestion(slug, models) {
+  const base = slug.slice(0, 235);
+  for (let suffix = 2; suffix < 100; suffix += 1) {
+    const candidate = `${base}-${suffix}`;
+    let taken = false;
+    for (const Model of models) {
+      if (await Model.findOne({ where: { slug: candidate } })) {
+        taken = true;
+        break;
+      }
+    }
+    if (!taken) return candidate;
+  }
+  return `${base}-${Date.now().toString(36)}`;
+}
+
 async function assertUniqueSlug(Model, slug, id) {
   for (const Candidate of [Collection, Story, Book]) {
     const existing = await Candidate.findOne({ where: { slug } });
     if (existing && !(Candidate === Model && existing.id === id)) {
-      throw httpError('Ce slug est déjà utilisé. Choisissez un autre lien public.', 409, 'SLUG_CONFLICT');
+      const error = httpError('Ce slug est déjà utilisé. Choisissez un autre lien public.', 409, 'SLUG_CONFLICT');
+      error.suggestion = await slugSuggestion(slug, [Collection, Story, Book]);
+      throw error;
     }
   }
 }
@@ -264,28 +291,48 @@ async function assertUniqueQuizSlug(slug, id) {
   for (const Candidate of [Collection, Story, Book, Quiz]) {
     const existing = await Candidate.findOne({ where: { slug } });
     if (existing && !(Candidate === Quiz && existing.id === id)) {
-      throw httpError('Ce slug est déjà utilisé. Choisissez un autre lien public.', 409, 'SLUG_CONFLICT');
+      const error = httpError('Ce slug est déjà utilisé. Choisissez un autre lien public.', 409, 'SLUG_CONFLICT');
+      error.suggestion = await slugSuggestion(slug, [Collection, Story, Book, Quiz]);
+      throw error;
     }
   }
 }
 
-function quizSubmissionRequirements(quiz, questions) {
-  const missing = [];
-  if (!quiz.translations?.ar?.title?.trim()) missing.push('Arabic quiz title');
-  if (!quiz.slug || quiz.slug.length < 2 || !slugPattern.test(quiz.slug)) missing.push('valid slug');
-  if (!questions.length) missing.push('at least one question');
+function quizSubmissionErrors(quiz, questions) {
+  const errors = [];
+  const push = (field, code, message) => errors.push({ field, code, message });
+  if (!quiz.translations?.ar?.title?.trim()) push('title', 'required', 'Arabic quiz title is required.');
+  if (!quiz.slug || quiz.slug.length < 2 || !slugPattern.test(quiz.slug)) {
+    push('slug', 'invalid', 'A valid public slug is required.');
+  }
+  if (!questions.length) push('questions', 'required', 'At least one question is required.');
   questions.forEach((question, index) => {
-    const prefix = `question ${index + 1}`;
-    if (!question.translations?.ar?.text?.trim()) missing.push(`${prefix}: Arabic text`);
+    const base = `questions[${index}]`;
+    if (!question.translations?.ar?.text?.trim()) push(`${base}.translations.ar.text`, 'required', `Question ${index + 1}: Arabic text is required.`);
     const options = question.answerOptions || [];
-    if (options.length < 2) missing.push(`${prefix}: at least two options`);
-    if (options.some((option) => !option.translations?.ar?.trim())) missing.push(`${prefix}: Arabic option text`);
-    if (!options.some((option) => option.isCorrect)) missing.push(`${prefix}: at least one correct answer`);
-    if (question.type === 'single_choice' && options.filter((option) => option.isCorrect).length !== 1) {
-      missing.push(`${prefix}: exactly one correct answer`);
+    if (options.length < 2) push(`${base}.answerOptions`, 'too_small', `Question ${index + 1}: at least two options are required.`);
+    options.forEach((option, optionIndex) => {
+      if (!option.translations?.ar?.trim()) {
+        push(`${base}.answerOptions[${optionIndex}].translations.ar`, 'required', `Question ${index + 1}, option ${optionIndex + 1}: Arabic text is required.`);
+      }
+    });
+    const correct = options.filter((option) => option.isCorrect).length;
+    if (!correct) push(`${base}.answerOptions`, 'invalid', `Question ${index + 1}: at least one correct answer is required.`);
+    if (question.type === 'single_choice' && correct > 1) {
+      push(`${base}.answerOptions`, 'invalid', `Question ${index + 1}: single choice accepts exactly one correct answer.`);
+    }
+    if (!question.explanation?.trim() && !question.explanationTranslations?.ar?.trim()) {
+      push(`${base}.explanationTranslations.ar`, 'required', `Question ${index + 1}: an explanation is required before publishing.`);
+    }
+    if (!question.source?.trim() && !question.sourceTranslations?.ar?.trim()) {
+      push(`${base}.sourceTranslations.ar`, 'required', `Question ${index + 1}: a source is required before publishing.`);
     }
   });
-  return missing;
+  return errors;
+}
+
+function quizSubmissionRequirements(quiz, questions) {
+  return quizSubmissionErrors(quiz, questions).map((issue) => issue.message);
 }
 
 function questionRecordValues(question, quizId, sortOrder) {
@@ -604,6 +651,8 @@ router.get('/collections', async (req, res, next) => {
     res.json(collections.map((collection) => {
       const localizedCollection = localizeFields(collection, language, ['title', 'description'], ['title']);
       if (!localizedCollection) return null;
+      localizedCollection.coverAltText = collection.coverAlt?.[language] || collection.coverAlt?.ar || null;
+      localizedCollection.bannerAltText = collection.bannerAlt?.[language] || collection.bannerAlt?.ar || null;
       localizedCollection.stories = (localizedCollection.stories || [])
         .map((story) => localizeFields(story, language, ['title', 'summary']))
         .filter(Boolean);
@@ -644,6 +693,8 @@ router.get('/collections/:slug', async (req, res, next) => {
     if (!collection) return res.status(404).json({ message: 'Collection introuvable.' });
     const localizedCollection = localizeFields(collection, language, ['title', 'description'], ['title']);
     if (!localizedCollection) return res.status(404).json({ message: 'Collection introuvable dans cette langue.' });
+    localizedCollection.coverAltText = collection.coverAlt?.[language] || collection.coverAlt?.ar || null;
+    localizedCollection.bannerAltText = collection.bannerAlt?.[language] || collection.bannerAlt?.ar || null;
     localizedCollection.stories = (localizedCollection.stories || [])
       .map((story) => {
         const localizedStory = localizeFields(story, language, ['title', 'summary']);
@@ -667,7 +718,7 @@ router.get('/stories', async (req, res, next) => {
     if (req.query.collectionId) where.collectionId = parseId(req.query.collectionId, 'Collection');
     const stories = await Story.findAll({
       where,
-      attributes: ['id', 'collectionId', 'title', 'slug', 'summary', 'cover', 'translations', 'type', 'sourceBadge', 'sourceReferences', 'isFree', 'publishAt', 'tags', 'ageGroup', 'isStoryOfTheWeek'],
+      attributes: ['id', 'collectionId', 'title', 'slug', 'summary', 'cover', 'coverImage', 'heroImage', 'socialImage', 'coverAlt', 'coverVariants', 'focalPoint', 'imageCredit', 'hook', 'translations', 'type', 'sourceBadge', 'sourceReferences', 'isFree', 'publishAt', 'tags', 'ageGroup', 'isStoryOfTheWeek', 'updatedAt'],
       include: [
         { model: Collection, as: 'collection', attributes: ['id', 'title', 'slug', 'isFree', 'translations'] },
         {
@@ -682,8 +733,10 @@ router.get('/stories', async (req, res, next) => {
       limit: Math.min(Math.max(Number(req.query.limit) || 50, 1), 100)
     });
     res.json(stories.map((story) => {
-      const localizedStory = localizeFields(story, language, ['title', 'summary']);
+      const localizedStory = localizeFields(story, language, ['title', 'summary', 'hook']);
       if (!localizedStory) return null;
+      localizedStory.cover = story.coverImage || story.cover || null;
+      localizedStory.coverAltText = story.coverAlt?.[language] || story.coverAlt?.ar || story.title;
       if (localizedStory.collection) {
         localizedStory.collection = localizeFields(localizedStory.collection, language, ['title']);
       }
@@ -702,7 +755,7 @@ router.get('/stories/:slug', optionalAuthenticate, async (req, res, next) => {
     const language = requestedLanguage(req.query.lang);
     const story = await findPublishedStory(req.params.slug);
     if (!story) return res.status(404).json({ message: 'Histoire introuvable.' });
-    const localizedStory = localizeFields(story, language, ['title', 'summary']);
+    const localizedStory = localizeFields(story, language, ['title', 'summary', 'hook']);
     if (!localizedStory) return res.status(404).json({ message: 'Histoire introuvable dans cette langue.' });
     const reviewerName = story.reviewerName ||
       (story.reviewer ? `${story.reviewer.firstName} ${story.reviewer.lastName}` : null);
@@ -717,6 +770,8 @@ router.get('/stories/:slug', optionalAuthenticate, async (req, res, next) => {
         title: localizedPart.title,
         estimatedReadingMinutes: part.estimatedReadingMinutes,
         endingHook: part.endingHook,
+        illustrationImage: part.illustrationImage || null,
+        illustrationAlt: part.illustrationAlt?.[language] || part.illustrationAlt?.ar || null,
         isFree: part.isFree,
         accessible: await canAccessPart({
           userId: req.user?.id,
@@ -760,7 +815,14 @@ router.get('/stories/:slug', optionalAuthenticate, async (req, res, next) => {
       title: localizedStory.title,
       slug: story.slug,
       summary: localizedStory.summary,
-      cover: story.cover,
+      hook: localizedStory.hook || '',
+      cover: story.coverImage || story.cover || null,
+      heroImage: story.heroImage || null,
+      socialImage: story.socialImage || story.coverImage || story.cover || null,
+      coverAlt: story.coverAlt?.[language] || story.coverAlt?.ar || story.title,
+      coverVariants: story.coverVariants || [],
+      focalPoint: story.focalPoint || null,
+      imageCredit: story.imageCredit || '',
       type: story.type,
       sourceBadge: story.sourceBadge,
       sourceReferences: story.sourceReferences,
@@ -788,6 +850,7 @@ router.get('/stories/:slug/parts/:partNumber', optionalAuthenticate, async (req,
     const part = await findAccessiblePart(story, partNumber, req.user);
     const localizedPart = localizeFields(part, language, ['title', 'content', 'endingHook']);
     if (!localizedPart) return res.status(404).json({ message: 'Cette partie n’est pas encore disponible dans cette langue.' });
+    localizedPart.illustrationAlt = part.illustrationAlt?.[language] || part.illustrationAlt?.ar || '';
     res.json(localizedPart);
   } catch (error) {
     next(error);
@@ -842,8 +905,8 @@ router.get('/books', async (req, res, next) => {
   try {
     const language = requestedLanguage(req.query.lang);
     const books = await Book.findAll({
-      where: { status: 'published' },
-      attributes: ['id', 'collectionId', 'storyId', 'title', 'slug', 'description', 'translations', 'cover', 'format', 'price', 'currency', 'stockQuantity'],
+      where: { status: { [Op.ne]: 'archived' }, [Op.or]: [{ status: 'published' }, { isPublished: true }] },
+      attributes: ['id', 'collectionId', 'storyId', 'title', 'slug', 'description', 'translations', 'cover', 'coverAlt', 'format', 'price', 'currency', 'stockQuantity', 'isReturnable', 'returnWindowDays'],
       order: [['createdAt', 'DESC']],
       limit: Math.min(Math.max(Number(req.query.limit) || 50, 1), 100)
     });
@@ -858,16 +921,16 @@ router.get('/books/:slug', async (req, res, next) => {
   try {
     const language = requestedLanguage(req.query.lang);
     const options = {
-      attributes: ['id', 'collectionId', 'storyId', 'title', 'slug', 'description', 'translations', 'cover', 'format', 'price', 'currency', 'stockQuantity']
+      attributes: ['id', 'collectionId', 'storyId', 'title', 'slug', 'description', 'translations', 'cover', 'coverAlt', 'format', 'price', 'currency', 'stockQuantity', 'isReturnable', 'returnWindowDays']
     };
     let book = await Book.findOne({
-      where: { slug: req.params.slug, status: 'published' },
+      where: { slug: req.params.slug, status: { [Op.ne]: 'archived' }, [Op.or]: [{ status: 'published' }, { isPublished: true }] },
       ...options
     });
     if (!book) {
       const redirect = await SlugRedirect.findOne({ where: { entityType: 'book', oldSlug: req.params.slug } });
       if (redirect) book = await Book.findOne({
-        where: { slug: redirect.newSlug, status: 'published' },
+        where: { slug: redirect.newSlug, status: { [Op.ne]: 'archived' }, [Op.or]: [{ status: 'published' }, { isPublished: true }] },
         ...options
       });
     }
@@ -882,7 +945,7 @@ router.get('/books/:slug', async (req, res, next) => {
 
 router.get('/books/:slug/access', authenticate, async (req, res, next) => {
   try {
-    const book = await Book.findOne({ where: { slug: req.params.slug, status: 'published' } });
+    const book = await Book.findOne({ where: { slug: req.params.slug, status: { [Op.ne]: 'archived' }, [Op.or]: [{ status: 'published' }, { isPublished: true }] } });
     if (!book || book.format !== 'ebook') return res.status(404).json({ message: 'Livre numérique introuvable.' });
     res.json({ canDownload: await canAccessBook({ userId: req.user.id, role: req.user.role, book }) });
   } catch (error) {
@@ -892,12 +955,23 @@ router.get('/books/:slug/access', authenticate, async (req, res, next) => {
 
 router.get('/books/:slug/download', authenticate, async (req, res, next) => {
   try {
-    const book = await Book.findOne({ where: { slug: req.params.slug, status: 'published' } });
+    const book = await Book.findOne({ where: { slug: req.params.slug, status: { [Op.ne]: 'archived' }, [Op.or]: [{ status: 'published' }, { isPublished: true }] } });
     if (!book || book.format !== 'ebook') return res.status(404).json({ message: 'Livre numérique introuvable.' });
     if (!await canAccessBook({ userId: req.user.id, role: req.user.role, book })) {
       return res.status(403).json({ message: 'Un droit de téléchargement actif est requis.', code: 'CONTENT_LOCKED' });
     }
     if (!book.fileStorageKey) return res.status(404).json({ message: 'Le fichier du livre n’est pas encore disponible.' });
+    const quota = await require('../utils/bookDownloads').consumeDownload(req.user.id, book.id);
+    if (!quota.allowed) {
+      return res.status(409).json({
+        message: 'Vous avez utilisé tous les téléchargements autorisés pour ce livre.',
+        code: 'DOWNLOAD_LIMIT_REACHED',
+        remaining: 0
+      });
+    }
+    if (quota.remaining !== null && quota.remaining !== undefined) {
+      res.setHeader('X-Download-Remaining', String(quota.remaining));
+    }
     if (book.fileStorageKey === SAMPLE_EBOOK_STORAGE_KEY) {
       await fs.promises.access(SAMPLE_EBOOK_PATH, fs.constants.R_OK);
       return res.json({
@@ -914,6 +988,93 @@ router.get('/books/:slug/download', authenticate, async (req, res, next) => {
       });
     }
     res.json({
+      url: await createDownloadUrl({
+        key: book.fileStorageKey,
+        fileName: `${book.slug}.pdf`,
+        mimeType: 'application/pdf'
+      }),
+      expiresInSeconds: 300
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/books/:slug/download-token', authenticate, async (req, res, next) => {
+  try {
+    const book = await Book.findOne({ where: { slug: req.params.slug, status: { [Op.ne]: 'archived' }, [Op.or]: [{ status: 'published' }, { isPublished: true }] } });
+    if (!book || book.format !== 'ebook') return res.status(404).json({ message: 'Livre numérique introuvable.' });
+    if (!book.fileStorageKey) return res.status(404).json({ message: 'Le fichier du livre n’est pas encore disponible.' });
+    const entitlement = await findActiveEntitlement(req.user.id, book.id);
+    if (!entitlement) {
+      await logSecurityEvent(req, {
+        type: 'download_without_entitlement',
+        severity: 'high',
+        reason: 'Reader requested a download token without an active entitlement.',
+        metadata: { bookId: book.id }
+      });
+      return res.status(403).json({ message: 'Un droit de téléchargement actif est requis.', code: 'CONTENT_LOCKED' });
+    }
+    const quota = await downloadQuota(req.user.id, book.id);
+    if (!quota.allowed) {
+      return res.status(409).json({
+        message: 'Vous avez utilisé tous les téléchargements autorisés pour ce livre.',
+        code: 'DOWNLOAD_LIMIT_REACHED',
+        remaining: 0
+      });
+    }
+    const token = await createDownloadToken({
+      userId: req.user.id,
+      entitlementId: entitlement.id,
+      bookId: book.id
+    });
+    res.set('Cache-Control', 'private, no-store');
+    res.status(201).json({
+      url: `/api/v1/downloads/${token.token}`,
+      expiresAt: token.expiresAt,
+      expiresInSeconds: token.expiresInSeconds,
+      downloadsRemaining: quota.remaining
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/downloads/:token', async (req, res, next) => {
+  try {
+    const consumed = await consumeDownloadToken(req.params.token);
+    if (!consumed) {
+      await logSecurityEvent(req, {
+        type: 'download_token_invalid',
+        severity: 'high',
+        reason: 'Download token was expired, already used, or belonged to another account.'
+      });
+      return res.status(403).json({ message: 'Ce lien de téléchargement est invalide ou expiré.', code: 'DOWNLOAD_TOKEN_INVALID' });
+    }
+    if (consumed.exhausted) {
+      return res.status(409).json({ message: 'Download limit reached.', code: 'DOWNLOAD_LIMIT_REACHED' });
+    }
+    const book = await Book.findByPk(consumed.bookId);
+    if (!book || !book.fileStorageKey) return res.status(404).json({ message: 'Fichier introuvable.' });
+    await DownloadLog.create({
+      userId: consumed.userId,
+      bookId: book.id,
+      entitlementId: consumed.entitlement.id,
+      ip: String(req.ip || '').slice(0, 64),
+      userAgent: String(req.get('user-agent') || '').slice(0, 512)
+    });
+    if (book.fileStorageKey === SAMPLE_EBOOK_STORAGE_KEY) {
+      return res.download(SAMPLE_EBOOK_PATH, `${book.slug}.pdf`, (error) => {
+        if (error) next(error);
+      });
+    }
+    if (isLocalStorageKey(book.fileStorageKey)) {
+      return res.download(localStoragePath(book.fileStorageKey), `${book.slug}.pdf`, (error) => {
+        if (error) next(error);
+      });
+    }
+    res.set('Cache-Control', 'private, no-store');
+    return res.json({
       url: await createDownloadUrl({
         key: book.fileStorageKey,
         fileName: `${book.slug}.pdf`,
@@ -1106,6 +1267,9 @@ router.post('/quizzes/:id/attempts', authenticate, quizAttemptRateLimit, validat
     attempt.finishedAt = finishedAt;
     attempt.completedAt = finishedAt;
     await attempt.save();
+    await require('../utils/badges/engine')
+      .evaluateUserBadges(req.user.id, { trigger: 'quiz_completed' })
+      .catch(() => {});
     const totalAttempts = await QuizAttempt.count({
       where: { quizId: quiz.id, userId: req.user.id }
     });
@@ -1763,16 +1927,18 @@ router.post('/admin/system/email-templates/:id/test', authenticate, allowRoles('
     const language = requestedLanguage(req.body.language || req.user.language);
     const content = template.translations?.[language] || template.translations?.ar;
     if (!content?.subject || !content?.body) return res.status(409).json({ message: 'Le modèle ne contient pas de texte pour cette langue.' });
-    const safeBody = content.body
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-      .replace(/\{\{\s*firstName\s*\}\}/g, req.user.firstName)
-      .replace(/\{\{\s*lastName\s*\}\}/g, req.user.lastName)
-      .replace(/\{\{\s*email\s*\}\}/g, req.user.email)
-      .replace(/\n/g, '<br>');
+    const message = composeTemplateMessage({
+      template,
+      templateCode: template.code,
+      language,
+      variables: { firstName: req.user.firstName, lastName: req.user.lastName, email: req.user.email }
+    });
+    if (!message) return res.status(409).json({ message: 'Le modèle ne contient pas de texte pour cette langue.' });
     await deliverEmail({
       to: req.user.email,
-      subject: content.subject.replace(/\{\{\s*firstName\s*\}\}/g, req.user.firstName),
-      html: safeBody,
+      subject: message.subject,
+      html: message.html,
+      text: message.text,
       purpose: `template-test:${template.code}`
     });
     res.json({ sent: true, email: req.user.email });
@@ -2093,7 +2259,15 @@ router.put('/reading-progress/:storyId', authenticate, validateBody(schemas.read
     progress.lastPartId = lastPartId;
     progress.lastReadAt = new Date();
     await progress.save();
+    const badgeEngine = require('../utils/badges/engine');
+    let badgeResult = { newAwards: [], pointsGained: 0, totalPoints: 0 };
+    try {
+      badgeResult = await badgeEngine.evaluateUserBadges(req.user.id, { trigger: 'part_completed' });
+    } catch (error) {
+      console.warn(`Impossible d'évaluer les badges pour l'utilisateur ${req.user.id} :`, error?.message || error);
+    }
     const isComplete = story.parts.length > 0 && story.parts.every((part) => partIds.includes(part.id));
+    let completion = null;
     if (isComplete) {
       const awarded = await ensureBadgeAward(req.user.id, 'story-complete', 'story', story.id, { storyId: story.id, completedParts: partIds });
       const certificate = await maybeIssueCertificate({
@@ -2105,8 +2279,38 @@ router.put('/reading-progress/:storyId', authenticate, validateBody(schemas.read
       if (certificate) {
         await ensureBadgeAward(req.user.id, 'story-certificate', 'story', story.id, { certificateId: certificate.certificate.id, storyId: story.id });
       }
+      try {
+        const profile = await badgeEngine.profileSummary(req.user.id, {
+          language: requestedLanguage(req.user.language)
+        });
+        completion = {
+          completedParts: partIds.length,
+          totalParts: story.parts.length,
+          pointsGained: Number(badgeResult.pointsGained) || 0,
+          totalPoints: profile.user.points,
+          level: profile.level,
+          streak: { current: profile.streak.current, best: profile.streak.best },
+          newBadges: (badgeResult.newAwards || []).map((badge) => ({
+            id: badge.id,
+            name: badge.name,
+            points: badge.points,
+            iconKey: badge.iconKey
+          })),
+          nextBadges: (profile.nextBadges || []).map((badge) => ({
+            id: badge.id,
+            name: badge.name,
+            iconKey: badge.iconKey,
+            points: badge.points,
+            currentValue: badge.progress.currentValue,
+            targetValue: badge.progress.targetValue,
+            ratio: badge.progress.ratio
+          }))
+        };
+      } catch (error) {
+        console.warn(`Résumé de fin d'histoire indisponible pour ${req.user.id} :`, error?.message || error);
+      }
     }
-    res.json(progress);
+    res.json({ ...progress.toJSON(), completion });
   } catch (error) {
     next(error);
   }
@@ -2180,7 +2384,7 @@ router.delete('/admin/content/collections/:id', ...contentEditors, async (req, r
       return res.status(409).json({ message: 'Cette collection contient encore des histoires ou des livres. Supprimez ou déplacez-les avant de supprimer la collection.' });
     }
     await recordAudit(req, 'DELETE_COLLECTION', 'Collection', collection.id, { slug: collection.slug });
-    await collection.destroy();
+    await deleteCollectionWithMedia(collection);
     res.status(204).end();
   } catch (error) {
     next(error);
@@ -2263,7 +2467,7 @@ router.delete('/admin/content/stories/:id', ...contentEditors, async (req, res, 
       return res.status(409).json({ message: 'Seules les histoires jamais publiées et hors révision peuvent être supprimées. Les histoires déjà publiées doivent être archivées.' });
     }
     await recordAudit(req, 'DELETE_STORY', 'Story', story.id, { slug: story.slug });
-    await story.destroy();
+    await deleteStoryWithMedia(story);
     res.status(204).end();
   } catch (error) {
     next(error);
@@ -2877,7 +3081,12 @@ router.post('/admin/content/quizzes/:id/submit-review', ...contentEditors, async
     if (!quiz) return res.status(404).json({ message: 'Quiz introuvable.' });
     const missing = quizSubmissionRequirements(quiz, quiz.questions);
     if (missing.length) {
-      return res.status(409).json({ message: 'Le quiz ne peut pas être envoyé en révision.', requirements: missing });
+      return res.status(422).json({
+        message: 'Le quiz ne peut pas être envoyé en révision.',
+        code: 'VALIDATION_FAILED',
+        requirements: missing,
+        errors: quizSubmissionErrors(quiz, quiz.questions)
+      });
     }
     await assertUniqueQuizSlug(quiz.slug, quiz.id);
     quiz.status = 'in_review';
@@ -2903,7 +3112,14 @@ router.post('/admin/content/quizzes/:id/review', ...publishers, validateBody(sch
     }
     if (req.body.decision === 'approved') {
       const missing = quizSubmissionRequirements(quiz, quiz.questions);
-      if (missing.length) return res.status(409).json({ message: 'Le quiz ne peut pas être publié.', requirements: missing });
+      if (missing.length) {
+        return res.status(422).json({
+          message: 'Le quiz ne peut pas être publié.',
+          code: 'VALIDATION_FAILED',
+          requirements: missing,
+          errors: quizSubmissionErrors(quiz, quiz.questions)
+        });
+      }
       quiz.status = 'published';
       quiz.validationStatus = 'validated';
       quiz.publishedAt = quiz.publishedAt || new Date();
@@ -3059,7 +3275,7 @@ router.delete('/admin/content/books/:id', ...contentEditors, async (req, res, ne
       return res.status(409).json({ message: 'Ce livre est référencé dans l’historique des commandes et ne peut pas être supprimé.' });
     }
     await recordAudit(req, 'DELETE_BOOK', 'Book', book.id, { slug: book.slug });
-    await book.destroy();
+    await deleteBookWithMedia(book);
     res.status(204).end();
   } catch (error) {
     next(error);
@@ -3119,6 +3335,44 @@ router.post('/admin/content/books/:id/archive', ...publishers, async (req, res, 
     await recordAudit(req, 'BOOK_ARCHIVED', 'Book', book.id);
     res.json(book);
   } catch (error) {
+    next(error);
+  }
+});
+
+const publicImageUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+  fileFilter(_req, file, callback) {
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype)) {
+      const error = new Error('Formats acceptés : JPG, PNG ou WebP.');
+      error.status = 422;
+      error.code = 'INVALID_IMAGE';
+      return callback(error);
+    }
+    return callback(null, true);
+  }
+});
+
+router.post('/admin/content/images', ...contentEditors, publicImageUpload.single('file'), async (req, res, next) => {
+  try {
+    if (!req.file) return res.status(422).json({ message: 'Aucune image reçue.' });
+    const kind = req.body.role === 'hero' ? 'hero' : 'cover';
+    const result = await processStoryImage(req.file.buffer, { kind });
+    await recordAudit(req, 'UPLOAD_PUBLIC_IMAGE', 'MediaImage', null, {
+      kind,
+      bytes: req.file.size,
+      width: result.width
+    });
+    res.status(201).json(result);
+  } catch (error) {
+    if (error.code === 'INVALID_IMAGE' || error.code === 'IMAGE_TOO_LARGE' ||
+      error.code === 'IMAGE_TOO_SMALL') {
+      return res.status(error.status || 422).json({
+        message: error.message,
+        code: error.code,
+        errors: [{ field: 'file', code: error.code.toLowerCase(), message: error.message }]
+      });
+    }
     next(error);
   }
 });

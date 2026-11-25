@@ -6,7 +6,12 @@ const {
   Quiz,
   Question,
   QuizOption,
-  Book
+  Book,
+  DonationCampaign,
+  DonationTier,
+  CampaignItem,
+  DistributionPlace,
+  CampaignUpdate
 } = require('../models');
 const { SAMPLE_EBOOK_STORAGE_KEY } = require('../utils/sampleEbook');
 
@@ -300,6 +305,68 @@ async function seedStories({ reviewer } = {}) {
       isPublished: false
     }
   });
+
+  const yunus = await Story.findOne({ where: { slug: 'yunus' } });
+  const [campaign] = await DonationCampaign.findOrCreate({
+    where: { slug: '300-printed-yunus-books' },
+    defaults: {
+      translations: {
+        ar: { title: '٣٠٠ كتاب مطبوع من قصة يونس عليه السلام', description: 'نطبع ونوزع ٣٠٠ نسخة مطبوعة من قصة يونس عليه السلام على المدارس والمساجد ودور الأيتام، مع مواد تعليمية مصاحبة.' },
+        en: { title: '300 printed copies of the story of Yunus', description: 'Print and distribute 300 copies of the story of Yunus to schools, mosques and orphanages, with accompanying learning materials.' },
+        fr: { title: '300 exemplaires imprimés du récit de Yunus', description: 'Imprimer et distribuer 300 exemplaires du récit de Yunus aux écoles, mosquées et orphelinats, avec du matériel pédagogique.' }
+      },
+      summary: {
+        ar: 'كل تبرع يحوّل إلى نسخة مطبوعة تصل إلى طفل.',
+        en: 'Every donation becomes a printed copy that reaches a child.',
+        fr: 'Chaque don devient un exemplaire imprimé remis à un enfant.'
+      },
+      goalAmount: 900,
+      currency: 'EUR',
+      campaignType: 'both',
+      targetUnits: 300,
+      unitName: { ar: 'كتاب', en: 'book', fr: 'livre' },
+      costPerUnit: 2.5,
+      extraCosts: 150,
+      totalCost: 900,
+      status: 'active',
+      startsAt: new Date(),
+      endsAt: new Date(Date.now() + 120 * 24 * 60 * 60 * 1000),
+      allowRecurring: true,
+      allowAnonymous: true,
+      allowCustomAmount: true,
+      minAmount: 1,
+      maxAmount: 5000,
+      overfundingPolicy: 'continue',
+      linkedStoryId: yunus?.id || null
+    }
+  });
+  const tierCount = await DonationTier.count({ where: { campaignId: campaign.id } });
+  if (!tierCount) {
+    await DonationTier.bulkCreate([
+      { campaignId: campaign.id, amount: 2.5, units: 1, sortOrder: 1, label: { ar: 'كتاب واحد', en: 'One book', fr: 'Un livre' } },
+      { campaignId: campaign.id, amount: 12.5, units: 5, sortOrder: 2, label: { ar: 'خمسة كتب', en: 'Five books', fr: 'Cinq livres' } },
+      { campaignId: campaign.id, amount: 25, units: 10, sortOrder: 3, label: { ar: 'عشرة كتب', en: 'Ten books', fr: 'Dix livres' } }
+    ]);
+  }
+  const itemCount = await CampaignItem.count({ where: { campaignId: campaign.id } });
+  if (!itemCount) {
+    await CampaignItem.create({ campaignId: campaign.id, label: { ar: 'نسخ مطبوعة من قصة يونس', en: 'Printed copies of Yunus', fr: 'Exemplaires imprimés de Yunus' }, quantityTarget: 300, unitCost: 2.5 });
+  }
+  const placeCount = await DistributionPlace.count({ where: { campaignId: campaign.id } });
+  if (!placeCount) {
+    await DistributionPlace.bulkCreate([
+      { campaignId: campaign.id, name: 'مدرسة النور', type: 'school', city: 'الرباط', country: 'MA', plannedQuantity: 100, status: 'planned', isPublic: true },
+      { campaignId: campaign.id, name: 'مسجد الرحمة', type: 'mosque', city: 'الدار البيضاء', country: 'MA', plannedQuantity: 100, status: 'planned', isPublic: true },
+      { campaignId: campaign.id, name: 'دار الأيتام', type: 'orphanage', city: 'فاس', country: 'MA', plannedQuantity: 100, status: 'planned', isPublic: true }
+    ]);
+  }
+  const updateCount = await CampaignUpdate.count({ where: { campaignId: campaign.id } });
+  if (!updateCount) {
+    await CampaignUpdate.bulkCreate([
+      { campaignId: campaign.id, translations: { ar: { title: 'بدء الحملة', body: 'بدأنا بجمع الدعم لطباعة الدفعة الأولى من الكتاب.' }, en: { title: 'Campaign launched', body: 'We have started raising support for the first print run.' }, fr: { title: 'Campagne lancée', body: 'Nous avons commencé à financer le premier tirage.' } }, publishedAt: new Date() },
+      { campaignId: campaign.id, translations: { ar: { title: 'اتفاق الطباعة', body: 'تم اختيار مطبعة محلية واعتماد عينة أولى.' }, en: { title: 'Printing agreed', body: 'A local printer was selected and the first proof approved.' }, fr: { title: 'Impression validée', body: 'Une imprimerie locale a été choisie et la première épreuve validée.' } }, publishedAt: new Date() }
+    ]);
+  }
 }
 
 module.exports = { seedStories, sampleStories, storySeedDefaults, DEMO_REVIEWER_NAME };

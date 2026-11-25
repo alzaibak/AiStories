@@ -1,15 +1,21 @@
 const { z } = require('zod');
 const slugValue = z.string().trim().min(2).max(255).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
 
-const slug = slugValue.optional();
-const httpUrl = z.string().url().max(1000).refine((value) => {
+// An empty slug from the form means "generate one from the title".
+const optionalSlugValue = z.preprocess((value) => (typeof value === 'string' && !value.trim() ? undefined : value), slugValue.optional());
+
+const slug = optionalSlugValue;
+const uploadedPublicImage = /^\/uploads\/public\/covers\/[A-Za-z0-9._-]+\.(?:webp|jpe?g|png)$/;
+const httpUrl = z.string().trim().max(1000).refine((value) => {
+  // The upload pipeline stores same-origin paths when no CDN base URL is set.
+  if (uploadedPublicImage.test(value)) return true;
   try {
     return ['http:', 'https:'].includes(new URL(value).protocol);
   } catch {
     return false;
   }
 }, {
-  message: 'Une URL HTTP ou HTTPS est requise.'
+  message: 'Une URL HTTP/HTTPS ou une image téléversée est requise.'
 });
 const embeddableVideoUrl = httpUrl.refine((value) => {
   try {
@@ -20,6 +26,21 @@ const embeddableVideoUrl = httpUrl.refine((value) => {
     return false;
   }
 }, { message: 'Utilisez un lien YouTube ou Vimeo autorisé.' });
+// Optional image pickers submit an empty string when no image is selected.
+// Treat it as "no image" instead of rejecting an otherwise valid draft.
+const optionalHttpUrl = z.preprocess(
+  (value) => (typeof value === 'string' && !value.trim() ? null : value),
+  httpUrl.nullable().optional()
+);
+const imageVariants = z.preprocess(
+  (value) => (Array.isArray(value)
+    ? value.filter((entry) => entry && (typeof entry.url !== 'string' || entry.url.trim()))
+    : value),
+  z.array(z.object({
+    width: z.number().int().positive().max(4000),
+    url: httpUrl
+  })).max(10).optional()
+);
 const sourceReference = z.object({
   reference: z.string().trim().min(1).max(1000)
 }).catchall(z.unknown());
@@ -33,9 +54,9 @@ const optionalLocalizedValue = (max = 5000) => z.object({
   fr: z.string().trim().max(max).optional().default('')
 });
 const translationsSchema = (fields) => z.object({
-  ar: localizedText(fields).partial().optional(),
-  en: localizedText(fields).partial().optional(),
-  fr: localizedText(fields).partial().optional()
+  ar: z.object(Object.fromEntries(fields.map((field) => [field, z.string().trim().max(1000000).optional()]))).optional(),
+  en: z.object(Object.fromEntries(fields.map((field) => [field, z.string().trim().max(1000000).optional()]))).optional(),
+  fr: z.object(Object.fromEntries(fields.map((field) => [field, z.string().trim().max(1000000).optional()]))).optional()
 }).optional();
 const planTranslationsSchema = z.object(Object.fromEntries(['ar', 'en', 'fr'].map((language) => [
   language,
@@ -49,7 +70,13 @@ const collectionSchema = z.object({
   title: z.string().trim().min(1).max(255),
   slug,
   description: z.string().max(10000).nullable().optional(),
-  cover: httpUrl.nullable().optional(),
+  cover: optionalHttpUrl,
+  coverImage: optionalHttpUrl,
+  bannerImage: optionalHttpUrl,
+  coverAlt: optionalLocalizedValue(300).optional(),
+  bannerAlt: optionalLocalizedValue(300).optional(),
+  focalPoint: z.object({ x: z.number().min(0).max(100), y: z.number().min(0).max(100) }).optional(),
+  imageCredit: z.string().trim().max(300).optional(),
   translations: translationsSchema(['title', 'description']),
   isFree: z.boolean().optional(),
   sortOrder: z.number().int().min(0).optional(),
@@ -61,8 +88,16 @@ const storySchema = z.object({
   title: z.string().trim().min(1).max(255),
   slug,
   summary: z.string().trim().min(1).max(10000),
-  cover: httpUrl.nullable().optional(),
-  translations: translationsSchema(['title', 'summary']),
+  cover: optionalHttpUrl,
+  coverImage: optionalHttpUrl,
+  heroImage: optionalHttpUrl,
+  socialImage: optionalHttpUrl,
+  coverAlt: optionalLocalizedValue(300).optional(),
+  coverVariants: imageVariants,
+  focalPoint: z.object({ x: z.number().min(0).max(100), y: z.number().min(0).max(100) }).optional(),
+  imageCredit: z.string().trim().max(300).optional(),
+  hook: z.string().trim().max(500).optional(),
+  translations: translationsSchema(['title', 'summary', 'hook']),
   type: z.enum(['quran', 'sunnah', 'history', 'new']),
   sourceBadge: z.enum(['quran_verse', 'authentic_hadith', 'historical_source', 'inspired_story']),
   sourceReferences: z.array(sourceReference).max(100).default([]),
@@ -83,6 +118,8 @@ const partSchema = z.object({
   partNumber: z.number().int().positive(),
   title: z.string().trim().min(1).max(255),
   content: z.string().trim().min(1).max(1000000),
+  illustrationImage: optionalHttpUrl,
+  illustrationAlt: optionalLocalizedValue(300).optional(),
   translations: translationsSchema(['title', 'content', 'endingHook']),
   estimatedReadingMinutes: z.number().int().min(1).max(120).default(5),
   endingHook: z.string().trim().min(1).max(2000),
@@ -117,7 +154,7 @@ const videoFieldsSchema = z.object({
     fr: httpUrl.optional()
   }).optional(),
   durationSeconds: z.number().int().positive().max(3600).nullable().optional(),
-  thumbnail: httpUrl.nullable().optional(),
+  thumbnail: optionalHttpUrl,
   episodeNumber: z.number().int().positive(),
   isFree: z.boolean().optional(),
   status: z.enum(['draft', 'in_review', 'published', 'rejected', 'archived']).optional(),
@@ -137,7 +174,7 @@ const videoUpdateSchema = videoFieldsSchema.partial().refine((value) => Object.k
 const quizSchema = z.object({
   partId: z.number().int().positive().nullable().optional(),
   title: z.string().trim().min(1).max(255),
-  slug: slugValue.optional(),
+  slug: optionalSlugValue,
   description: z.string().trim().max(10000).optional().default(''),
   translations: z.object({
     ar: z.object({
@@ -166,21 +203,21 @@ const quizSchema = z.object({
 const questionSchema = z.object({
   id: z.number().int().positive().optional(),
   type: z.enum(['single_choice', 'multiple_choice', 'true_false']).default('single_choice'),
-  text: z.string().trim().min(1).max(5000),
+  text: z.string().trim().max(5000).optional().default(''),
   translations: z.object({
-    ar: z.object({ text: z.string().trim().min(1).max(5000) }),
+    ar: z.object({ text: z.string().trim().max(5000).optional().default('') }),
     en: z.object({ text: z.string().trim().max(5000).optional().default('') }).optional(),
     fr: z.object({ text: z.string().trim().max(5000).optional().default('') }).optional()
   }).optional(),
-  options: z.array(z.string().trim().min(1).max(500)).min(2).max(10).optional(),
+  options: z.array(z.string().trim().max(500)).max(10).optional(),
   correctAnswer: z.string().trim().max(500).optional(),
   answerOptions: z.array(z.object({
     id: z.number().int().positive().optional(),
-    text: z.string().trim().min(1).max(500),
+    text: z.string().trim().max(500).optional().default(''),
     translations: optionalLocalizedValue(500),
     isCorrect: z.boolean().default(false),
     sortOrder: z.number().int().min(0).optional()
-  })).min(2).max(10).optional(),
+  })).max(10).optional(),
   points: z.number().int().positive().max(1000).default(1),
   explanation: z.string().trim().max(5000).optional().default(''),
   explanationTranslations: optionalLocalizedValue().optional().default({}),
@@ -188,13 +225,13 @@ const questionSchema = z.object({
   sourceTranslations: optionalLocalizedValue(1000).optional().default({}),
   sortOrder: z.number().int().min(0).optional()
 }).superRefine((value, context) => {
+  const options = value.answerOptions || [];
+  // Incomplete drafts are allowed: publish requirements are checked separately.
+  if (!options.length) return;
   const correctCount = value.answerOptions
     ? value.answerOptions.filter((option) => option.isCorrect).length
     : value.options?.filter((option) => option === value.correctAnswer).length || 0;
-  if (!correctCount) {
-    context.addIssue({ code: 'custom', path: ['answerOptions'], message: 'Au moins une bonne réponse est obligatoire.' });
-  }
-  if (value.type === 'single_choice' && correctCount !== 1) {
+  if (value.type === 'single_choice' && correctCount > 1) {
     context.addIssue({ code: 'custom', path: ['answerOptions'], message: 'Une seule bonne réponse est requise.' });
   }
 });
@@ -225,13 +262,19 @@ const bookSchema = z.object({
   title: z.string().trim().min(1).max(255),
   slug,
   description: z.string().max(10000).nullable().optional(),
-  cover: httpUrl.nullable().optional(),
+  cover: optionalHttpUrl,
+  coverAlt: optionalLocalizedValue(300).optional(),
   translations: translationsSchema(['title', 'description']),
   format: z.enum(['print', 'ebook']),
   price: z.number().nonnegative(),
   currency: z.string().trim().length(3).default('EUR'),
   stockQuantity: z.number().int().nonnegative().nullable().optional(),
+  isReturnable: z.boolean().optional(),
+  returnWindowDays: z.number().int().min(1).max(365).nullable().optional(),
   fileStorageKey: z.string().max(1024).nullable().optional(),
+  previewFileKey: z.string().max(1024).nullable().optional(),
+  weightGrams: z.number().int().nonnegative().nullable().optional(),
+  isbn: z.string().trim().max(32).nullable().optional(),
   isPublished: z.boolean().optional()
 });
 
@@ -242,7 +285,7 @@ const mediaSchema = z.object({
   mediaType: z.enum(['image', 'audio', 'video', 'ebook', 'cover', 'thumbnail']),
   fileName: z.string().trim().min(1).max(255),
   storageKey: z.string().trim().min(1).max(1024).nullable().optional(),
-  externalUrl: httpUrl.nullable().optional(),
+  externalUrl: optionalHttpUrl,
   mimeType: z.string().max(150).nullable().optional(),
   depictionPolicyConfirmed: z.literal(true),
   metadata: z.record(z.string(), z.unknown()).optional()
@@ -272,7 +315,10 @@ const mediaUploadSchema = z.object({
 const styleGuideSchema = z.object({
   title: z.string().trim().min(1).max(255),
   notes: z.string().trim().min(1).max(20000),
-  referenceImages: z.array(httpUrl).max(100).optional(),
+  referenceImages: z.preprocess(
+    (value) => (Array.isArray(value) ? value.filter((entry) => typeof entry !== 'string' || entry.trim()) : value),
+    z.array(httpUrl).max(100).optional()
+  ),
   isActive: z.boolean().optional()
 });
 
@@ -289,10 +335,11 @@ const readingProgressSchema = z.object({
 const bookCheckoutSchema = z.object({
   language: z.enum(['ar', 'en', 'fr']).default('ar'),
   promoCode: z.string().trim().min(2).max(64).optional(),
+  digitalConsent: z.boolean().default(false),
   items: z.array(z.object({
     bookId: z.number().int().positive(),
     quantity: z.number().int().min(1).max(20)
-  })).min(1).max(10).superRefine((items, context) => {
+  }).strict()).min(1).max(10).superRefine((items, context) => {
     if (new Set(items.map((item) => item.bookId)).size !== items.length) {
       context.addIssue({ code: 'custom', message: 'Chaque livre ne peut apparaître qu’une seule fois.' });
     }
@@ -306,13 +353,13 @@ const bookCheckoutSchema = z.object({
     country: z.string().trim().length(2).regex(/^[A-Za-z]{2}$/).transform((value) => value.toUpperCase()),
     phone: z.string().trim().min(5).max(40)
   }).optional()
-});
+}).strict();
 
 const subscriptionCheckoutSchema = z.object({
   planId: z.number().int().positive(),
   promoCode: z.string().trim().min(2).max(64).optional(),
   language: z.enum(['ar', 'en', 'fr']).default('ar')
-});
+}).strict();
 
 const planSchema = z.object({
   name: z.string().trim().min(1).max(120),
@@ -352,7 +399,7 @@ const adminSubscriptionUpdateSchema = z.object({
 const adminOrderUpdateSchema = z.object({
   fulfillmentStatus: z.enum(['processing', 'shipped', 'delivered']).optional(),
   trackingNumber: z.string().trim().max(255).nullable().optional()
-}).refine((value) => Object.keys(value).length > 0, {
+}).strict().refine((value) => Object.keys(value).length > 0, {
   message: 'Au moins un champ doit être mis à jour.'
 });
 
@@ -432,18 +479,98 @@ const donationCampaignSchema = z.object({
     en: z.object({ title: z.string().trim().max(255).optional().default(''), description: z.string().trim().max(10000).optional().default('') }).optional(),
     fr: z.object({ title: z.string().trim().max(255).optional().default(''), description: z.string().trim().max(10000).optional().default('') }).optional()
   }),
+  summary: optionalLocalizedValue(2000).optional(),
   goalAmount: z.number().positive().max(99999999.99),
   currency: z.string().trim().length(3).regex(/^[A-Za-z]{3}$/).transform((value) => value.toUpperCase()).default('EUR'),
+  coverImage: optionalHttpUrl,
+  bannerImage: optionalHttpUrl,
+  campaignType: z.enum(['amount_goal', 'items_goal', 'both']).optional(),
+  targetUnits: z.number().int().positive().max(10000000).nullable().optional(),
+  unitName: optionalLocalizedValue(60).optional(),
+  costPerUnit: z.number().positive().max(99999999.99).nullable().optional(),
+  extraCosts: z.number().nonnegative().max(99999999.99).optional(),
+  allowRecurring: z.boolean().optional(),
+  allowAnonymous: z.boolean().optional(),
+  allowCustomAmount: z.boolean().optional(),
+  minAmount: z.number().positive().max(99999999.99).optional(),
+  maxAmount: z.number().positive().max(99999999.99).nullable().optional(),
+  overfundingPolicy: z.enum(['close', 'continue', 'transfer']).optional(),
+  taxReceiptsEnabled: z.boolean().optional(),
+  linkedStoryId: z.number().int().positive().nullable().optional(),
+  linkedBookId: z.number().int().positive().nullable().optional(),
+  linkedCollectionId: z.number().int().positive().nullable().optional(),
   startsAt: z.string().datetime().nullable().optional(),
   endsAt: z.string().datetime().nullable().optional(),
-  status: z.enum(['draft', 'active', 'completed', 'archived']).default('draft')
+  status: z.enum(['draft', 'scheduled', 'active', 'completed', 'archived']).default('draft')
 });
 
 const donationCheckoutSchema = z.object({
-  amount: z.number().positive().max(999999.99),
+  amount: z.number().positive().max(999999.99).refine((value) => Number.isInteger(Math.round(value * 100)) && Math.abs(value * 100 - Math.round(value * 100)) < 1e-8, {
+    message: 'Le montant doit comporter au maximum deux décimales.'
+  }).optional(),
+  tierId: z.number().int().positive().optional(),
   language: z.enum(['ar', 'en', 'fr']).default('ar'),
-  recurring: z.boolean().default(false)
+  recurring: z.boolean().default(false),
+  isAnonymous: z.boolean().default(false),
+  displayName: z.string().trim().max(120).optional(),
+  message: z.string().trim().max(2000).optional()
+}).strict().superRefine((value, context) => {
+  if (!value.amount && !value.tierId) {
+    context.addIssue({ code: 'custom', path: ['amount'], message: 'Choisissez un palier ou un montant.' });
+  }
 });
+
+const donationTierSchema = z.object({
+  amount: z.number().positive().max(99999999.99),
+  units: z.number().int().nonnegative().nullable().optional(),
+  label: optionalLocalizedValue(120).optional(),
+  sortOrder: z.number().int().min(0).max(1000).optional(),
+  isActive: z.boolean().optional()
+}).strict();
+
+const campaignItemSchema = z.object({
+  bookId: z.number().int().positive().nullable().optional(),
+  label: optionalLocalizedValue(255).optional(),
+  quantityTarget: z.number().int().nonnegative().max(10000000).optional(),
+  unitCost: z.number().nonnegative().max(99999999.99).optional(),
+  quantityDistributed: z.number().int().nonnegative().max(10000000).optional()
+}).strict();
+
+const distributionPlaceSchema = z.object({
+  name: z.string().trim().min(1).max(255),
+  type: z.enum(['school', 'mosque', 'association', 'orphanage', 'library', 'family', 'other']).optional(),
+  city: z.string().trim().max(120).optional(),
+  country: z.string().trim().max(120).optional(),
+  plannedQuantity: z.number().int().nonnegative().max(10000000).optional(),
+  status: z.enum(['planned', 'shipped', 'distributed']).optional(),
+  distributionDate: z.string().datetime().nullable().optional(),
+  notes: z.string().trim().max(5000).optional(),
+  reportText: z.string().trim().max(10000).optional(),
+  images: z.array(httpUrl).max(20).optional(),
+  consentConfirmed: z.boolean().optional(),
+  isPublic: z.boolean().optional()
+}).strict();
+
+const campaignUpdateSchema = z.object({
+  translations: z.object({
+    ar: z.object({ title: z.string().trim().min(1).max(255), body: z.string().trim().min(1).max(10000) }),
+    en: z.object({ title: z.string().trim().max(255).optional().default(''), body: z.string().trim().max(10000).optional().default('') }).optional(),
+    fr: z.object({ title: z.string().trim().max(255).optional().default(''), body: z.string().trim().max(10000).optional().default('') }).optional()
+  }),
+  images: z.array(httpUrl).max(20).optional(),
+  publishedAt: z.string().datetime().nullable().optional()
+}).strict();
+
+const manualDonationSchema = z.object({
+  campaignId: z.number().int().positive().nullable().optional(),
+  amount: z.number().positive().max(99999999.99),
+  currency: z.string().trim().length(3).regex(/^[A-Za-z]{3}$/).transform((value) => value.toUpperCase()).optional(),
+  source: z.enum(['manual_cash', 'manual_bank']),
+  isAnonymous: z.boolean().optional(),
+  displayName: z.string().trim().max(120).optional(),
+  message: z.string().trim().max(2000).optional(),
+  userId: z.number().int().positive().nullable().optional()
+}).strict();
 
 const emailTemplateSchema = z.object({
   code: z.string().trim().min(2).max(100).regex(/^[a-z0-9_-]+$/),
@@ -493,6 +620,11 @@ module.exports = {
   giftCodeRedemptionSchema,
   donationCampaignSchema,
   donationCheckoutSchema,
+  donationTierSchema,
+  campaignItemSchema,
+  distributionPlaceSchema,
+  campaignUpdateSchema,
+  manualDonationSchema,
   emailTemplateSchema,
   policyPageSchema
 };
