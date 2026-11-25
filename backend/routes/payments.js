@@ -12,6 +12,8 @@ const {
   RecurringDonation,
   ReturnRefund,
   ReturnRequest,
+  StoreCart,
+  StoreCartItem,
   StoreOrder,
   StoreOrderItem,
   StoreOrderEvent,
@@ -26,6 +28,7 @@ const { authenticate, allowRoles } = require('../middleware/authorization');
 const { validateBody } = require('../middleware/validation');
 const schemas = require('../middleware/storyValidation');
 const { subscriptionIsActive } = require('../utils/contentAccess');
+const { slugFromLocalized } = require('../utils/slug');
 const {
   createStripeClient,
   getClientAppUrl,
@@ -139,6 +142,7 @@ function serializeOrder(order, { admin = false } = {}) {
         title: item.titleSnapshot || item.book.title,
         cover: item.book.cover,
         canDownload: Boolean(active),
+        revokedAt: entitlement?.revokedAt || null,
         downloadPath: active ? `/books/${encodeURIComponent(item.book.slug)}/download` : null,
         downloadLimit: limit ?? null,
         downloadCount: count,
@@ -198,14 +202,14 @@ function serializeOrder(order, { admin = false } = {}) {
   };
 }
 
-async function reconcileOrderWithStripe(order, req) {
+async function reconcileOrderWithStripe(order, req, stripeClient = null) {
   if (!order?.stripeCheckoutSessionId) return { reconciled: false, reason: 'no_session' };
   if (['paid', 'fulfilled', 'refunded', 'partially_refunded'].includes(normalizeOrderStatus(order.status))) {
     return { reconciled: false, reason: 'already_settled' };
   }
   let stripe;
   try {
-    stripe = createStripeClient();
+    stripe = stripeClient || createStripeClient();
   } catch (error) {
     if (error.status === 503) return { reconciled: false, reason: 'stripe_not_configured' };
     throw error;
@@ -438,10 +442,15 @@ async function createPendingOrder({ userId, items, shippingAddress, customerEmai
           startsAt: { [Op.lte]: new Date() },
           [Op.or]: [{ expiresAt: null }, { expiresAt: { [Op.gt]: new Date() } }]
         },
-        attributes: ['resourceId'],
+        attributes: ['resourceId', 'downloadLimit', 'downloadCount'],
         transaction
       });
-      if (owned.length) {
+      const stillUsable = owned.some((entitlement) =>
+        entitlement.downloadLimit === null ||
+        entitlement.downloadLimit === undefined ||
+        Number(entitlement.downloadCount || 0) < Number(entitlement.downloadLimit)
+      );
+      if (stillUsable) {
         throw apiError(409, 'An e-book in this order is already in your library.', 'ALREADY_OWNED');
       }
     }
@@ -563,6 +572,17 @@ async function restoreOrderInventory(orderId, transaction) {
   }
 }
 
+async function clearPurchasedCartItems(userId, bookIds, transaction) {
+  const ids = [...new Set(bookIds.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0))];
+  if (!ids.length) return;
+  const cart = await StoreCart.findOne({ where: { userId }, transaction });
+  if (!cart) return;
+  await StoreCartItem.destroy({
+    where: { cartId: cart.id, bookId: { [Op.in]: ids } },
+    transaction
+  });
+}
+
 async function settleStoreOrder(session, status, transaction, { req = null, source = 'stripe' } = {}) {
   const orderId = Number(session.metadata?.orderId || session.client_reference_id);
   if (!Number.isSafeInteger(orderId) || orderId < 1) {
@@ -676,10 +696,11 @@ async function settleStoreOrder(session, status, transaction, { req = null, sour
         startsAt: new Date(),
         expiresAt: null,
         downloadCount: 0,
-        downloadLimit: require('../utils/bookDownloads').configuredDownloadLimit()
+        downloadLimit: 1
       }, { transaction });
     }
   }
+  await clearPurchasedCartItems(order.userId, items.map((item) => item.bookId), transaction);
   if (!hasPrint) {
     await order.update({ fulfillmentStatus: 'delivered', status: 'fulfilled' }, { transaction });
     await recordOrderEvent(order, 'fulfilled', {
@@ -1228,6 +1249,10 @@ async function handleStripeEvent(event, transaction, postCommitActions = [], req
   }
 }
 
+function verifyStripeWebhookSignature(rawBody, signature, secret) {
+  return createStripeClient().webhooks.constructEvent(rawBody, signature, secret);
+}
+
 async function stripeWebhookHandler(req, res) {
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
   if (!webhookSecret) {
@@ -1240,8 +1265,7 @@ async function stripeWebhookHandler(req, res) {
 
   let event;
   try {
-    const stripe = createStripeClient();
-    event = stripe.webhooks.constructEvent(req.body, signature, webhookSecret);
+    event = verifyStripeWebhookSignature(req.body, signature, webhookSecret);
   } catch (error) {
     if (error.status === 503) {
       return res.status(503).json({ message: 'Stripe payment processing is not configured.', code: 'PAYMENTS_UNAVAILABLE' });
@@ -2178,9 +2202,18 @@ router.post('/subscriptions/:id/resume', ...readers, async (req, res, next) => {
   }
 });
 
+async function uniquePlanSlug(body) {
+  const base = body.slug || slugFromLocalized(body.name || body.translations?.ar?.name, body.translations) || 'plan';
+  let candidate = base;
+  for (let suffix = 2; await Plan.findOne({ where: { slug: candidate } }); suffix += 1) {
+    candidate = `${base.slice(0, 110)}-${suffix}`;
+  }
+  return candidate;
+}
+
 router.post('/admin/plans', ...admins, validateBody(schemas.planSchema), async (req, res, next) => {
   try {
-    const plan = await Plan.create(req.body);
+    const plan = await Plan.create({ ...req.body, slug: await uniquePlanSlug(req.body) });
     await recordAudit(req, 'CREATE_SUBSCRIPTION_PLAN', 'Plan', plan.id);
     res.status(201).json(plan);
   } catch (error) {
@@ -2267,6 +2300,101 @@ router.post('/admin/store-orders/:id/sync', ...admins, async (req, res, next) =>
       include: [...orderItemsInclude(), { model: User, as: 'user', attributes: ['id', 'firstName', 'lastName', 'email'] }]
     });
     res.json({ reconciliation: result, order: serializeOrder(fresh, { admin: true }) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/admin/store-orders/:id/refund', ...admins, async (req, res, next) => {
+  try {
+    const order = await StoreOrder.findByPk(parseId(req.params.id, 'Order'));
+    if (!order) return res.status(404).json({ message: 'Store order not found.' });
+    const fromStatus = normalizeOrderStatus(order.status);
+    if (!['paid', 'fulfilled', 'partially_refunded'].includes(fromStatus)) {
+      return res.status(409).json({ message: 'Only paid orders can be refunded through Stripe.', code: 'ORDER_NOT_REFUNDABLE' });
+    }
+    if (!order.stripePaymentIntentId) {
+      return res.status(409).json({ message: 'This order has no Stripe payment intent.', code: 'STRIPE_PAYMENT_MISSING' });
+    }
+    const stripe = createStripeClient();
+    const refund = await stripe.refunds.create({
+      payment_intent: order.stripePaymentIntentId,
+      reason: 'requested_by_customer',
+      metadata: { orderId: String(order.id), adminId: String(req.user.id) }
+    }, { idempotencyKey: `store-order-refund-${order.id}` });
+    const items = await StoreOrderItem.findAll({ where: { orderId: order.id }, attributes: ['id'] });
+    if (items.length) {
+      await Entitlement.update({ revokedAt: new Date() }, {
+        where: { orderItemId: { [Op.in]: items.map((item) => item.id) }, revokedAt: null }
+      });
+    }
+    await order.update({ status: 'refunded', lastStripeSyncAt: new Date() });
+    await recordOrderEvent(order, 'admin_refund', { fromStatus, toStatus: 'refunded', metadata: { refundId: refund.id, adminId: req.user.id } });
+    await recordAudit(req, 'REFUND_STORE_ORDER', 'StoreOrder', order.id, { refundId: refund.id });
+    res.json({ id: order.id, status: 'refunded', refundId: refund.id });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/admin/store-orders/:id/resend-confirmation', ...admins, async (req, res, next) => {
+  try {
+    const order = await StoreOrder.findByPk(parseId(req.params.id, 'Order'), { include: [{ model: User, as: 'user' }] });
+    if (!order) return res.status(404).json({ message: 'Store order not found.' });
+    if (!['paid', 'fulfilled', 'partially_refunded'].includes(normalizeOrderStatus(order.status))) {
+      return res.status(409).json({ message: 'Only paid orders have a confirmation email.', code: 'ORDER_NOT_PAID' });
+    }
+    if (!order.user?.email) return res.status(409).json({ message: 'The reader has no email address.', code: 'EMAIL_MISSING' });
+    await sendRequiredTemplateEmail({
+      templateCode: 'order_confirmation',
+      to: order.user.email,
+      language: requestedLanguage(order.user.language),
+      variables: { firstName: order.user.firstName, orderId: order.id, total: order.total, currency: order.currency },
+      purpose: 'order confirmation resend'
+    });
+    await recordAudit(req, 'RESEND_ORDER_CONFIRMATION', 'StoreOrder', order.id);
+    res.json({ id: order.id, sent: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+function requiredEntitlementReason(body) {
+  const reason = String(body?.reason || '').trim();
+  if (reason.length < 3 || reason.length > 500) return null;
+  return reason;
+}
+
+router.post('/admin/store-orders/:id/entitlements/grant', ...admins, async (req, res, next) => {
+  try {
+    const reason = requiredEntitlementReason(req.body);
+    if (!reason) return res.status(422).json({ message: 'A grant reason is required.', code: 'GRANT_REASON_REQUIRED' });
+    const orderId = parseId(req.params.id, 'Order');
+    const orderItemId = parseId(req.body?.orderItemId, 'Order item');
+    const order = await StoreOrder.findByPk(orderId, { attributes: ['id', 'userId'] });
+    if (!order) return res.status(404).json({ message: 'Store order not found.' });
+    const item = await StoreOrderItem.findOne({
+      where: { id: orderItemId, orderId },
+      include: [{ model: Book, as: 'book', attributes: ['id', 'format'] }]
+    });
+    if (!item) return res.status(404).json({ message: 'Order item not found.' });
+    if (item.book?.format !== 'ebook') return res.status(422).json({ message: 'Only e-book lines have entitlements.' });
+    const existing = await Entitlement.findOne({ where: { orderItemId: item.id } });
+    const entitlement = existing
+      ? await existing.update({ revokedAt: null, startsAt: new Date(), downloadCount: 0, downloadLimit: 1 })
+      : await Entitlement.create({
+        userId: order.userId,
+        orderItemId: item.id,
+        resourceType: 'book',
+        resourceId: item.bookId,
+        source: 'purchase',
+        startsAt: new Date(),
+        expiresAt: null,
+        downloadCount: 0,
+        downloadLimit: 1
+      });
+    await recordAudit(req, 'GRANT_ENTITLEMENT', 'Entitlement', entitlement.id, { orderId, orderItemId, reason });
+    res.json({ id: entitlement.id, orderItemId: item.id, active: true });
   } catch (error) {
     next(error);
   }
@@ -2506,4 +2634,12 @@ async function reconcileStalePayments({ olderThanMinutes = 10 } = {}) {
   return { orders: orderCount, donations: donationCount };
 }
 
-module.exports = { router, stripeWebhookHandler, handleStripeEvent, reconcileStalePayments };
+module.exports = {
+  router,
+  stripeWebhookHandler,
+  verifyStripeWebhookSignature,
+  handleStripeEvent,
+  settleStoreOrder,
+  reconcileOrderWithStripe,
+  reconcileStalePayments
+};

@@ -36,13 +36,20 @@ vi.mock('@/pages/stories/StoryPlatform', async () => {
     AdminStoreOrdersPage: () => <div>admin-orders-view</div>,
     AdminSubscriptionsPage: () => <div>admin-subscriptions-view</div>,
     StoryRequestPage: () => <div>story-request-view</div>,
-    AccountPage: () => <div>account-view</div>,
     MembershipPage: () => <div>membership-view</div>,
     PricingPage: () => <div>pricing-view</div>,
+    CartPage: () => <div>cart-view</div>,
+    OrderThankYouPage: () => <div>order-thank-you-view</div>,
+    DonationCampaignPage: () => <div>donation-campaign-view</div>,
     CheckoutResultPage: () => <div>checkout-result-view</div>,
+    ReturnsPolicyRoute: () => <div>returns-policy-view</div>,
     PolicyPage: ({ kind }: { kind: string }) => <div>policy-{kind}</div>
   };
 });
+vi.mock('@/pages/stories/ProfilePage', () => ({
+  default: () => <div>account-view</div>,
+  ReturnTrackingPage: () => <div>return-tracking-view</div>
+}));
 vi.mock('@/pages/NotFound', () => ({ default: () => <div>not-found-view</div> }));
 vi.mock('@/pages/stories/AdminContentPage', () => ({ default: () => <div>admin-content-form-view</div> }));
 vi.mock('@/pages/stories/AdminLayout', async () => {

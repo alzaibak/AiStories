@@ -22,6 +22,7 @@ const { campaignState, totalCost, toCents, fromCents } = require('../utils/donat
 const { paidDonations, recomputeCampaignProgress } = require('../utils/donationService');
 const { recordAudit } = require('../utils/audit');
 const { createStripeClient } = require('../utils/stripe');
+const { slugFromLocalized } = require('../utils/slug');
 
 const admins = [authenticate, allowRoles('ADMIN', 'SUPER_ADMIN')];
 
@@ -40,6 +41,15 @@ function numberOrNull(value) {
   if (value === null || value === undefined || value === '') return null;
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : null;
+}
+
+async function uniqueCampaignSlug(body) {
+  const base = body.slug || slugFromLocalized(body.translations?.ar?.title || body.title, body.translations) || 'campaign';
+  let candidate = base;
+  for (let suffix = 2; await DonationCampaign.findOne({ where: { slug: candidate } }); suffix += 1) {
+    candidate = `${base.slice(0, 240)}-${suffix}`;
+  }
+  return candidate;
 }
 
 function campaignValues(body, { creating = false } = {}) {
@@ -289,6 +299,7 @@ router.get('/admin/money/donation-campaigns', ...admins, async (req, res, next) 
 router.post('/admin/money/donation-campaigns', ...admins, validateBody(schemas.donationCampaignSchema), async (req, res, next) => {
   try {
     const values = applyTotalCost(campaignValues(req.body, { creating: true }));
+    values.slug = await uniqueCampaignSlug(req.body);
     values.createdBy = req.user.id;
     if (values.status === 'active' && !values.startsAt) values.startsAt = new Date();
     if (values.startsAt) values.startsAt = new Date(values.startsAt);

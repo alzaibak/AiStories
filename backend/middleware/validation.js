@@ -78,7 +78,7 @@ function validateBody(schema) {
   return (req, res, next) => {
     const result = schema.safeParse(req.body);
     if (!result.success) {
-      return res.status(400).json(apiErrorResponse(result.error, requestLanguage(req)).body);
+      return res.status(422).json(apiErrorResponse(result.error, requestLanguage(req)).body);
     }
     req.body = result.data;
     next();

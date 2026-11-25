@@ -102,7 +102,7 @@ test('les routes d’inscription par rôle et de connexion valident les requête
     headers: { 'content-type': 'application/json' },
     body: '{}'
   });
-  assert.equal(readerRegistration.status, 400, 'inscription lecteur: validation d’e-mail attendue');
+  assert.equal(readerRegistration.status, 422, 'inscription lecteur: validation d’e-mail attendue');
 
   for (const path of [
     '/api/v1/auth/login',
@@ -115,7 +115,7 @@ test('les routes d’inscription par rôle et de connexion valident les requête
       headers: { 'content-type': 'application/json' },
       body: '{}'
     });
-    assert.equal(response.status, 400, `POST ${path}: validation attendue`);
+    assert.equal(response.status, 422, `POST ${path}: validation attendue`);
   }
 });
 

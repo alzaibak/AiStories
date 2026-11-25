@@ -51,6 +51,7 @@ export function AccessBadge({
 export function CoverArt({
   title,
   cover,
+  variants,
   seed,
   showTitle = false,
   className = '',
@@ -60,6 +61,7 @@ export function CoverArt({
 }: {
   title: string;
   cover?: string | null;
+  variants?: Array<{ width: number; url: string }> | null;
   seed?: string | number;
   showTitle?: boolean;
   className?: string;
@@ -74,6 +76,7 @@ export function CoverArt({
         <>
           <img
             src={cover}
+            srcSet={variants?.length ? variants.map((variant) => `${variant.url} ${variant.width}w`).join(', ') : undefined}
             alt=""
             loading={priority ? 'eager' : 'lazy'}
             decoding="async"

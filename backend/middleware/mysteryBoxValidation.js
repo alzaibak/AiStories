@@ -115,6 +115,7 @@ const boxFieldsSchema = z.object({
   faq: faqList.optional(),
   termsText: z.string().trim().max(20000).nullable().optional(),
   requiresShipping: z.boolean().optional(),
+  returnPolicy: z.enum(['none', 'standard']).optional(),
   items: z.array(itemSchema).max(50).optional(),
   shipping: shippingSchema.optional(),
   appearance: appearanceSchema.optional()

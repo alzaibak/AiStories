@@ -52,6 +52,13 @@ const MysteryBox = sequelize.define('MysteryBox', {
   termsText: { type: DataTypes.TEXT, allowNull: true },
   translations: { type: DataTypes.JSON, allowNull: false, defaultValue: {} },
   requiresShipping: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+  // Physical items of a box are never returnable unless the admin opts into
+  // the standard return rules for this box.
+  returnPolicy: {
+    type: DataTypes.ENUM('none', 'standard'),
+    allowNull: false,
+    defaultValue: 'none'
+  },
   allowRandomItems: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
   viewCount: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
   headerClickCount: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
@@ -200,6 +207,11 @@ const MysteryBoxPurchase = sequelize.define('MysteryBoxPurchase', {
   trackingNumber: { type: DataTypes.STRING(255), allowNull: true },
   carrier: { type: DataTypes.STRING(120), allowNull: true },
   shippedAt: { type: DataTypes.DATE, allowNull: true },
+  deliveredAt: { type: DataTypes.DATE, allowNull: true },
+  returnPolicySnapshot: {
+    type: DataTypes.ENUM('none', 'standard'),
+    allowNull: true
+  },
   returnNeeded: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
   revealedAt: { type: DataTypes.DATE, allowNull: true },
   reservationExpiresAt: { type: DataTypes.DATE, allowNull: true }

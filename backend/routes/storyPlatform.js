@@ -65,7 +65,7 @@ const {
 } = require('../utils/documentStorage');
 const { SAMPLE_EBOOK_STORAGE_KEY, SAMPLE_EBOOK_PATH } = require('../utils/sampleEbook');
 const { createDownloadToken, consumeDownloadToken } = require('../utils/downloadTokens');
-const { findActiveEntitlement, downloadQuota } = require('../utils/bookDownloads');
+const { findActiveEntitlement, downloadQuota, consumeDownload } = require('../utils/bookDownloads');
 const { logSecurityEvent } = require('../utils/securityEvents');
 const { processStoryImage } = require('../utils/publicImages');
 const { deleteBookWithMedia, deleteCollectionWithMedia, deleteStoryWithMedia } = require('../utils/mediaCleanup');
@@ -276,6 +276,11 @@ async function slugSuggestion(slug, models) {
   return `${base}-${Date.now().toString(36)}`;
 }
 
+async function uniqueSlugFor(Model, base) {
+  if (!await Model.findOne({ where: { slug: base } })) return base;
+  return slugSuggestion(base, [Model]);
+}
+
 async function assertUniqueSlug(Model, slug, id) {
   for (const Candidate of [Collection, Story, Book]) {
     const existing = await Candidate.findOne({ where: { slug } });
@@ -284,6 +289,16 @@ async function assertUniqueSlug(Model, slug, id) {
       error.suggestion = await slugSuggestion(slug, [Collection, Story, Book]);
       throw error;
     }
+  }
+}
+
+async function availableSlug(assertUnique, base) {
+  try {
+    await assertUnique(base);
+    return base;
+  } catch (error) {
+    if (error.code === 'SLUG_CONFLICT' && error.suggestion) return error.suggestion;
+    throw error;
   }
 }
 
@@ -455,11 +470,8 @@ async function publicationRequirements(story) {
 }
 
 async function publishStory(req, story) {
-  if (!story || story.status !== 'in_review') {
-    throw httpError('La story doit être en révision avant sa publication.', 409);
-  }
-  if (story.authorId === req.user.id) {
-    throw httpError('Vous ne pouvez pas approuver ou publier votre propre contenu.', 403);
+  if (!story || !['draft', 'rejected', 'in_review'].includes(story.status)) {
+    throw httpError('La story doit être en brouillon, rejetée ou en révision avant sa publication.', 409);
   }
   const missing = await publicationRequirements(story);
   if (missing.length) {
@@ -947,32 +959,51 @@ router.get('/books/:slug/access', authenticate, async (req, res, next) => {
   try {
     const book = await Book.findOne({ where: { slug: req.params.slug, status: { [Op.ne]: 'archived' }, [Op.or]: [{ status: 'published' }, { isPublished: true }] } });
     if (!book || book.format !== 'ebook') return res.status(404).json({ message: 'Livre numérique introuvable.' });
-    res.json({ canDownload: await canAccessBook({ userId: req.user.id, role: req.user.role, book }) });
+    const canDownload = await canAccessBook({ userId: req.user.id, role: req.user.role, book });
+    const downloaded = !canDownload && await canAccessBook({
+      userId: req.user.id,
+      role: req.user.role,
+      book,
+      allowExhausted: true
+    });
+    res.json({ canDownload, downloaded });
   } catch (error) {
     next(error);
   }
 });
 
+function downloadLimitReached(res) {
+  return res.status(409).json({
+    message: 'Ce PDF a déjà été téléchargé. Vous pouvez le retrouver dans votre profil.',
+    code: 'DOWNLOAD_LIMIT_REACHED',
+    remaining: 0
+  });
+}
+
+async function enforceDownloadQuota(req, res, book, { consume }) {
+  const quota = consume
+    ? await consumeDownload(req.user.id, book.id)
+    : await downloadQuota(req.user.id, book.id);
+  if (!quota.allowed) {
+    downloadLimitReached(res);
+    return null;
+  }
+  if (quota.remaining !== null && quota.remaining !== undefined) {
+    res.setHeader('X-Download-Remaining', String(quota.remaining));
+  }
+  return quota;
+}
+
 router.get('/books/:slug/download', authenticate, async (req, res, next) => {
   try {
     const book = await Book.findOne({ where: { slug: req.params.slug, status: { [Op.ne]: 'archived' }, [Op.or]: [{ status: 'published' }, { isPublished: true }] } });
     if (!book || book.format !== 'ebook') return res.status(404).json({ message: 'Livre numérique introuvable.' });
-    if (!await canAccessBook({ userId: req.user.id, role: req.user.role, book })) {
+    if (!await canAccessBook({ userId: req.user.id, role: req.user.role, book, allowExhausted: true })) {
       return res.status(403).json({ message: 'Un droit de téléchargement actif est requis.', code: 'CONTENT_LOCKED' });
     }
     if (!book.fileStorageKey) return res.status(404).json({ message: 'Le fichier du livre n’est pas encore disponible.' });
-    const quota = await require('../utils/bookDownloads').consumeDownload(req.user.id, book.id);
-    if (!quota.allowed) {
-      return res.status(409).json({
-        message: 'Vous avez utilisé tous les téléchargements autorisés pour ce livre.',
-        code: 'DOWNLOAD_LIMIT_REACHED',
-        remaining: 0
-      });
-    }
-    if (quota.remaining !== null && quota.remaining !== undefined) {
-      res.setHeader('X-Download-Remaining', String(quota.remaining));
-    }
     if (book.fileStorageKey === SAMPLE_EBOOK_STORAGE_KEY) {
+      if (!await enforceDownloadQuota(req, res, book, { consume: false })) return;
       await fs.promises.access(SAMPLE_EBOOK_PATH, fs.constants.R_OK);
       return res.json({
         url: `/books/${encodeURIComponent(book.slug)}/sample-download`,
@@ -981,12 +1012,14 @@ router.get('/books/:slug/download', authenticate, async (req, res, next) => {
       });
     }
     if (isLocalStorageKey(book.fileStorageKey)) {
+      if (!await enforceDownloadQuota(req, res, book, { consume: false })) return;
       return res.json({
         url: `/books/${encodeURIComponent(book.slug)}/local-download`,
         requiresAuth: true,
         expiresInSeconds: 300
       });
     }
+    if (!await enforceDownloadQuota(req, res, book, { consume: true })) return;
     res.json({
       url: await createDownloadUrl({
         key: book.fileStorageKey,
@@ -1016,13 +1049,7 @@ router.post('/books/:slug/download-token', authenticate, async (req, res, next) 
       return res.status(403).json({ message: 'Un droit de téléchargement actif est requis.', code: 'CONTENT_LOCKED' });
     }
     const quota = await downloadQuota(req.user.id, book.id);
-    if (!quota.allowed) {
-      return res.status(409).json({
-        message: 'Vous avez utilisé tous les téléchargements autorisés pour ce livre.',
-        code: 'DOWNLOAD_LIMIT_REACHED',
-        remaining: 0
-      });
-    }
+    if (!quota.allowed) return downloadLimitReached(res);
     const token = await createDownloadToken({
       userId: req.user.id,
       entitlementId: entitlement.id,
@@ -1052,7 +1079,7 @@ router.get('/downloads/:token', async (req, res, next) => {
       return res.status(403).json({ message: 'Ce lien de téléchargement est invalide ou expiré.', code: 'DOWNLOAD_TOKEN_INVALID' });
     }
     if (consumed.exhausted) {
-      return res.status(409).json({ message: 'Download limit reached.', code: 'DOWNLOAD_LIMIT_REACHED' });
+      return res.status(409).json({ message: 'Ce PDF a déjà été téléchargé. Vous pouvez le retrouver dans votre profil.', code: 'DOWNLOAD_LIMIT_REACHED' });
     }
     const book = await Book.findByPk(consumed.bookId);
     if (!book || !book.fileStorageKey) return res.status(404).json({ message: 'Fichier introuvable.' });
@@ -1093,9 +1120,10 @@ router.get('/books/:slug/local-download', authenticate, async (req, res, next) =
     if (!book || book.format !== 'ebook' || !isLocalStorageKey(book.fileStorageKey)) {
       return res.status(404).json({ message: 'Fichier ebook introuvable.' });
     }
-    if (!await canAccessBook({ userId: req.user.id, role: req.user.role, book })) {
+    if (!await canAccessBook({ userId: req.user.id, role: req.user.role, book, allowExhausted: true })) {
       return res.status(403).json({ message: 'Un droit de téléchargement actif est requis.', code: 'CONTENT_LOCKED' });
     }
+    if (!await enforceDownloadQuota(req, res, book, { consume: true })) return;
     res.download(localStoragePath(book.fileStorageKey), `${book.slug}.pdf`, (error) => {
       if (error) next(error);
     });
@@ -1110,9 +1138,10 @@ router.get('/books/:slug/sample-download', authenticate, async (req, res, next) 
     if (!book || book.format !== 'ebook' || book.fileStorageKey !== SAMPLE_EBOOK_STORAGE_KEY) {
       return res.status(404).json({ message: 'Fichier de démonstration introuvable.' });
     }
-    if (!await canAccessBook({ userId: req.user.id, role: req.user.role, book })) {
+    if (!await canAccessBook({ userId: req.user.id, role: req.user.role, book, allowExhausted: true })) {
       return res.status(403).json({ message: 'Un droit de téléchargement actif est requis.', code: 'CONTENT_LOCKED' });
     }
+    if (!await enforceDownloadQuota(req, res, book, { consume: true })) return;
     res.download(SAMPLE_EBOOK_PATH, `${book.slug}.pdf`, (error) => {
       if (error) next(error);
     });
@@ -1741,7 +1770,10 @@ router.get('/admin/community/events', authenticate, allowRoles('ADMIN', 'SUPER_A
 
 router.post('/admin/community/events', authenticate, allowRoles('ADMIN', 'SUPER_ADMIN'), validateBody(schemas.communityEventSchema), async (req, res, next) => {
   try {
-    const event = await CommunityEvent.create(req.body);
+    const translations = req.body.translations || {};
+    const baseSlug = contentSlug(req.body.slug, translations.ar?.title, translations);
+    const slug = await uniqueSlugFor(CommunityEvent, baseSlug);
+    const event = await CommunityEvent.create({ ...req.body, slug });
     await recordAudit(req, 'CREATE_COMMUNITY_EVENT', 'CommunityEvent', event.id);
     res.status(201).json(event);
   } catch (error) {
@@ -1840,7 +1872,10 @@ router.get('/admin/money/donation-campaigns', authenticate, allowRoles('ADMIN', 
 
 router.post('/admin/money/donation-campaigns', authenticate, allowRoles('ADMIN', 'SUPER_ADMIN'), validateBody(schemas.donationCampaignSchema), async (req, res, next) => {
   try {
-    const campaign = await DonationCampaign.create(req.body);
+    const translations = req.body.translations || {};
+    const baseSlug = contentSlug(req.body.slug, translations.ar?.title, translations);
+    const slug = await uniqueSlugFor(DonationCampaign, baseSlug);
+    const campaign = await DonationCampaign.create({ ...req.body, slug });
     await recordAudit(req, 'CREATE_DONATION_CAMPAIGN', 'DonationCampaign', campaign.id);
     res.status(201).json(campaign);
   } catch (error) {
@@ -2336,8 +2371,10 @@ router.get('/admin/content/collections', ...contentEditors, async (req, res, nex
 
 router.post('/admin/content/collections', ...contentEditors, validateBody(schemas.collectionSchema), async (req, res, next) => {
   try {
-    const slug = contentSlug(req.body.slug, req.body.title, req.body.translations);
-    await assertUniqueSlug(Collection, slug);
+    const slug = await availableSlug(
+      (candidate) => assertUniqueSlug(Collection, candidate),
+      contentSlug(req.body.slug, req.body.title, req.body.translations)
+    );
     const collection = await Collection.create({ ...req.body, slug });
     await recordAudit(req, 'CREATE_COLLECTION', 'Collection', collection.id);
     res.status(201).json(collection);
@@ -2422,8 +2459,10 @@ router.get('/admin/content/review-queue', ...reviewers, async (req, res, next) =
 
 router.post('/admin/content/stories', ...contentEditors, validateBody(schemas.storySchema), async (req, res, next) => {
   try {
-    const slug = contentSlug(req.body.slug, req.body.title, req.body.translations);
-    await assertUniqueSlug(Story, slug);
+    const slug = await availableSlug(
+      (candidate) => assertUniqueSlug(Story, candidate),
+      contentSlug(req.body.slug, req.body.title, req.body.translations)
+    );
     const story = await Story.create({ ...req.body, slug, authorId: req.user.id, status: 'draft' });
     await recordAudit(req, 'CREATE_STORY', 'Story', story.id);
     res.status(201).json(story);
@@ -2514,9 +2553,6 @@ router.post('/admin/content/stories/:id/review', ...publishers, validateBody(sch
     const story = await Story.findByPk(parseId(req.params.id, 'Histoire'));
     if (!story || story.status !== 'in_review') {
       return res.status(404).json({ message: 'Histoire en attente de révision introuvable.' });
-    }
-    if (story.authorId === req.user.id) {
-      return res.status(403).json({ message: 'Vous ne pouvez pas réviser votre propre histoire.' });
     }
     const now = new Date();
     story.reviewedBy = req.user.id;
@@ -2846,8 +2882,7 @@ router.post('/admin/content/videos/:id/review', ...publishers, validateBody(sche
   try {
     const video = await StoryVideo.findByPk(parseId(req.params.id, 'Vidéo'));
     if (!video) return res.status(404).json({ message: 'Vidéo introuvable.' });
-    if (video.status !== 'in_review') return res.status(409).json({ message: 'La vidéo doit être en révision.' });
-    if (video.authorId === req.user.id) return res.status(403).json({ message: 'Vous ne pouvez pas approuver votre propre vidéo.' });
+    if (!['draft', 'rejected', 'in_review'].includes(video.status)) return res.status(409).json({ message: 'La vidéo doit être en brouillon, rejetée ou en révision.' });
     const rejected = req.body.decision === 'rejected';
     if (rejected && !req.body.comments.trim()) return res.status(400).json({ message: 'Un commentaire est obligatoire pour rejeter une vidéo.' });
     video.status = req.body.decision === 'approved' ? 'published' : req.body.decision === 'return_to_draft' ? 'draft' : 'rejected';
@@ -2985,8 +3020,10 @@ router.post('/admin/content/quizzes', ...contentEditors, validateBody(schemas.qu
     }
     const translations = input.translations || { ar: { title: input.title, description: input.description || '' } };
     const title = translations.ar?.title || input.title;
-    const slug = contentSlug(input.slug, translations.en?.title || title, translations);
-    await assertUniqueQuizSlug(slug);
+    const slug = await availableSlug(
+      (candidate) => assertUniqueQuizSlug(candidate),
+      contentSlug(input.slug, translations.en?.title || title, translations)
+    );
     const quiz = await sequelize.transaction(async (transaction) => {
       const created = await Quiz.create({
         ...input,
@@ -3018,8 +3055,10 @@ router.post('/admin/content/stories/:id/quizzes', ...contentEditors, validateBod
       return res.status(400).json({ message: 'La partie ne correspond pas à cette histoire.' });
     }
     const translations = req.body.translations || { ar: { title: req.body.title, description: req.body.description || '' } };
-    const slug = contentSlug(req.body.slug, translations.en?.title || req.body.title, translations);
-    await assertUniqueQuizSlug(slug);
+    const slug = await availableSlug(
+      (candidate) => assertUniqueQuizSlug(candidate),
+      contentSlug(req.body.slug, translations.en?.title || req.body.title, translations)
+    );
     const quiz = await Quiz.create({
       ...req.body,
       title: translations.ar?.title || req.body.title,
@@ -3229,8 +3268,10 @@ router.get('/admin/content/books', ...contentEditors, async (req, res, next) => 
 
 router.post('/admin/content/books', ...contentEditors, validateBody(schemas.bookSchema), async (req, res, next) => {
   try {
-    const slug = contentSlug(req.body.slug, req.body.title, req.body.translations);
-    await assertUniqueSlug(Book, slug);
+    const slug = await availableSlug(
+      (candidate) => assertUniqueSlug(Book, candidate),
+      contentSlug(req.body.slug, req.body.title, req.body.translations)
+    );
     const bookFields = { ...req.body };
     delete bookFields.isPublished;
     const book = await Book.create({ ...bookFields, slug, isPublished: false, status: 'draft' });

@@ -146,6 +146,7 @@ export async function request<T>(path: string, init: RequestInit = {}, bearerTok
     if (response.status === 204) return undefined as T;
     const body = await response.json().catch(() => ({}));
     if (!response.ok) {
+      if (method !== 'GET') window.dispatchEvent(new Event('save:error'));
       if (response.status === 401 && token && !bearerToken) notifyExpiredSession();
       if (Array.isArray(body.errors) && body.errors.length && path.startsWith('/admin/') && typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('admin-form-errors', {

@@ -94,6 +94,24 @@ describe('story detail journey action', () => {
     expect(container?.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('25');
   });
 
+  it('shows a completed state and next steps instead of a next-step card at 100%', async () => {
+    mocks.auth.user = { id: 5, email: 'reader@example.com' };
+    mocks.get.mockImplementation((path: string) => {
+      if (path === '/stories/sample-story') return Promise.resolve(story);
+      if (path === '/reading-progress') {
+        return Promise.resolve([{ storyId: 7, completedParts: [11, 12, 13, 14], lastPartId: 14 }]);
+      }
+      return Promise.reject(new Error(`Unexpected API path: ${path}`));
+    });
+
+    await renderStoryDetail();
+
+    expect(actionLink('تابع القراءة', '/ar/stories/sample-story/read/1')).toBeFalsy();
+    expect(actionLink('اختبر فهمك', '/ar/stories/sample-story/read/4#quiz')).toBeTruthy();
+    expect(container?.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('100');
+    expect(container?.textContent).toContain('مكتملة');
+  });
+
   it('starts at the first readable part for a guest without reading progress', async () => {
     mocks.get.mockImplementation((path: string) => {
       if (path === '/stories/sample-story') return Promise.resolve(story);

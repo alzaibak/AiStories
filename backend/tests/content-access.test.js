@@ -145,3 +145,32 @@ test('un téléchargement de livre exige un entitlement valide', async () => {
   assert.equal(await canAccessBook({ userId: 12, role: 'READER', book, now, entitlementModel: valid }), true);
   assert.equal(await canAccessBook({ userId: 12, role: 'READER', book, now, entitlementModel: expired }), false);
 });
+
+test('un ebook déjà téléchargé est reverrouillé et peut être racheté', async () => {
+  const book = { id: 9 };
+  const exhausted = {
+    async findAll() {
+      return [{
+        startsAt: new Date('2026-11-01T00:00:00.000Z'),
+        expiresAt: null,
+        revokedAt: null,
+        downloadLimit: 1,
+        downloadCount: 1
+      }];
+    }
+  };
+  const usable = {
+    async findAll() {
+      return [{
+        startsAt: new Date('2026-11-01T00:00:00.000Z'),
+        expiresAt: null,
+        revokedAt: null,
+        downloadLimit: 1,
+        downloadCount: 0
+      }];
+    }
+  };
+  assert.equal(await canAccessBook({ userId: 12, role: 'READER', book, now, entitlementModel: exhausted }), false);
+  assert.equal(await canAccessBook({ userId: 12, role: 'READER', book, now, entitlementModel: exhausted, allowExhausted: true }), true);
+  assert.equal(await canAccessBook({ userId: 12, role: 'READER', book, now, entitlementModel: usable }), true);
+});

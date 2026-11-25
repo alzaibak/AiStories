@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+Arabic:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+Arabic:wght@400;500;600;700;800&family=Lora:wght@500;600;700&family=Amiri:wght@400;700&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -138,6 +138,17 @@
 }
 
 @layer utilities {
+  .font-editorial {
+    font-family: 'Lora', Georgia, 'Times New Roman', serif;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  [dir='rtl'] .font-editorial {
+    font-family: 'Amiri', 'Noto Naskh Arabic', 'Noto Sans Arabic', serif;
+    letter-spacing: 0;
+  }
+
   .text-gradient {
     @apply bg-gradient-to-r from-accent to-[hsl(var(--brand-light))] bg-clip-text text-transparent;
   }
@@ -279,4 +290,27 @@
   .animation-delay-300 { animation-delay: 0.3s; }
   .animation-delay-400 { animation-delay: 0.4s; }
   .animation-delay-500 { animation-delay: 0.5s; }
+}
+
+/* Badge reveal, progress ring and celebration animations */
+@keyframes badge-pop {
+  0% { opacity: 0; transform: scale(0.72); }
+  60% { opacity: 1; transform: scale(1.04); }
+  100% { opacity: 1; transform: scale(1); }
+}
+.badge-reveal { animation: badge-pop 520ms cubic-bezier(.2,.9,.3,1.2) both; }
+.badge-progress-ring { transition: stroke-dasharray 500ms ease; }
+@keyframes badge-toast { from { opacity: 0; } to { opacity: 1; } }
+.badge-celebration { animation: badge-toast 420ms ease both; }
+@keyframes badge-fall {
+  0% { transform: translateY(0) rotate(0deg); opacity: 0; }
+  15% { opacity: 1; }
+  100% { transform: translateY(140px) rotate(260deg); opacity: 0; }
+}
+.badge-confetti { top: -6px; animation: badge-fall 2.4s ease-in infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .badge-reveal, .badge-celebration, .badge-confetti, .badge-progress-ring {
+    animation: none !important;
+    transition: none !important;
+  }
 }

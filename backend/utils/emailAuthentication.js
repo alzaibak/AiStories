@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const { composeEmail } = require('./emailLayout');
 
 const READER_POLICY = { digits: 6, lifetimeMinutes: 10, maxAttempts: 5 };
 const ADMIN_POLICY = { digits: 8, lifetimeMinutes: 10, maxAttempts: 3 };
@@ -117,25 +118,20 @@ function localizedEmail(language, code, purpose, actionUrl) {
     }
   };
   const copy = messages[language] || messages.fr;
-  const direction = language === 'ar' ? 'rtl' : 'ltr';
-  const brand = 'Islamic Stories';
-  const action = actionUrl
-    ? `<p style="margin:24px 0;text-align:center"><a href="${escapeHtml(actionUrl)}" style="display:inline-block;border-radius:8px;background:#0b6b50;padding:12px 20px;color:#fff;text-decoration:none;font-weight:700">${copy.action}</a></p>`
-    : '';
   return {
     subject: copy.subject,
-    html: `<div style="margin:0;background:#f6faf8;padding:32px;font-family:Arial,sans-serif;color:#16302a" dir="${direction}"><div style="max-width:520px;margin:auto;background:#fff;border:1px solid #dceee4;border-radius:16px;padding:32px"><div style="font-size:20px;font-weight:700;color:#0b6b50">${brand}</div><h1 style="font-size:22px;margin:24px 0 12px">${copy.title}</h1><p style="line-height:1.6">${copy.intro}</p><div style="margin:24px 0;padding:18px;border-radius:12px;background:#e6f5ee;color:#0b6b50;text-align:center;font-size:32px;font-weight:700;letter-spacing:8px">${code}</div>${action}<p>${copy.expiry} ${copy.minutes}.</p><p style="font-size:13px;color:#5e7a71">${copy.ignore}</p></div></div>`
+    ...composeEmail({
+      language,
+      preheader: copy.subject,
+      title: copy.title,
+      intro: copy.intro,
+      code: String(code ?? ''),
+      actionUrl,
+      actionLabel: copy.action,
+      footnote: `${copy.expiry} ${copy.minutes}.`,
+      note: copy.ignore
+    })
   };
-}
-
-function escapeHtml(value) {
-  return value.replace(/[&<>"']/g, (character) => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;'
-  })[character]);
 }
 
 function authenticationActionUrl({

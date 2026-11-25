@@ -153,8 +153,11 @@ async function addItem(userId, { bookId, quantity }, req) {
       transaction,
       lock: transaction.LOCK.UPDATE
     });
+    if (existing && book.format === 'ebook') {
+      throw apiError(409, 'This ebook is already in your cart.', 'ALREADY_IN_CART');
+    }
     if (existing) {
-      const next = book.format === 'ebook' ? 1 : Math.min(existing.quantity + quantity, book.stockQuantity ?? MAX_PHYSICAL_QUANTITY);
+      const next = Math.min(existing.quantity + quantity, book.stockQuantity ?? MAX_PHYSICAL_QUANTITY);
       await existing.update({ quantity: next }, { transaction });
     } else {
       await StoreCartItem.create({ cartId: cart.id, bookId: book.id, quantity }, { transaction });
@@ -244,7 +247,7 @@ router.post('/cart/merge', ...readers, validateBody(cartMergeSchema), async (req
   try {
     for (const item of req.body.items) {
       await addItem(req.user.id, item, req).catch((error) => {
-        if (!['ALREADY_OWNED', 'OUT_OF_STOCK', 'BOOK_NOT_FOUND'].includes(error.code)) throw error;
+        if (!['ALREADY_OWNED', 'ALREADY_IN_CART', 'OUT_OF_STOCK', 'BOOK_NOT_FOUND'].includes(error.code)) throw error;
       });
     }
     res.json(await cartDto(await loadCart(req.user.id), req.user.id));

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   ArrowDown,
@@ -12,7 +12,9 @@ import {
   ExternalLink,
   FileText,
   Gift,
+  ImagePlus,
   Lightbulb,
+  Loader2,
   Package,
   Palette,
   Plus,
@@ -23,10 +25,10 @@ import {
   Sparkles,
   Trash2,
   Truck,
+  UploadCloud,
   X
 } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
-import { slugFromTitle } from '@/lib/slug';
 import type { SiteLanguage } from '@/lib/localization';
 
 type Language = SiteLanguage;
@@ -97,6 +99,10 @@ const copy = {
     seasonLabel: 'الموسم',
     slug: 'الرابط المختصر',
     slugHint: 'أحرف لاتينية صغيرة وأرقام وشرطات. اتركه فارغًا ليُنشأ تلقائيًا.',
+    returnPolicy: 'سياسة الإرجاع',
+    returnPolicyHint: 'تطبق على العناصر المادية داخل الصندوق فقط. السياسة الافتراضية تلغي الإرجاع.',
+    returnPolicyNone: 'غير قابل للإرجاع',
+    returnPolicyStandard: 'يخضع لسياسة الإرجاع القياسية',
     priority: 'الأولوية',
     priorityHint: 'الأعلى يظهر أولًا عند وجود أكثر من صندوق.',
     arabic: 'العربية',
@@ -192,7 +198,13 @@ const copy = {
     animationSparkle: 'بريق',
     showCountdown: 'إظهار العدّاد في الشريط',
     almostSoldOut: 'تنبيه قرب النفاد عند بقاء',
-    banner: 'رابط صورة الغلاف',
+    banner: 'صورة الصندوق',
+    boxImageHint: 'تظهر أعلى بطاقة الصندوق في الصفحة الرئيسية. المقاس الموصى به 1200×800، بحد أقصى 5 ميغابايت.',
+    uploadPhoto: 'رفع صورة',
+    replacePhoto: 'استبدال الصورة',
+    removePhoto: 'إزالة',
+    photoFormats: 'JPG أو PNG أو WebP · حتى 5 م.ب',
+    imageUrlLabel: 'أو رابط مباشر للصورة',
     pattern: 'نمط الخلفية',
     preview: 'معاينة حيّة',
     light: 'فاتح',
@@ -285,7 +297,7 @@ const copy = {
     previousStep: 'السابق',
     nextStep: 'التالي',
     reviewPublish: 'مراجعة النشر',
-    purposeGeneral: 'ابدأ بالاسم والرابط والموسم. هذه هوية الصندوق التي سيراها الزائر.',
+    purposeGeneral: 'ابدأ بالاسم والموسم. هذه هوية الصندوق التي سيراها الزائر.',
     purposeSchedule: 'حدد متى يظهر الصندوق ومتى يتوقف البيع. المواعيد حقيقية وليست عدًّا تنازليًا مصطنعًا.',
     purposeContents: 'أضف ما سيصل للمشتري. المحتويات نفسها لكل شخص، ويمكن إخفاء الأسماء حتى الشراء.',
     purposePricing: 'اختر السعر وحدود المخزون. ستظهر لك القيمة والتوفير تلقائيًا.',
@@ -372,6 +384,10 @@ const copy = {
     seasonLabel: 'Season',
     slug: 'Slug',
     slugHint: 'Lowercase letters, numbers and hyphens. Leave empty to generate from the name.',
+    returnPolicy: 'Return policy',
+    returnPolicyHint: 'Applies to the physical items inside the box only. The default policy disables returns.',
+    returnPolicyNone: 'Not returnable',
+    returnPolicyStandard: 'Standard return policy applies',
     priority: 'Priority',
     priorityHint: 'Higher priority boxes are listed first.',
     arabic: 'العربية',
@@ -467,7 +483,13 @@ const copy = {
     animationSparkle: 'Sparkle',
     showCountdown: 'Show countdown in header',
     almostSoldOut: 'Almost sold out when remaining reaches',
-    banner: 'Cover image URL',
+    banner: 'Mystery box photo',
+    boxImageHint: 'Shown at the top of the mystery box card on the home page. Recommended 1200×800, up to 5 MB.',
+    uploadPhoto: 'Upload photo',
+    replacePhoto: 'Replace photo',
+    removePhoto: 'Remove',
+    photoFormats: 'JPG, PNG or WebP · up to 5 MB',
+    imageUrlLabel: 'Or a direct image URL',
     pattern: 'Background pattern',
     preview: 'Live preview',
     light: 'Light',
@@ -560,7 +582,7 @@ const copy = {
     previousStep: 'Previous',
     nextStep: 'Next',
     reviewPublish: 'Review publishing',
-    purposeGeneral: 'Start with the name, slug and season. This is the box identity visitors will see.',
+    purposeGeneral: 'Start with the name and season. This is the box identity visitors will see.',
     purposeSchedule: 'Set when the box appears and when selling stops. These are real dates, not artificial countdowns.',
     purposeContents: 'Add what the buyer receives. Every buyer gets the same contents; names can stay hidden until purchase.',
     purposePricing: 'Choose the price and stock limits. Value and savings are calculated for you.',
@@ -647,6 +669,10 @@ const copy = {
     seasonLabel: 'Saison',
     slug: 'Identifiant',
     slugHint: 'Lettres minuscules, chiffres et tirets. Laissez vide pour générer depuis le nom.',
+    returnPolicy: 'Politique de retour',
+    returnPolicyHint: 'S’applique uniquement aux articles physiques de la box. La politique par défaut désactive les retours.',
+    returnPolicyNone: 'Non retournable',
+    returnPolicyStandard: 'Politique de retour standard',
     priority: 'Priorité',
     priorityHint: 'Les boîtes à priorité élevée apparaissent en premier.',
     arabic: 'العربية',
@@ -742,7 +768,13 @@ const copy = {
     animationSparkle: 'Étincelles',
     showCountdown: 'Afficher le compte à rebours',
     almostSoldOut: 'Presque épuisé à partir de',
-    banner: 'URL de l’image de couverture',
+    banner: 'Photo du coffret',
+    boxImageHint: 'Affichée en haut de la carte du coffret sur la page d’accueil. Format conseillé 1200×800, 5 Mo maximum.',
+    uploadPhoto: 'Téléverser une photo',
+    replacePhoto: 'Remplacer la photo',
+    removePhoto: 'Retirer',
+    photoFormats: 'JPG, PNG ou WebP · 5 Mo maximum',
+    imageUrlLabel: 'Ou une URL d’image directe',
     pattern: 'Motif de fond',
     preview: 'Aperçu en direct',
     light: 'Clair',
@@ -835,7 +867,7 @@ const copy = {
     previousStep: 'Précédent',
     nextStep: 'Suivant',
     reviewPublish: 'Vérifier la publication',
-    purposeGeneral: 'Commencez par le nom, l’identifiant et la saison. C’est l’identité que verra le visiteur.',
+    purposeGeneral: 'Commencez par le nom et la saison. C’est l’identité que verra le visiteur.',
     purposeSchedule: 'Définissez quand la boîte apparaît et quand la vente s’arrête. Ce sont de vraies dates, pas un compte à rebours artificiel.',
     purposeContents: 'Ajoutez ce que reçoit l’acheteur. Le contenu est identique pour tous ; les noms peuvent rester masqués jusqu’à l’achat.',
     purposePricing: 'Choisissez le prix et les limites de stock. La valeur et l’économie sont calculées automatiquement.',
@@ -922,7 +954,6 @@ type AppearanceDraft = {
   seasonPatternStyle: string;
 };
 type BoxForm = {
-  slug: string;
   seasonLabel: string;
   timezone: string;
   priority: string;
@@ -937,6 +968,7 @@ type BoxForm = {
   perUserLimit: string;
   revealMode: 'hidden_until_purchase' | 'teaser' | 'full';
   requiresShipping: boolean;
+  returnPolicy: 'none' | 'standard';
   text: Record<Language, LanguageText>;
   items: ItemDraft[];
   shipping: ShippingDraft;
@@ -955,7 +987,7 @@ type AdminBox = {
   currency: string; compareAtValue?: string | number | null; stockLimit?: number | null; stockSold?: number;
   stockReserved?: number; remainingStock?: number | null; perUserLimit?: number | null;
   revealMode?: 'hidden_until_purchase' | 'teaser' | 'full'; salesCount?: number; revenue?: string | number;
-  requiresShipping?: boolean; translations?: Record<string, Partial<LanguageText>>; items?: AdminBoxItem[]; shipping?: Record<string, any> | null;
+  requiresShipping?: boolean; returnPolicy?: 'none' | 'standard'; translations?: Record<string, Partial<LanguageText>>; items?: AdminBoxItem[]; shipping?: Record<string, any> | null;
   appearance?: Record<string, any> | null; digitalConsentText?: string | null; description?: string | null; termsText?: string | null;
   faq?: Array<{ question: string; answer: string }> | null;
 };
@@ -996,9 +1028,9 @@ const emptyAppearance = (): AppearanceDraft => ({
   almostSoldOutThreshold: '10', bannerImageUrl: '', seasonPatternStyle: 'none'
 });
 const emptyForm = (): BoxForm => ({
-  slug: '', seasonLabel: '', timezone: 'Europe/Paris', priority: '0', startAt: '', endAt: '',
+  seasonLabel: '', timezone: 'Europe/Paris', priority: '0', startAt: '', endAt: '',
   price: '', earlyBirdPrice: '', earlyBirdEndsAt: '', currency: 'EUR', compareAtValue: '',
-  stockLimit: '', perUserLimit: '1', revealMode: 'hidden_until_purchase', requiresShipping: false,
+  stockLimit: '', perUserLimit: '1', revealMode: 'hidden_until_purchase', requiresShipping: false, returnPolicy: 'none',
   text: { ar: blankText(), en: blankText(), fr: blankText() },
   items: [], shipping: emptyShipping(), appearance: emptyAppearance()
 });
@@ -1553,8 +1585,11 @@ function GeneralTab({ form, update, contentLanguage, setContentLanguage, t }: { 
       <Field label={t('seasonLabel')}><input value={form.seasonLabel} onChange={(event) => update({ seasonLabel: event.target.value })} className={inputClass} placeholder="رمضان 1448" /></Field>
       <Field label={t('priority')} hint={t('priorityHint')}><input type="number" value={form.priority} onChange={(event) => update({ priority: event.target.value })} className={inputClass} /></Field>
     </div>
-    <Field label={t('slug')} hint={t('slugHint')}>
-      <div className="flex gap-2"><input dir="ltr" value={form.slug} onChange={(event) => update({ slug: event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-') })} className={`${inputClass} text-left`} placeholder="ramadan-gift-box" /><button type="button" onClick={() => update({ slug: slugFromTitle(form.text.ar.title || form.slug) })} className={secondaryButton}>{t('generate')}</button></div>
+    <Field label={t('returnPolicy')} hint={t('returnPolicyHint')}>
+      <select value={form.returnPolicy} onChange={(event) => update({ returnPolicy: event.target.value === 'standard' ? 'standard' : 'none' })} className={inputClass}>
+        <option value="none">{t('returnPolicyNone')}</option>
+        <option value="standard">{t('returnPolicyStandard')}</option>
+      </select>
     </Field>
   </div>;
 }
@@ -1722,6 +1757,34 @@ function AppearanceTab({ form, update, itemValue, contentLanguage, setContentLan
 }) {
   const appearance = form.appearance;
   const setAppearance = (patch: Partial<AppearanceDraft>) => update({ appearance: { ...appearance, ...patch } });
+  const imageInput = useRef<HTMLInputElement>(null);
+  const [imageBusy, setImageBusy] = useState(false);
+  const [imageError, setImageError] = useState('');
+
+  async function uploadImage(file: File | null) {
+    if (!file) return;
+    setImageError('');
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setImageError(t('photoFormats'));
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setImageError(t('photoFormats'));
+      return;
+    }
+    setImageBusy(true);
+    try {
+      const uploaded = await api.uploadFile<{ url: string }>('/admin/content/images', file, { role: 'cover' });
+      if (!uploaded?.url) throw new Error(t('photoFormats'));
+      setAppearance({ bannerImageUrl: uploaded.url });
+    } catch (error) {
+      setImageError(error instanceof Error ? error.message : t('photoFormats'));
+    } finally {
+      setImageBusy(false);
+      if (imageInput.current) imageInput.current.value = '';
+    }
+  }
+
   return <div className="space-y-5">
     <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-black text-emerald-950">{t('tabAppearance')}</h2><LanguageTabs language={contentLanguage} onChange={setContentLanguage} /></div>
     <div className="grid gap-6 lg:grid-cols-[1fr_1fr]">
@@ -1740,7 +1803,34 @@ function AppearanceTab({ form, update, itemValue, contentLanguage, setContentLan
           <Field label={t('almostSoldOut')}><input type="number" min="1" value={appearance.almostSoldOutThreshold} onChange={(event) => setAppearance({ almostSoldOutThreshold: event.target.value })} className={inputClass} /></Field>
           <Field label={t('pattern')}><select value={appearance.seasonPatternStyle} onChange={(event) => setAppearance({ seasonPatternStyle: event.target.value })} className={selectClass}>{['none', 'stars', 'geometric', 'confetti'].map((value) => <option key={value} value={value}>{value}</option>)}</select></Field>
         </div>
-        <Field label={t('banner')}><input dir="ltr" value={appearance.bannerImageUrl} onChange={(event) => setAppearance({ bannerImageUrl: event.target.value })} className={`${inputClass} text-left`} placeholder="https://…" /></Field>
+        <Field label={t('banner')} hint={t('boxImageHint')}>
+          <div className="overflow-hidden rounded-xl border border-emerald-950/10 bg-[#FBF7EF]">
+            <div className="relative aspect-[3/2] bg-[#123B30]">
+              <div className="absolute inset-0 grid place-items-center text-[#D8C08A]/60" aria-hidden="true"><Gift size={30} strokeWidth={1.2} /></div>
+              {appearance.bannerImageUrl && (
+                <img src={appearance.bannerImageUrl} alt={t('banner')} className="absolute inset-0 h-full w-full object-cover" onError={(event) => { event.currentTarget.style.display = 'none'; }} />
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-2 border-t border-emerald-950/10 p-3">
+              <button type="button" onClick={() => imageInput.current?.click()} disabled={imageBusy} className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-900 px-3 py-2 text-xs font-bold text-white disabled:opacity-60">
+                {imageBusy ? <Loader2 size={14} className="animate-spin" /> : appearance.bannerImageUrl ? <ImagePlus size={14} /> : <UploadCloud size={14} />}
+                {appearance.bannerImageUrl ? t('replacePhoto') : t('uploadPhoto')}
+              </button>
+              {appearance.bannerImageUrl && (
+                <button type="button" onClick={() => { setImageError(''); setAppearance({ bannerImageUrl: '' }); }} disabled={imageBusy} className="inline-flex items-center gap-1 rounded-lg border border-red-200 px-3 py-2 text-xs font-bold text-red-700 disabled:opacity-60">
+                  <Trash2 size={13} /> {t('removePhoto')}
+                </button>
+              )}
+              <span className="text-[11px] text-slate-500">{t('photoFormats')}</span>
+              <input ref={imageInput} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(event) => void uploadImage(event.target.files?.[0] || null)} />
+            </div>
+          </div>
+          {imageError && <p role="alert" className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-xs font-semibold text-red-800">{imageError}</p>}
+          <label className="mt-3 block text-xs font-semibold text-slate-600">
+            {t('imageUrlLabel')}
+            <input dir="ltr" value={appearance.bannerImageUrl} onChange={(event) => setAppearance({ bannerImageUrl: event.target.value })} className={`${inputClass} text-left`} placeholder="https://…" />
+          </label>
+        </Field>
         <label className="flex items-center gap-2 text-sm font-semibold text-slate-700"><input type="checkbox" checked={appearance.showCountdownInHeader} onChange={(event) => setAppearance({ showCountdownInHeader: event.target.checked })} /> {t('showCountdown')}</label>
       </div>
       <div>
@@ -1756,6 +1846,7 @@ function AppearanceTab({ form, update, itemValue, contentLanguage, setContentLan
         <div className={`mt-3 overflow-hidden rounded-2xl border ${previewDark ? 'border-slate-700 bg-slate-950 text-white' : 'border-emerald-950/10 bg-[#FBF7EF] text-emerald-950'} ${previewMobile ? 'mx-auto max-w-[360px]' : ''}`}>
           <div className={`flex items-center justify-between gap-2 border-b px-4 py-3 ${previewDark ? 'border-white/10' : 'border-emerald-950/10'}`}><span className="text-xs font-black">حكايات إسلامية</span><span className="rounded-full px-2 py-0.5 text-[10px] font-bold" style={{ backgroundColor: appearance.accentColor, color: '#1f2937' }}>{t('preview')}</span></div>
           <div className="p-4">
+            {appearance.bannerImageUrl && <div className="mb-3 aspect-[3/2] overflow-hidden rounded-xl border border-emerald-950/10 bg-[#123B30]"><img src={appearance.bannerImageUrl} alt="" className="h-full w-full object-cover" /></div>}
             <div className="relative overflow-hidden rounded-xl p-4 text-white" style={{ backgroundImage: `linear-gradient(135deg, ${appearance.colorFrom}, ${appearance.colorTo})` }}>
               {appearance.seasonPatternStyle !== 'none' && <div className="pointer-events-none absolute inset-0 opacity-20" aria-hidden="true">{appearance.seasonPatternStyle === 'stars' ? '✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧' : appearance.seasonPatternStyle === 'confetti' ? '● ▲ ■ ● ▲ ■ ● ▲' : '◇ ◇ ◇ ◇ ◇ ◇ ◇ ◇'}</div>}
               <div className="relative flex items-center gap-2 text-xs font-bold"><span>{appearance.icon || '🎁'}</span><span>{appearance.headerLabel[contentLanguage] || form.text[contentLanguage].title || t('newBox')}</span>{appearance.showCountdownInHeader && <span className="mr-auto rounded-full bg-black/20 px-2 py-0.5 text-[10px]">{countdownLabel(form.endAt)}</span>}</div>
@@ -1870,7 +1961,6 @@ function formFromBox(box: AdminBox, language: Language): BoxForm {
   const shipping: Record<string, any> = box.shipping || {};
   const appearance: Record<string, any> = box.appearance || {};
   return {
-    slug: box.slug || '',
     seasonLabel: box.seasonLabel || '',
     timezone,
     priority: String(box.priority ?? 0),
@@ -1885,6 +1975,7 @@ function formFromBox(box: AdminBox, language: Language): BoxForm {
     perUserLimit: box.perUserLimit ? String(box.perUserLimit) : '1',
     revealMode: box.revealMode || 'hidden_until_purchase',
     requiresShipping: Boolean(box.requiresShipping) || (box.items || []).some((item) => isPhysical(item.type)),
+    returnPolicy: box.returnPolicy === 'standard' ? 'standard' : 'none',
     text: { ar: baseText('ar'), en: baseText('en'), fr: baseText('fr') },
     items: (box.items || []).map((item) => ({
       key: String(item.id || `${Date.now()}-${Math.random()}`),
@@ -1956,7 +2047,6 @@ function buildPayload(form: BoxForm, acknowledgeSales: boolean) {
     title: form.text.ar.title,
     tagline: form.text.ar.tagline || null,
     seasonLabel: form.seasonLabel || null,
-    slug: form.slug || undefined,
     priority: Number(form.priority || 0),
     startAt: wallTimeToIso(form.startAt, form.timezone),
     endAt: wallTimeToIso(form.endAt, form.timezone),
@@ -1970,6 +2060,7 @@ function buildPayload(form: BoxForm, acknowledgeSales: boolean) {
     perUserLimit: Number(form.perUserLimit || 1),
     revealMode: form.revealMode,
     requiresShipping: form.requiresShipping || form.items.some((item) => isPhysical(item.type)),
+    returnPolicy: form.returnPolicy,
     description: form.text.ar.description || null,
     digitalConsentText: form.text.ar.digitalConsentText || null,
     termsText: form.text.ar.termsText || null,

@@ -469,6 +469,7 @@ function serializeHeader(box, { items = [], appearance, language = 'ar' } = {}) 
     accentColor: appearance?.accentColor || '#F3E3B8',
     animationStyle: appearance?.animationStyle || 'shimmer',
     showCountdownInHeader: appearance?.showCountdownInHeader !== false,
+    bannerImage: appearance?.bannerImage || null,
     startsAt: box.startAt,
     endsAt: box.endAt,
     serverTime: now.toISOString(),

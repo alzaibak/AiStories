@@ -1,5 +1,6 @@
 import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { StoryAuthProvider } from '@/contexts/StoryAuthContext';
+import { ScrollToTop } from '@/components/ScrollToTop';
 import NotFound from '@/pages/NotFound';
 import AdminContentPage from '@/pages/stories/AdminContentPage';
 import { AdminBadgesPage, AdminReviewsPage, AdminStoryRequestsPage } from '@/pages/stories/AdminCommunityPages';
@@ -45,6 +46,7 @@ export default function AdminApp() {
   return (
     <BrowserRouter>
       <StoryAuthProvider>
+        <ScrollToTop />
         <Routes>
           <Route path="/" element={<Navigate to="/ar/admin/login" replace />} />
           <Route path="/:locale" element={<AdminLocaleRoutes />}>

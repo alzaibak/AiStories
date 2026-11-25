@@ -1,6 +1,7 @@
 import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { StoryAuthProvider } from '@/contexts/StoryAuthContext';
 import { SiteThemeProvider } from '@/contexts/SiteThemeContext';
+import { ScrollToTop } from '@/components/ScrollToTop';
 import DesignSystemPage from '@/pages/DesignSystemPage';
 import NotFound from '@/pages/NotFound';
 import ProfilePage, { ReturnTrackingPage } from '@/pages/stories/ProfilePage';
@@ -45,6 +46,7 @@ export default function App() {
     <BrowserRouter>
       <SiteThemeProvider>
         <StoryAuthProvider>
+        <ScrollToTop />
         <Routes>
           <Route path="/:locale" element={<LocalizedRoutes />}>
             <Route index element={<LandingPage />} />

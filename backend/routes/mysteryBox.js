@@ -14,6 +14,7 @@ const { authenticate, optionalAuthenticate, allowRoles } = require('../middlewar
 const { validateBody } = require('../middleware/validation');
 const schemas = require('../middleware/mysteryBoxValidation');
 const { recordAudit } = require('../utils/audit');
+const { deleteMysteryBoxWithMedia } = require('../utils/mediaCleanup');
 const { requestedLanguage } = require('../utils/contentLocalization');
 const { slugFromLocalized, slugify } = require('../utils/slug');
 const { createStripeClient, getClientAppUrl } = require('../utils/stripe');
@@ -568,7 +569,7 @@ router.delete('/admin/mystery-boxes/:id', ...admins, async (req, res, next) => {
       });
     }
     await recordAudit(req, 'DELETE_MYSTERY_BOX', 'MysteryBox', box.id, { slug: box.slug });
-    await box.destroy();
+    await deleteMysteryBoxWithMedia(box);
     res.status(204).end();
   } catch (error) {
     next(error);

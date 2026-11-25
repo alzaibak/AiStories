@@ -1,0 +1,583 @@
+{
+  "config": {
+    "argv": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\Users\\aziz\\Documents\\Aziz\\Web\\AI stories\\node_modules\\@playwright\\test\\cli.js",
+      "test",
+      "--config",
+      "scripts/qa/playwright.config.ts",
+      "03-reader",
+      "06-crosscheck"
+    ],
+    "configFile": "C:\\Users\\aziz\\Documents\\Aziz\\Web\\AI stories\\scripts\\qa\\playwright.config.ts",
+    "rootDir": "C:/Users/aziz/Documents/Aziz/Web/AI stories/scripts/qa/specs",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "C:/Users/aziz/Documents/Aziz/Web/AI stories/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "public",
+        "name": "public",
+        "testDir": "C:/Users/aziz/Documents/Aziz/Web/AI stories/scripts/qa/specs",
+        "testIgnore": [],
+        "testMatch": [
+          "/(setup|public|auth|reader|mobile|discovery|crosscheck)\\.spec\\.ts/"
+        ],
+        "timeout": 90000
+      },
+      {
+        "outputDir": "C:/Users/aziz/Documents/Aziz/Web/AI stories/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "admin",
+        "name": "admin",
+        "testDir": "C:/Users/aziz/Documents/Aziz/Web/AI stories/scripts/qa/specs",
+        "testIgnore": [],
+        "testMatch": [
+          "/admin\\.spec\\.ts/"
+        ],
+        "timeout": 90000
+      }
+    ],
+    "filteredProjects": [
+      {
+        "grep": {},
+        "grepInvert": null,
+        "outputDir": "C:\\Users\\aziz\\Documents\\Aziz\\Web\\AI stories\\test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "name": "public",
+        "testDir": "C:\\Users\\aziz\\Documents\\Aziz\\Web\\AI stories\\scripts\\qa\\specs",
+        "snapshotDir": "C:\\Users\\aziz\\Documents\\Aziz\\Web\\AI stories\\scripts\\qa\\specs",
+        "testIgnore": [],
+        "testMatch": {},
+        "timeout": 90000,
+        "use": {
+          "channel": "chrome",
+          "headless": true,
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "screenshot": "only-on-failure",
+          "trace": "retain-on-failure",
+          "actionTimeout": 15000,
+          "baseURL": "http://127.0.0.1:5173"
+        },
+        "dependencies": [],
+        "ignoreSnapshots": false,
+        "__projectId": "public"
+      },
+      {
+        "grep": {},
+        "grepInvert": null,
+        "outputDir": "C:\\Users\\aziz\\Documents\\Aziz\\Web\\AI stories\\test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "name": "admin",
+        "testDir": "C:\\Users\\aziz\\Documents\\Aziz\\Web\\AI stories\\scripts\\qa\\specs",
+        "snapshotDir": "C:\\Users\\aziz\\Documents\\Aziz\\Web\\AI stories\\scripts\\qa\\specs",
+        "testIgnore": [],
+        "testMatch": {},
+        "timeout": 90000,
+        "use": {
+          "channel": "chrome",
+          "headless": true,
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "screenshot": "only-on-failure",
+          "trace": "retain-on-failure",
+          "actionTimeout": 15000,
+          "baseURL": "http://127.0.0.1:5174"
+        },
+        "dependencies": [],
+        "ignoreSnapshots": false,
+        "__projectId": "admin"
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "artifacts/report.json"
+        }
+      ],
+      [
+        "html",
+        {
+          "outputFolder": "artifacts/html",
+          "open": "never"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "default",
+    "updateSourceMethod": "patch",
+    "version": "1.65.1",
+    "workers": 1,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "03-reader.spec.ts",
+      "file": "03-reader.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "espace compte: contenu, aucun texte cassé, aucune 5xx",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "public",
+              "projectName": "public",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 8014,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-24T17:19:52.171Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "8c74fd7851299b861d37-ab7db8577ad7b5a2cc21",
+          "file": "03-reader.spec.ts",
+          "line": 15,
+          "column": 1
+        },
+        {
+          "title": "lire un conte jusqu’au bout puis retrouver la progression",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 120000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "public",
+              "projectName": "public",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 10034,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-24T17:20:01.076Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "8c74fd7851299b861d37-202cecc49521acfe0803",
+          "file": "03-reader.spec.ts",
+          "line": 29,
+          "column": 1
+        },
+        {
+          "title": "abonnement: le bouton mène bien à Stripe (clé de test)",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 120000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "public",
+              "projectName": "public",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 29615,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-24T17:20:11.151Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "8c74fd7851299b861d37-61b5a500a77e6f27e3cc",
+          "file": "03-reader.spec.ts",
+          "line": 60,
+          "column": 1
+        },
+        {
+          "title": "don: montant puis redirection Stripe",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 120000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "public",
+              "projectName": "public",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 35727,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-24T17:20:40.816Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "8c74fd7851299b861d37-1b251ca4392c96b0a2eb",
+          "file": "03-reader.spec.ts",
+          "line": 77,
+          "column": 1
+        },
+        {
+          "title": "demande de conte: soumission et message de confirmation",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 120000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "public",
+              "projectName": "public",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 6708,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-24T17:21:16.594Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "8c74fd7851299b861d37-129fe80f9939fbc675fc",
+          "file": "03-reader.spec.ts",
+          "line": 89,
+          "column": 1
+        },
+        {
+          "title": "fichés boutique: état vide et livre non publié",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "public",
+              "projectName": "public",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 10443,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-24T17:21:23.363Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "8c74fd7851299b861d37-5e9be1a42d980656da45",
+          "file": "03-reader.spec.ts",
+          "line": 102,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "06-crosscheck.spec.ts",
+      "file": "06-crosscheck.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "visiteur",
+          "file": "06-crosscheck.spec.ts",
+          "line": 11,
+          "column": 6,
+          "specs": [
+            {
+              "title": "héros Mystery Box et liens retour Stripe",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "public",
+                  "projectName": "public",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 9762,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-24T17:21:33.892Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ca9199b6416430dcd07a-9ea2aa0ccac56585e331",
+              "file": "06-crosscheck.spec.ts",
+              "line": 14,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "lecteur",
+          "file": "06-crosscheck.spec.ts",
+          "line": 35,
+          "column": 6,
+          "specs": [
+            {
+              "title": "déconnexion et lien email « mes mystery boxes »",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "public",
+                  "projectName": "public",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 9383,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-24T17:21:43.685Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ca9199b6416430dcd07a-94702d1d97923058a927",
+              "file": "06-crosscheck.spec.ts",
+              "line": 38,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "admin: cohérence des écrans",
+          "file": "06-crosscheck.spec.ts",
+          "line": 53,
+          "column": 6,
+          "specs": [
+            {
+              "title": "deux entrées de menu, même page",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "public",
+                  "projectName": "public",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 11645,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-24T17:21:53.107Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ca9199b6416430dcd07a-ee6b3f2b012a0351fbd3",
+              "file": "06-crosscheck.spec.ts",
+              "line": 56,
+              "column": 3
+            },
+            {
+              "title": "bascule de langue du portail admin",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "public",
+                  "projectName": "public",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 10132,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-24T17:22:04.785Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ca9199b6416430dcd07a-288c830a9edf85edd8f2",
+              "file": "06-crosscheck.spec.ts",
+              "line": 67,
+              "column": 3
+            },
+            {
+              "title": "création puis suppression d’un brouillon de histoire (aller-retour API)",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 150000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "public",
+                  "projectName": "public",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 9564,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-24T17:22:14.952Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ca9199b6416430dcd07a-992541a6af3ab32f2e95",
+              "file": "06-crosscheck.spec.ts",
+              "line": 82,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-11-24T17:19:51.093Z",
+    "duration": 154063.032,
+    "expected": 11,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

@@ -10,11 +10,11 @@ test('les erreurs de validation Zod exposent des messages localisés par champ',
   });
   const response = apiErrorResponse(parsed.error, 'en');
 
-  assert.equal(response.status, 400);
+  assert.equal(response.status, 422);
   assert.equal(response.body.code, 'VALIDATION_FAILED');
   assert.equal(response.body.message, 'Please correct the highlighted fields and try again.');
   assert.equal(response.body.fields.email, 'This value is invalid.');
-  assert.equal(response.body.fields.password, 'This value is invalid.');
+  assert.equal(response.body.fields.password, 'This field is required.');
 });
 
 test('les erreurs Sequelize uniques ne révèlent pas les messages internes', () => {

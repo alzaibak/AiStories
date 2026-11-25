@@ -1,0 +1,102 @@
+{
+  "password": "QaPass!2026x",
+  "accounts": {
+    "reader": 12,
+    "unverified": 13,
+    "pending": 14,
+    "suspended": 15,
+    "editor": 16,
+    "reviewer": 17,
+    "admin": 18,
+    "superadmin": 19
+  },
+  "emails": {
+    "reader": "qa.reader@qa.test",
+    "unverified": "qa.unverified@qa.test",
+    "pending": "qa.pending@qa.test",
+    "suspended": "qa.suspended@qa.test",
+    "editor": "qa.editor@qa.test",
+    "reviewer": "qa.reviewer@qa.test",
+    "admin": "qa.admin@qa.test",
+    "superadmin": "qa.superadmin@qa.test"
+  },
+  "planSlug": "qa-mensuel",
+  "campaignSlug": "qa-campagne",
+  "stories": [
+    {
+      "id": 1,
+      "slug": "yunus",
+      "status": "draft",
+      "isFree": true
+    },
+    {
+      "id": 2,
+      "slug": "companionship-in-the-cave",
+      "status": "published",
+      "isFree": true
+    },
+    {
+      "id": 3,
+      "slug": "honesty-in-the-library",
+      "status": "in_review",
+      "isFree": false
+    }
+  ],
+  "collections": [
+    {
+      "id": 1,
+      "slug": "prophets-stories",
+      "title": "قصص الأنبياء"
+    },
+    {
+      "id": 2,
+      "slug": "companions",
+      "title": "قصص الصحابة"
+    },
+    {
+      "id": 3,
+      "slug": "new-stories",
+      "title": "حكايات تربوية جديدة"
+    }
+  ],
+  "books": [
+    {
+      "id": 1,
+      "slug": "yunus-ebook",
+      "title": "يونس عليه السلام — كتاب إلكتروني",
+      "status": "draft",
+      "format": "ebook",
+      "price": "4.90"
+    },
+    {
+      "id": 2,
+      "slug": "kindness-lantern-demo",
+      "title": "مصباح اللطف — كتاب إلكتروني تجريبي",
+      "status": "draft",
+      "format": "ebook",
+      "price": "4.90"
+    },
+    {
+      "id": 3,
+      "slug": "prophets-stories-print",
+      "title": "قصص الأنبياء — نسخة مطبوعة",
+      "status": "draft",
+      "format": "print",
+      "price": "14.90"
+    }
+  ],
+  "boxes": [
+    {
+      "id": 9,
+      "slug": "hvyvpiuuoz",
+      "status": "draft",
+      "price": "20.00"
+    },
+    {
+      "id": 10,
+      "slug": "hvyvpiuuoz-2",
+      "status": "active",
+      "price": "20.00"
+    }
+  ]
+}

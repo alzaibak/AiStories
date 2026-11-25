@@ -4,6 +4,7 @@ const Product = require('./Product');
 const tendering = require('./tendering');
 const storyPlatform = require('./storyPlatform');
 const mysteryBox = require('./mysteryBox');
+const returns = require('./returns');
 
 const { Organization, Tender, TenderItem, TenderInvitation, Offer, OfferItem, Document, Clarification, Message, PurchaseOrder, AuditLog } = tendering;
 
@@ -39,5 +40,5 @@ PurchaseOrder.belongsTo(Offer, { foreignKey: 'offerId', as: 'offer' });
 PurchaseOrder.belongsTo(Tender, { foreignKey: 'tenderId', as: 'tender' });
 module.exports = {
   sequelize: require('../config/database'),
-  User, Category, Product, ...tendering, ...storyPlatform, ...mysteryBox
+  User, Category, Product, ...tendering, ...storyPlatform, ...mysteryBox, ...returns
 };

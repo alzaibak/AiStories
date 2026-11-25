@@ -96,7 +96,20 @@ async function canAccessPart({
     await hasPremiumEntitlement(userId, now, entitlementModel);
 }
 
-async function canAccessBook({ userId, role, book, now = new Date(), entitlementModel = Entitlement }) {
+function hasDownloadQuota(entitlement) {
+  const limit = entitlement.downloadLimit;
+  if (limit === null || limit === undefined) return true;
+  return Number(entitlement.downloadCount || 0) < Number(limit);
+}
+
+async function canAccessBook({
+  userId,
+  role,
+  book,
+  now = new Date(),
+  entitlementModel = Entitlement,
+  allowExhausted = false
+}) {
   if (privilegedRoles.has(role)) return true;
   if (!userId) return false;
   const entitlements = await entitlementModel.findAll({
@@ -111,7 +124,8 @@ async function canAccessBook({ userId, role, book, now = new Date(), entitlement
   return entitlements.some((entitlement) =>
     !entitlement.revokedAt &&
     new Date(entitlement.startsAt) <= now &&
-    (!entitlement.expiresAt || new Date(entitlement.expiresAt) > now)
+    (!entitlement.expiresAt || new Date(entitlement.expiresAt) > now) &&
+    (allowExhausted || hasDownloadQuota(entitlement))
   );
 }
 
@@ -121,5 +135,6 @@ module.exports = {
   hasActiveSubscription,
   hasPremiumEntitlement,
   canAccessPart,
-  canAccessBook
+  canAccessBook,
+  hasDownloadQuota
 };

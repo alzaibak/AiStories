@@ -47,7 +47,9 @@ function t(text: string, language: SiteLanguage) {
   return translateText(text, language);
 }
 
-export function AdminBadgesPage() {
+export { AdminBadgesPage } from './AdminBadgesPage';
+
+export function AdminBadgesLegacyPage() {
   const language = useAdminLanguage();
   const [badges, setBadges] = useState<BadgeRecord[]>([]);
   const [loading, setLoading] = useState(true);

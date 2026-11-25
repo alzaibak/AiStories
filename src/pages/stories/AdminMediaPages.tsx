@@ -180,15 +180,18 @@ export function AdminVideosPage() {
     }
   }
 
-  async function transition(video: AdminVideo, action: 'submit-review' | 'review', decision?: 'approved' | 'rejected') {
+  async function transition(video: AdminVideo, action: 'submit-review' | 'review' | 'publish', decision?: 'approved' | 'rejected') {
     setBusy(true);
     setError(null);
     try {
-      const path = `/admin/content/videos/${video.id}/${action}`;
-      if (action === 'review') {
-        await api.post(path, { decision, comments: decision === 'rejected' ? window.prompt(t('سبب الرفض', language)) || '' : '' });
+      if (action === 'review' || action === 'publish') {
+        const nextDecision = action === 'publish' ? 'approved' : decision;
+        await api.post(`/admin/content/videos/${video.id}/review`, {
+          decision: nextDecision,
+          comments: nextDecision === 'rejected' ? window.prompt(t('سبب الرفض', language)) || '' : ''
+        });
       } else {
-        await api.post(path, {});
+        await api.post(`/admin/content/videos/${video.id}/submit-review`, {});
       }
       await load();
     } catch (caught) {
@@ -201,6 +204,7 @@ export function AdminVideosPage() {
   if (!user || !['ADMIN', 'SUPER_ADMIN', 'EDITOR'].includes(user.role)) {
     return <PageShell title="الفيديوهات"><p role="alert">{t('إذن غير متاح.', language)}</p></PageShell>;
   }
+  const canPublish = ['ADMIN', 'SUPER_ADMIN'].includes(user.role);
 
   return <PageShell title="الفيديوهات">
     <div className="flex flex-wrap gap-3">
@@ -239,7 +243,9 @@ export function AdminVideosPage() {
           <div><h2 className="font-bold">{video.translations?.[language]?.title || video.title}</h2><p className="mt-1 text-sm text-slate-500">{video.story?.title} · {t('الحلقة', language)} {video.episodeNumber} · {video.status}</p></div>
           <div className="flex flex-wrap gap-2">
             <button onClick={() => selectVideo(video)} className="rounded-lg border px-3 py-1.5 text-sm font-bold">{t('تعديل', language)}</button>
-            {['draft', 'rejected'].includes(video.status) && <button onClick={() => void transition(video, 'submit-review')} disabled={busy} className="rounded-lg bg-emerald-900 px-3 py-1.5 text-sm font-bold text-white">{t('إرسال للمراجعة', language)}</button>}
+            {['draft', 'rejected'].includes(video.status) && (canPublish
+              ? <button onClick={() => void transition(video, 'publish')} disabled={busy} className="rounded-lg bg-emerald-900 px-3 py-1.5 text-sm font-bold text-white">{t('نشر', language)}</button>
+              : <button onClick={() => void transition(video, 'submit-review')} disabled={busy} className="rounded-lg bg-emerald-900 px-3 py-1.5 text-sm font-bold text-white">{t('إرسال للمراجعة', language)}</button>)}
             {video.status === 'in_review' && ['ADMIN', 'SUPER_ADMIN'].includes(user.role) && <>
               <button onClick={() => void transition(video, 'review', 'approved')} disabled={busy} className="rounded-lg bg-emerald-900 px-3 py-1.5 text-sm font-bold text-white">{t('اعتماد', language)}</button>
               <button onClick={() => void transition(video, 'review', 'rejected')} disabled={busy} className="rounded-lg bg-red-700 px-3 py-1.5 text-sm font-bold text-white">{t('رفض', language)}</button>

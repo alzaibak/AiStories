@@ -1,0 +1,14 @@
+{
+  "cookies": [],
+  "origins": [
+    {
+      "origin": "http://127.0.0.1:5174",
+      "localStorage": [
+        {
+          "name": "storiesToken",
+          "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MTcsInJvbGUiOiJSRVZJRVdFUiIsInN0YXR1cyI6IkFDVElWRSIsImlzQWRtaW4iOmZhbHNlLCJhdWQiOiJhZG1pbiIsInRva2VuVmVyc2lvbiI6MCwianRpIjoiM2ZhMWM0YjAtZjAxMS00MzAxLTgwYTUtYmMxYjczMGI5MTczIiwiaWF0IjoxNzk1NTM5ODU5LCJleHAiOjE3OTU1NTA2NTl9.UKauut2tWjfQcK34A4o1Q8T3rVFw4Aata5t8eJE2lK8"
+        }
+      ]
+    }
+  ]
+}

@@ -282,6 +282,12 @@ test('header payload disappears when the box is not active', () => {
   assert.equal(header.slug, 'ramadan');
   assert.equal(header.showCountdownInHeader, true);
   assert.equal(header.almostSoldOut, false);
+  assert.equal(header.bannerImage, null);
+  const withPhoto = serializeHeader(
+    { ...baseBox, slug: 'ramadan', title: 'صندوق' },
+    { items: boxItems, appearance: { ...appearance, bannerImage: 'https://cdn.example.test/uploads/public/covers/box.webp' } }
+  );
+  assert.equal(withPhoto.bannerImage, 'https://cdn.example.test/uploads/public/covers/box.webp');
   assert.equal(serializeHeader({ ...baseBox, status: 'draft' }, { items: boxItems, appearance }), null);
   assert.equal(serializeHeader({ ...baseBox, stockSold: 10 }, { items: boxItems, appearance }), null);
   assert.equal(savingsPercent('49.00', '100.00'), 51);

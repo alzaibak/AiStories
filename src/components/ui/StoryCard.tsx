@@ -1,6 +1,7 @@
 import { ArrowLeft, BookOpen, Clock3, ShieldCheck } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
 import { translateText, type SiteLanguage } from '@/lib/localization';
+import { pluralMinutes, pluralParts } from '@/lib/plural';
 import { AccessBadge, CoverArt } from './CoverArt';
 import { ProgressBar } from './Progress';
 import { SourceBadge } from './SourceBadge';
@@ -11,6 +12,7 @@ export interface StoryCardData {
   slug: string;
   summary?: string | null;
   cover?: string | null;
+  coverVariants?: Array<{ width: number; url: string }> | null;
   sourceBadge?: string | null;
   isFree?: boolean;
   ageGroup?: string | null;
@@ -19,6 +21,10 @@ export interface StoryCardData {
   parts?: Array<{ estimatedReadingMinutes?: number | null }> | null;
   partsCount?: number | null;
   readingMinutes?: number | null;
+  hook?: string | null;
+  publishAt?: string | null;
+  updatedAt?: string | null;
+  isStoryOfTheWeek?: boolean;
 }
 
 function readingMinutesOf(story: StoryCardData) {
@@ -69,16 +75,22 @@ export function StoryCard({
   const partsCount = story.partsCount ?? story.parts?.length ?? null;
   const minutes = readingMinutesOf(story);
   const hasProgress = typeof progress === 'number' && progress > 0;
+  const publishedAt = story.publishAt ? new Date(story.publishAt).getTime() : 0;
+  const isNew = publishedAt > 0 && Date.now() - publishedAt < 21 * 24 * 60 * 60 * 1000;
+  const isUpdated = Boolean(story.updatedAt && publishedAt &&
+    new Date(story.updatedAt).getTime() - publishedAt > 24 * 60 * 60 * 1000 &&
+    Date.now() - new Date(story.updatedAt).getTime() < 14 * 24 * 60 * 60 * 1000);
 
   if (variant === 'featured') {
     return (
       <article className={`group relative ${className}`}>
         <div className="ds-card overflow-hidden transition duration-300 hover:shadow-lift md:grid md:grid-cols-[1.02fr_1fr]">
-          <div className="relative aspect-[16/10] overflow-hidden md:aspect-auto md:min-h-[22rem]">
+          <div className="relative aspect-[3/4] overflow-hidden md:aspect-auto md:min-h-[22rem]">
             <Link to={href} aria-hidden="true" tabIndex={-1} className="absolute inset-0 block">
               <CoverArt
                 title={story.title}
                 cover={story.cover}
+                variants={story.coverVariants}
                 seed={story.id}
                 className="absolute inset-0 h-full w-full transition duration-700 group-hover:scale-[1.03]"
                 sizes="(min-width: 768px) 50vw, 100vw"
@@ -89,29 +101,34 @@ export function StoryCard({
               <SourceBadge source={story.sourceBadge} language={language} size="md" />
               <AccessBadge isFree={Boolean(story.isFree)} language={language} />
             </div>
+            {(isNew || isUpdated) && <div className="pointer-events-none absolute inset-x-0 bottom-0 flex gap-2 p-4">
+              {isNew && <span className="rounded-full bg-brand px-2.5 py-1 text-[0.6875rem] font-bold text-brand-on">{translateText('جديد', language)}</span>}
+              {isUpdated && <span className="rounded-full bg-gold px-2.5 py-1 text-[0.6875rem] font-bold text-gold-on">{translateText('محدّثة', language)}</span>}
+            </div>}
           </div>
           <div className="flex flex-col justify-center gap-4 p-6 sm:p-8">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-semibold text-ink-muted">
               {story.collection?.title && <span className="text-brand-ink">{story.collection.title}</span>}
               {partsCount ? (
                 <span className="inline-flex items-center gap-1">
-                  <BookOpen size={13} aria-hidden="true" /> {partsCount} {translateText('أجزاء', language)}
+                  <BookOpen size={13} aria-hidden="true" /> {pluralParts(partsCount, language)}
                 </span>
               ) : null}
               {minutes ? (
                 <span className="inline-flex items-center gap-1">
-                  <Clock3 size={13} aria-hidden="true" /> {minutes} {translateText('دقيقة', language)}
+                  <Clock3 size={13} aria-hidden="true" /> {pluralMinutes(minutes, language)}
                 </span>
               ) : null}
+              {story.isStoryOfTheWeek && <span className="rounded-full bg-gold-soft px-2 py-1 text-gold-ink">{translateText('حكاية الأسبوع', language)}</span>}
             </div>
             <h3 className="text-2xl font-bold leading-snug text-ink sm:text-3xl">
               <Link to={href} className="hover:text-brand-ink">
                 {story.title}
               </Link>
             </h3>
-            {story.summary && (
+            {(story.hook || story.summary) && (
               <p className="line-clamp-3 text-sm leading-7 text-ink-muted sm:text-base sm:leading-8">
-                {story.summary}
+                {story.hook || story.summary}
               </p>
             )}
             {hasProgress && (
@@ -139,11 +156,12 @@ export function StoryCard({
   return (
     <article className={`group relative h-full ${className}`}>
       <div className="ds-card flex h-full flex-col overflow-hidden transition duration-300 ease-out group-hover:-translate-y-1 group-hover:border-line-strong group-hover:shadow-lift">
-        <div className="relative aspect-[4/3] overflow-hidden">
+        <div className="relative aspect-[3/4] overflow-hidden">
           <Link to={href} className="absolute inset-0 block" tabIndex={-1} aria-hidden="true">
             <CoverArt
               title={story.title}
               cover={story.cover}
+              variants={story.coverVariants}
               seed={story.id}
               className="absolute inset-0 h-full w-full transition duration-700 ease-out group-hover:scale-[1.035]"
             />
@@ -152,26 +170,31 @@ export function StoryCard({
             <SourceBadge source={story.sourceBadge} language={language} />
             <AccessBadge isFree={Boolean(story.isFree)} language={language} />
           </div>
+          {(isNew || isUpdated) && <div className="pointer-events-none absolute inset-x-0 bottom-0 flex gap-2 p-3">
+            {isNew && <span className="rounded-full bg-brand px-2 py-1 text-[0.625rem] font-bold text-brand-on">{translateText('جديد', language)}</span>}
+            {isUpdated && <span className="rounded-full bg-gold px-2 py-1 text-[0.625rem] font-bold text-gold-on">{translateText('محدّثة', language)}</span>}
+          </div>}
         </div>
         <div className="flex flex-1 flex-col p-4 sm:p-5">
           <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[0.6875rem] font-semibold text-ink-faint">
             {story.collection?.title && <span className="text-brand-ink">{story.collection.title}</span>}
-            {partsCount ? <span>{partsCount} {translateText('أجزاء', language)}</span> : null}
-            {minutes ? <span>{minutes} {translateText('دقيقة', language)}</span> : null}
+            {partsCount ? <span>{pluralParts(partsCount, language)}</span> : null}
+            {minutes ? <span>{pluralMinutes(minutes, language)}</span> : null}
+            {story.isStoryOfTheWeek && <span className="text-gold-ink">{translateText('حكاية الأسبوع', language)}</span>}
           </div>
           <h3 dir="auto" className="mt-2 text-lg font-bold leading-snug text-ink">
             <Link to={href} className="transition hover:text-brand-ink">
               {story.title}
             </Link>
           </h3>
-          {story.summary && (
-            <p dir="auto" className="mt-2 line-clamp-2 text-sm leading-6 text-ink-muted">{story.summary}</p>
+          {(story.hook || story.summary) && (
+            <p dir="auto" className="mt-2 line-clamp-2 text-sm leading-6 text-ink-muted">{story.hook || story.summary}</p>
           )}
           {hasProgress && (
             <div className="mt-3 space-y-1.5">
               <ProgressBar value={progress} label={translateText('تقدّم القراءة', language)} />
               <p className="text-[0.6875rem] text-ink-muted">
-                {progress}% {translateText('أنجزت', language)}
+                {progress >= 100 ? translateText('أكملت الحكاية', language) : `${progress}% ${translateText('أنجزت', language)}`}
               </p>
             </div>
           )}

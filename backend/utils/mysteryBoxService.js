@@ -208,6 +208,7 @@ async function createMysteryBoxReservation({
       amountTotal: (totalMinor / 100).toFixed(2),
       currency: price.currency,
       priceTier: price.tier,
+      returnPolicySnapshot: box.returnPolicy || 'none',
       digitalContentConsent: consent === true,
       digitalContentConsentAt: consent === true ? now : null,
       shippingAddress: null,
@@ -646,6 +647,7 @@ async function markMysteryBoxShipped(purchaseId, { trackingNumber, carrier, ship
       trackingNumber: trackingNumber || purchase.trackingNumber,
       carrier: carrier || purchase.carrier,
       shippedAt: shippingStatus === 'shipped' ? (purchase.shippedAt || new Date()) : purchase.shippedAt,
+      deliveredAt: shippingStatus === 'delivered' ? (purchase.deliveredAt || new Date()) : purchase.deliveredAt,
       status: shippingStatus === 'delivered' ? 'fulfilled' : purchase.status
     }, { transaction });
     await transaction.commit();

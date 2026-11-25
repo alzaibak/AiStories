@@ -64,7 +64,6 @@ export function AdminEventsPage() {
   const [events, setEvents] = useState<CommunityEvent[]>([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
-  const [slug, setSlug] = useState('');
   const [quizId, setQuizId] = useState('');
   const [startsAt, setStartsAt] = useState('');
   const [endsAt, setEndsAt] = useState('');
@@ -94,14 +93,12 @@ export function AdminEventsPage() {
     setError(null);
     try {
       await api.post('/admin/community/events', {
-        slug,
         startsAt: new Date(startsAt).toISOString(),
         endsAt: new Date(endsAt).toISOString(),
         quizId: quizId ? Number(quizId) : null,
         status: 'draft',
         translations
       });
-      setSlug('');
       setQuizId('');
       setTranslations(blankEventText());
       await load();
@@ -153,7 +150,6 @@ export function AdminEventsPage() {
   if (!user || !['ADMIN', 'SUPER_ADMIN'].includes(user.role)) return <AdminPage title="المسابقات والفعاليات"><AccessDenied /></AdminPage>;
   return <AdminPage title="المسابقات والفعاليات">
     <form onSubmit={create} className={`${cardClass} grid gap-4 md:grid-cols-2`}>
-      <label className="text-sm font-semibold">{t('الرابط المختصر', language)}<input required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" value={slug} onChange={(event) => setSlug(event.target.value)} dir="ltr" className={fieldClass} /></label>
       <label className="text-sm font-semibold">{t('رقم الاختبار المرتبط (اختياري)', language)}<input type="number" min="1" value={quizId} onChange={(event) => setQuizId(event.target.value)} className={fieldClass} /></label>
       <label className="text-sm font-semibold">{t('تاريخ البدء', language)}<input required type="datetime-local" value={startsAt} onChange={(event) => setStartsAt(event.target.value)} className={fieldClass} /></label>
       <label className="text-sm font-semibold">{t('تاريخ الانتهاء', language)}<input required type="datetime-local" value={endsAt} onChange={(event) => setEndsAt(event.target.value)} className={fieldClass} /></label>
@@ -250,7 +246,6 @@ export function AdminDonationsPage() {
   const [recurringTotal, setRecurringTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
-  const [slug, setSlug] = useState('');
   const [goalAmount, setGoalAmount] = useState('');
   const [targetUnits, setTargetUnits] = useState('300');
   const [unitName, setUnitName] = useState('كتاب');
@@ -290,7 +285,6 @@ export function AdminDonationsPage() {
     setError(null);
     try {
       await api.post('/admin/money/donation-campaigns', {
-        slug,
         goalAmount: Number(goalAmount),
         currency: 'EUR',
         status: 'active',
@@ -302,7 +296,6 @@ export function AdminDonationsPage() {
         ...(coverImage.trim() ? { coverImage: coverImage.trim() } : {}),
         translations
       });
-      setSlug('');
       setGoalAmount('');
       setCoverImage('');
       setTranslations(blankLocalized());
@@ -449,7 +442,6 @@ export function AdminDonationsPage() {
   if (!user || !['ADMIN', 'SUPER_ADMIN'].includes(user.role)) return <AdminPage title="التبرعات والحملات"><AccessDenied /></AdminPage>;
   return <AdminPage title="التبرعات والحملات">
     <form onSubmit={create} className={`${cardClass} grid gap-4 md:grid-cols-2`}>
-      <label className="text-sm font-semibold">{t('الرابط المختصر', language)}<input required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" value={slug} onChange={(event) => setSlug(event.target.value)} dir="ltr" className={fieldClass} /></label>
       <label className="text-sm font-semibold">{t('الهدف (EUR)', language)}<input required type="number" min="0.01" step="0.01" value={goalAmount} onChange={(event) => setGoalAmount(event.target.value)} className={fieldClass} /></label>
       <label className="text-sm font-semibold">نوع الهدف<select value={campaignType} onChange={(event) => setCampaignType(event.target.value as typeof campaignType)} className={fieldClass}><option value="both">مبلغ ووحدات</option><option value="amount_goal">مبلغ فقط</option><option value="items_goal">وحدات فقط</option></select></label>
       <label className="text-sm font-semibold">عدد الوحدات المستهدفة<input type="number" min="1" value={targetUnits} onChange={(event) => setTargetUnits(event.target.value)} className={fieldClass} /></label>

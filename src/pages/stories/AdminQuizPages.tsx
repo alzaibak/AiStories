@@ -1,7 +1,16 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useStoryAuth } from '@/contexts/StoryAuthContext';
-import { api } from '@/lib/api';
+import { ApiError, api } from '@/lib/api';
+import {
+  FieldMessage,
+  FormErrorSummary,
+  LanguageErrorDot,
+  fieldLanguage,
+  focusField,
+  useAdminFormErrors,
+  useUnsavedChanges
+} from '@/lib/adminFormErrors';
 import { translateText, type SiteLanguage } from '@/lib/localization';
 
 type Language = SiteLanguage;
@@ -202,7 +211,6 @@ export function AdminQuizEditorPage() {
   const [stories, setStories] = useState<StoryChoice[]>([]);
   const [title, setTitle] = useState<Localized>(emptyLocalized());
   const [description, setDescription] = useState<Localized>(emptyLocalized());
-  const [slug, setSlug] = useState('');
   const [storyId, setStoryId] = useState(searchParams.get('storyId') || '');
   const [partId, setPartId] = useState('');
   const [difficulty, setDifficulty] = useState<QuizRecord['difficulty']>('kids');
@@ -217,16 +225,18 @@ export function AdminQuizEditorPage() {
   const [stats, setStats] = useState<QuizStats | null>(null);
   const [preview, setPreview] = useState(searchParams.get('preview') === '1');
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const formErrors = useAdminFormErrors();
   const [notice, setNotice] = useState('');
+  const [dirty, setDirty] = useState(false);
   const [dragging, setDragging] = useState<number | null>(null);
+  useUnsavedChanges(dirty && !busy);
   const isPublisher = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN';
   const activeStory = useMemo(() => stories.find((story) => String(story.id) === storyId), [stories, storyId]);
   const inputClass = 'mt-2 w-full rounded-xl border border-emerald-950/15 px-3 py-2.5';
 
   useEffect(() => {
     api.get<StoryChoice[]>('/admin/content/stories').then(setStories).catch((caught: unknown) =>
-      setError(caught instanceof Error ? caught.message : text('تعذر تحميل القصص.', language))
+      formErrors.capture(caught, { focus: false })
     );
   }, [language]);
 
@@ -237,7 +247,6 @@ export function AdminQuizEditorPage() {
       if (!active) return;
       setTitle({ ar: quiz.translations?.ar?.title || quiz.title, en: quiz.translations?.en?.title || '', fr: quiz.translations?.fr?.title || '' });
       setDescription({ ar: quiz.translations?.ar?.description || quiz.description || '', en: quiz.translations?.en?.description || '', fr: quiz.translations?.fr?.description || '' });
-      setSlug(quiz.slug);
       setStoryId(String(quiz.storyId));
       setPartId(quiz.partId ? String(quiz.partId) : '');
       setDifficulty(quiz.difficulty);
@@ -265,13 +274,11 @@ export function AdminQuizEditorPage() {
         sortOrder: question.sortOrder ?? index
       })));
     }).catch((caught: unknown) => {
-      if (active) setError(caught instanceof Error ? caught.message : text('تعذر تحميل الاختبار.', language));
+      if (active) formErrors.capture(caught, { focus: false });
     });
     api.get<QuizStats>(`/admin/content/quizzes/${quizId}/stats`).then((value) => {
       if (active) setStats(value);
-    }).catch((caught: unknown) => {
-      if (active) setError(caught instanceof Error ? caught.message : text('تعذر تحميل الإحصاءات.', language));
-    });
+    }).catch(() => undefined);
     return () => { active = false; };
   }, [quizId, language]);
 
@@ -289,11 +296,72 @@ export function AdminQuizEditorPage() {
     });
   }
 
+  function openField(field: string) {
+    const targetLanguage = fieldLanguage(field);
+    if (targetLanguage) setActiveLanguage(targetLanguage);
+    window.setTimeout(() => focusField(field), 90);
+  }
+
+  /** Drafts only need the Arabic title and a story; everything else is checked
+   *  by the publish checklist so a half-written quiz can always be saved. */
+  function draftErrors() {
+    const errors: Array<{ field: string; code: string; message: string }> = [];
+    if (!title.ar.trim()) {
+      errors.push({ field: 'title', code: 'required', message: text('عنوان الاختبار بالعربية مطلوب.', language) });
+    }
+    if (!storyId) {
+      errors.push({ field: 'storyId', code: 'required', message: text('اختر القصة المرتبطة بالاختبار.', language) });
+    }
+    if (passingScore === '' || Number(passingScore) < 0 || Number(passingScore) > 100) {
+      errors.push({ field: 'passingScore', code: 'invalid', message: text('درجة النجاح يجب أن تكون بين 0 و100.', language) });
+    }
+    if (maxAttempts && Number(maxAttempts) <= 0) {
+      errors.push({ field: 'maxAttempts', code: 'invalid', message: text('عدد المحاولات يجب أن يكون أكبر من صفر.', language) });
+    }
+    if (timeLimitSeconds && Number(timeLimitSeconds) <= 0) {
+      errors.push({ field: 'timeLimitSeconds', code: 'invalid', message: text('المدة الزمنية يجب أن تكون أكبر من صفر.', language) });
+    }
+    return errors;
+  }
+
+  const publishChecklist = useMemo(() => {
+    const items: Array<{ field: string; label: string }> = [];
+    if (!title.ar.trim()) items.push({ field: 'title', label: text('عنوان عربي', language) });
+    if (!storyId) items.push({ field: 'storyId', label: text('قصة مرتبطة', language) });
+    if (!questions.length) items.push({ field: 'questions', label: text('سؤال واحد على الأقل', language) });
+    questions.forEach((question, index) => {
+      const base = `questions[${index}]`;
+      const prefix = text(`السؤال ${index + 1}`, language);
+      if (!question.translations.ar.text.trim()) items.push({ field: `${base}.translations.ar.text`, label: `${prefix}: ${text('نص عربي', language)}` });
+      const filledOptions = question.answerOptions.filter((option) => option.translations.ar.trim());
+      if (question.answerOptions.length < 2) items.push({ field: `${base}.answerOptions`, label: `${prefix}: ${text('خياران على الأقل', language)}` });
+      question.answerOptions.forEach((option, optionIndex) => {
+        if (!option.translations.ar.trim()) {
+          items.push({ field: `${base}.answerOptions[${optionIndex}].translations.ar`, label: `${prefix} · ${text('الخيار', language)} ${optionIndex + 1}` });
+        }
+      });
+      const correct = filledOptions.filter((option) => option.isCorrect).length;
+      if (!correct) items.push({ field: `${base}.answerOptions`, label: `${prefix}: ${text('إجابة صحيحة واحدة على الأقل', language)}` });
+      if (question.type === 'single_choice' && correct > 1) items.push({ field: `${base}.answerOptions`, label: `${prefix}: ${text('اختيار واحد يعني إجابة صحيحة واحدة', language)}` });
+      if (!question.explanationTranslations.ar.trim()) items.push({ field: `${base}.explanationTranslations.ar`, label: `${prefix}: ${text('التفسير إلزامي عند النشر', language)}` });
+      if (!question.sourceTranslations.ar.trim()) items.push({ field: `${base}.sourceTranslations.ar`, label: `${prefix}: ${text('المصدر إلزامي عند النشر', language)}` });
+    });
+    return items;
+  }, [questions, storyId, title.ar, language]);
+
   async function save(event: FormEvent) {
     event.preventDefault();
-    setBusy(true);
-    setError('');
+    if (busy) return;
     setNotice('');
+    formErrors.clear();
+    const clientErrors = draftErrors();
+    if (clientErrors.length) {
+      formErrors.setErrors(clientErrors, text('لم يُحفظ الاختبار بعد.', language));
+      const first = clientErrors[0].field;
+      openField(first);
+      return;
+    }
+    setBusy(true);
     try {
       const normalizedQuestions = questions.map((question, questionIndex) => ({
         ...question,
@@ -309,7 +377,6 @@ export function AdminQuizEditorPage() {
         storyId: Number(storyId),
         partId: partId ? Number(partId) : null,
         title: title.ar,
-        slug: slug.trim(),
         description: description.ar,
         translations: Object.fromEntries(languages.map((key) => [key, { title: title[key], description: description[key] }])),
         difficulty,
@@ -325,12 +392,19 @@ export function AdminQuizEditorPage() {
       if (isEditing) {
         await api.patch(`/admin/content/quizzes/${quizId}`, payload);
         setNotice(text('تم حفظ الاختبار كمسودة.', language));
+        setDirty(false);
       } else {
         const created = await api.post<QuizRecord>('/admin/content/quizzes', payload);
-        navigate(`/${locale}/admin/content/quizzes/${created.id}/edit`, { replace: true });
+        setDirty(false);
+        navigate(`/${locale}/admin/content/quizzes/${created.id}/edit`, { replace: true, state: { saved: true } });
       }
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : text('تعذر حفظ الاختبار.', language));
+      const parsed = formErrors.capture(caught);
+      if (!parsed.errors.length && parsed.message) {
+        formErrors.setErrors([], parsed.message);
+      }
+      const first = parsed.errors[0]?.field;
+      if (first) openField(first);
     } finally {
       setBusy(false);
     }
@@ -338,49 +412,70 @@ export function AdminQuizEditorPage() {
 
   async function submitForReview() {
     if (!quizId) return;
+    if (publishChecklist.length) {
+      formErrors.setErrors(publishChecklist.map((item) => ({
+        field: item.field,
+        code: 'required',
+        message: text('مطلوب قبل الإرسال للمراجعة.', language)
+      })), text('أكمل عناصر قائمة النشر أولًا.', language));
+      openField(publishChecklist[0].field);
+      return;
+    }
     setBusy(true);
-    setError('');
+    formErrors.clear();
     try {
       await api.post(`/admin/content/quizzes/${quizId}/submit-review`, {});
       setNotice(text('تم إرسال الاختبار للمراجعة.', language));
+      setDirty(false);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : text('تعذر إرسال الاختبار للمراجعة.', language));
+      const parsed = formErrors.capture(caught);
+      const first = parsed.errors[0]?.field;
+      if (first) openField(first);
     } finally {
       setBusy(false);
     }
   }
 
-  const fieldLabel = (label: string, values: Localized, setter: (next: Localized) => void, multiline = false) => <label className="block text-sm font-bold text-slate-700">
-    {text(label, language)} — {languageNames[activeLanguage]}{activeLanguage === 'ar' ? ' *' : ''}
-    {multiline
-      ? <textarea required={activeLanguage === 'ar'} dir={activeLanguage === 'ar' ? 'rtl' : 'ltr'} rows={3} value={values[activeLanguage]} onChange={(event) => setter({ ...values, [activeLanguage]: event.target.value })} className={inputClass} />
-      : <input required={activeLanguage === 'ar'} dir={activeLanguage === 'ar' ? 'rtl' : 'ltr'} value={values[activeLanguage]} onChange={(event) => setter({ ...values, [activeLanguage]: event.target.value })} className={inputClass} />}
-  </label>;
+  const fieldLabel = (label: string, values: Localized, setter: (next: Localized) => void, multiline = false, errorField?: string) => {
+    const message = errorField ? formErrors.fieldError(errorField) : '';
+    const classes = `${inputClass} ${message ? 'border-red-500 bg-red-50/40 ring-1 ring-red-300' : ''}`;
+    return <label className="block text-sm font-bold text-slate-700">
+      {text(label, language)} — {languageNames[activeLanguage]}{activeLanguage === 'ar' ? ' *' : ''}
+      {multiline
+        ? <textarea required={activeLanguage === 'ar'} dir={activeLanguage === 'ar' ? 'rtl' : 'ltr'} rows={3} value={values[activeLanguage]} onChange={(event) => setter({ ...values, [activeLanguage]: event.target.value })} className={classes} data-field={errorField} aria-invalid={Boolean(message)} />
+        : <input required={activeLanguage === 'ar'} dir={activeLanguage === 'ar' ? 'rtl' : 'ltr'} value={values[activeLanguage]} onChange={(event) => setter({ ...values, [activeLanguage]: event.target.value })} className={classes} data-field={errorField} aria-invalid={Boolean(message)} />}
+      {message && <span className="mt-1 block text-xs font-semibold text-red-700">{message}</span>}
+    </label>;
+  };
 
   return <main className="mx-auto max-w-5xl space-y-6">
     <header className="flex flex-wrap items-end justify-between gap-4">
       <div><Link to={`/${locale}/admin/content/quizzes`} className="text-sm font-bold text-emerald-800">{text('العودة إلى الاختبارات', language)}</Link><h1 className="mt-2 text-3xl font-black text-emerald-950">{text(isEditing ? 'تعديل الاختبار' : 'إنشاء اختبار', language)}</h1></div>
       {isEditing && <div className="flex gap-2"><button type="button" onClick={() => setPreview((value) => !value)} className="rounded-xl border px-4 py-2 font-bold">{text(preview ? 'إغلاق المعاينة' : 'معاينة', language)}</button><button type="button" onClick={() => void submitForReview()} disabled={busy} className="rounded-xl bg-amber-100 px-4 py-2 font-bold text-amber-950">{text('إرسال للمراجعة', language)}</button></div>}
     </header>
-    {error && <p role="alert" className="rounded-xl bg-red-50 p-4 text-red-800">{error}</p>}
+    <FormErrorSummary errors={formErrors.errors} message={formErrors.message} suggestion={formErrors.suggestion} language={language} onSelect={openField} />
     {notice && <p role="status" className="rounded-xl bg-emerald-50 p-4 text-emerald-900">{notice}</p>}
+    {publishChecklist.length > 0 && <section aria-label={text('قائمة النشر', language)} className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+      <p className="font-bold">{text('قبل النشر، ما زال ناقصًا:', language)}</p>
+      <ul className="mt-2 grid gap-1 sm:grid-cols-2">{publishChecklist.slice(0, 12).map((item) => <li key={`${item.field}-${item.label}`} className="flex items-start gap-2"><span aria-hidden="true">•</span><button type="button" className="text-start underline decoration-amber-400 underline-offset-2" onClick={() => openField(item.field)}>{item.label}</button></li>)}</ul>
+      {publishChecklist.length > 12 && <p className="mt-1 text-xs">{publishChecklist.length - 12} {text('مشاكل أخرى ستظهر عند الحفظ.', language)}</p>}
+    </section>}
     {stats && <section className="grid gap-3 sm:grid-cols-3">
       {[['عدد المحاولات', stats.attempts], ['متوسط الدرجات', stats.averageScore == null ? '—' : `${stats.averageScore}%`], ['معدل النجاح', stats.passRate == null ? '—' : `${stats.passRate}%`]].map(([label, value]) => <div key={label} className="rounded-xl bg-white p-4"><p className="text-sm text-slate-500">{text(String(label), language)}</p><p className="mt-1 text-xl font-black">{value}</p></div>)}
     </section>}
     {stats?.hardestQuestions.length ? <section className="rounded-2xl border border-slate-200 bg-white p-5"><h2 className="font-extrabold text-emerald-950">{text('أصعب الأسئلة', language)}</h2><ol className="mt-3 space-y-2">{stats.hardestQuestions.map((question) => <li key={question.questionId} className="flex flex-wrap justify-between gap-2 rounded-lg bg-slate-50 p-3 text-sm"><span>{question.text}</span><span className="font-bold">{question.correctRate == null ? '—' : `${question.correctRate}%`} · {question.attempts} {text('محاولة', language)}</span></li>)}</ol></section> : null}
     {preview && <section className="space-y-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-5"><h2 className="text-lg font-bold">{title[activeLanguage] || title.ar || text('معاينة الاختبار', language)}</h2>{questions.map((question, index) => <p key={index} className="rounded-lg bg-white p-3">{index + 1}. {question.translations[activeLanguage].text || question.translations.ar.text}</p>)}</section>}
-    <form onSubmit={save} className="space-y-6">
+    <form noValidate onSubmit={save} onChange={() => setDirty(true)} className="space-y-6">
       <section className="space-y-5 rounded-2xl border border-slate-200 bg-white p-5 sm:p-7">
-        <div role="tablist" aria-label={text('لغة التحرير', language)} className="flex gap-2 border-b pb-3">{languages.map((key) => <button key={key} type="button" role="tab" aria-selected={activeLanguage === key} onClick={() => setActiveLanguage(key)} className={`rounded-lg px-4 py-2 font-bold ${activeLanguage === key ? 'bg-emerald-900 text-white' : 'bg-slate-100'}`}>{languageNames[key]}</button>)}</div>
-        <div className="grid gap-4 md:grid-cols-2">{fieldLabel('عنوان الاختبار', title, setTitle)}{fieldLabel('الوصف', description, setDescription, true)}</div>
+        <div role="tablist" aria-label={text('لغة التحرير', language)} className="flex gap-2 border-b pb-3">{languages.map((key) => <button key={key} type="button" role="tab" aria-selected={activeLanguage === key} onClick={() => setActiveLanguage(key)} className={`rounded-lg px-4 py-2 font-bold ${activeLanguage === key ? 'bg-emerald-900 text-white' : 'bg-slate-100'}`}>{languageNames[key]}<LanguageErrorDot count={formErrors.languageCounts[key]} /></button>)}</div>
+        <div className="grid gap-4 md:grid-cols-2">{fieldLabel('عنوان الاختبار', title, setTitle, false, activeLanguage === 'ar' ? 'title' : `translations.${activeLanguage}.title`)}{fieldLabel('الوصف', description, setDescription, true, activeLanguage === 'ar' ? 'description' : `translations.${activeLanguage}.description`)}</div>
         <div className="grid gap-4 md:grid-cols-2">
-          <label className="text-sm font-bold">{text('الرابط المختصر', language)}<input required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" value={slug} onChange={(event) => setSlug(event.target.value)} className={inputClass} dir="ltr" /></label>
-          <label className="text-sm font-bold">{text('القصة المرتبطة', language)}<select required value={storyId} onChange={(event) => { setStoryId(event.target.value); setPartId(''); }} className={`${inputClass} bg-white`}><option value="">{text('اختر قصة', language)}</option>{stories.map((story) => <option key={story.id} value={story.id}>{story.title}</option>)}</select></label>
+          <label className="text-sm font-bold">{text('القصة المرتبطة', language)}<select required value={storyId} onChange={(event) => { setStoryId(event.target.value); setPartId(''); }} className={`${inputClass} bg-white ${formErrors.fieldError('storyId') ? 'border-red-500' : ''}`} data-field="storyId"><option value="">{text('اختر قصة', language)}</option>{stories.map((story) => <option key={story.id} value={story.id}>{story.title}</option>)}</select><FieldMessage message={formErrors.fieldError('storyId')} /></label>
           <label className="text-sm font-bold">{text('الجزء المرتبط (اختياري)', language)}<select value={partId} onChange={(event) => setPartId(event.target.value)} className={`${inputClass} bg-white`}><option value="">{text('نهاية القصة', language)}</option>{activeStory?.parts?.map((part) => <option key={part.id} value={part.id}>{part.partNumber}. {part.title}</option>)}</select></label>
           <label className="text-sm font-bold">{text('الفئة العمرية', language)}<select value={difficulty} onChange={(event) => setDifficulty(event.target.value as QuizRecord['difficulty'])} className={`${inputClass} bg-white`}><option value="kids">{text('الأطفال', language)}</option><option value="teens">{text('اليافعون', language)}</option><option value="adults">{text('البالغون', language)}</option></select></label>
-          <label className="text-sm font-bold">{text('درجة النجاح (%)', language)}<input type="number" min="0" max="100" required value={passingScore} onChange={(event) => setPassingScore(event.target.value)} className={inputClass} /></label>
-          <label className="text-sm font-bold">{text('الحد الأقصى للمحاولات (اختياري)', language)}<input type="number" min="1" value={maxAttempts} onChange={(event) => setMaxAttempts(event.target.value)} className={inputClass} /></label>
-          <label className="text-sm font-bold">{text('الوقت بالثواني (اختياري)', language)}<input type="number" min="1" max="7200" value={timeLimitSeconds} onChange={(event) => setTimeLimitSeconds(event.target.value)} className={inputClass} /></label>
+          <label className="text-sm font-bold">{text('درجة النجاح (%)', language)}<input type="number" min="0" max="100" required value={passingScore} onChange={(event) => setPassingScore(event.target.value)} className={`${inputClass} ${formErrors.fieldError('passingScore') ? 'border-red-500' : ''}`} data-field="passingScore" /><FieldMessage message={formErrors.fieldError('passingScore')} /></label>
+          <label className="text-sm font-bold">{text('الحد الأقصى للمحاولات (اختياري)', language)}<input type="number" min="1" value={maxAttempts} onChange={(event) => setMaxAttempts(event.target.value)} className={`${inputClass} ${formErrors.fieldError('maxAttempts') ? 'border-red-500' : ''}`} data-field="maxAttempts" /><FieldMessage message={formErrors.fieldError('maxAttempts')} /></label>
+          <label className="text-sm font-bold">{text('الوقت بالثواني (اختياري)', language)}<input type="number" min="1" max="7200" value={timeLimitSeconds} onChange={(event) => setTimeLimitSeconds(event.target.value)} className={`${inputClass} ${formErrors.fieldError('timeLimitSeconds') ? 'border-red-500' : ''}`} data-field="timeLimitSeconds" /><FieldMessage message={formErrors.fieldError('timeLimitSeconds')} /></label>
           <label className="text-sm font-bold">{text('الوصول', language)}<select value={accessMode} onChange={(event) => setAccessMode(event.target.value as QuizRecord['accessMode'])} className={`${inputClass} bg-white`}><option value="follow_part">{text('مثل الجزء المرتبط', language)}</option><option value="free">{text('مجاني', language)}</option><option value="premium">{text('مميز', language)}</option></select></label>
         </div>
         <div className="flex flex-wrap gap-5 text-sm">{([
@@ -392,19 +487,23 @@ export function AdminQuizEditorPage() {
       <section className="space-y-4">
         <div className="flex items-center justify-between"><h2 className="text-xl font-black text-emerald-950">{text('الأسئلة', language)} ({questions.length})</h2><button type="button" onClick={() => setQuestions((current) => [...current, emptyQuestion(current.length)])} className="rounded-xl border border-emerald-900 px-4 py-2 font-bold text-emerald-900">{text('إضافة سؤال', language)}</button></div>
         {questions.map((question, index) => <article key={question.id || `question-${index}`} draggable onDragStart={() => setDragging(index)} onDragOver={(event) => event.preventDefault()} onDrop={() => { if (dragging !== null) moveQuestion(dragging, index); setDragging(null); }} className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5">
-          <header className="flex items-center justify-between"><h3 className="font-extrabold">{text('السؤال', language)} {index + 1} <span className="text-xs font-normal text-slate-500">{text('اسحب لإعادة الترتيب', language)}</span></h3><button type="button" onClick={() => setQuestions((current) => current.filter((_, position) => position !== index).map((item, position) => ({ ...item, sortOrder: position })))} disabled={questions.length === 1} className="text-sm font-bold text-red-700 disabled:opacity-40">{text('حذف السؤال', language)}</button></header>
+          <header className="flex items-center justify-between"><h3 className="font-extrabold">{text('السؤال', language)} {index + 1} <span className="text-xs font-normal text-slate-500">{text('اسحب لإعادة الترتيب', language)}</span>{formErrors.errorsFor(`questions[${index}]`).length > 0 && <span className="ms-2 rounded-full bg-red-100 px-2 py-0.5 text-xs font-bold text-red-800">{formErrors.errorsFor(`questions[${index}]`).length}</span>}</h3><button type="button" onClick={() => setQuestions((current) => current.filter((_, position) => position !== index).map((item, position) => ({ ...item, sortOrder: position })))} disabled={questions.length === 1} className="text-sm font-bold text-red-700 disabled:opacity-40">{text('حذف السؤال', language)}</button></header>
           <label className="block text-sm font-bold">{text('نوع السؤال', language)}<select value={question.type} onChange={(event) => updateQuestion(index, { type: event.target.value as QuizQuestion['type'] })} className={`${inputClass} bg-white`}><option value="single_choice">{text('اختيار واحد', language)}</option><option value="multiple_choice">{text('اختيارات متعددة', language)}</option><option value="true_false">{text('صح أو خطأ', language)}</option></select></label>
-          {fieldLabel('نص السؤال', Object.fromEntries(languages.map((key) => [key, question.translations[key].text])) as Localized, (next) => updateQuestion(index, { text: next.ar, translations: { ar: { text: next.ar }, en: { text: next.en }, fr: { text: next.fr } } }), true)}
+          {fieldLabel('نص السؤال', Object.fromEntries(languages.map((key) => [key, question.translations[key].text])) as Localized, (next) => updateQuestion(index, { text: next.ar, translations: { ar: { text: next.ar }, en: { text: next.en }, fr: { text: next.fr } } }), true, `questions[${index}].translations.${activeLanguage}.text`)}
           <div className="space-y-3"><h4 className="font-bold">{text('الخيارات', language)}</h4>{question.answerOptions.map((option, optionIndex) => <div key={option.id || optionIndex} className="grid items-center gap-2 sm:grid-cols-[auto_1fr_auto]">
             <input type={question.type === 'multiple_choice' ? 'checkbox' : 'radio'} name={`correct-${index}`} aria-label={text('إجابة صحيحة', language)} checked={option.isCorrect} onChange={() => updateQuestion(index, { answerOptions: question.answerOptions.map((item, current) => ({ ...item, isCorrect: current === optionIndex ? !item.isCorrect : question.type === 'multiple_choice' ? item.isCorrect : false })) })} />
-            <input required={activeLanguage === 'ar'} aria-label={`${text('نص الخيار', language)} ${optionIndex + 1} — ${languageNames[activeLanguage]}`} dir={activeLanguage === 'ar' ? 'rtl' : 'ltr'} placeholder={`${text('نص الخيار', language)} ${optionIndex + 1} — ${languageNames[activeLanguage]}`} value={option.translations[activeLanguage]} onChange={(event) => updateQuestion(index, { answerOptions: question.answerOptions.map((item, current) => current === optionIndex ? { ...item, text: activeLanguage === 'ar' ? event.target.value : item.text, translations: { ...item.translations, [activeLanguage]: event.target.value } } : item) })} className="rounded-xl border px-3 py-2.5" />
+            <div className="min-w-0">
+              <input aria-label={`${text('نص الخيار', language)} ${optionIndex + 1} — ${languageNames[activeLanguage]}`} dir={activeLanguage === 'ar' ? 'rtl' : 'ltr'} placeholder={`${text('نص الخيار', language)} ${optionIndex + 1} — ${languageNames[activeLanguage]}`} value={option.translations[activeLanguage]} onChange={(event) => updateQuestion(index, { answerOptions: question.answerOptions.map((item, current) => current === optionIndex ? { ...item, text: activeLanguage === 'ar' ? event.target.value : item.text, translations: { ...item.translations, [activeLanguage]: event.target.value } } : item) })} className={`w-full rounded-xl border px-3 py-2.5 ${formErrors.fieldError(`questions[${index}].answerOptions[${optionIndex}].translations.${activeLanguage}`) ? 'border-red-500 bg-red-50/40' : ''}`} data-field={`questions[${index}].answerOptions[${optionIndex}].translations.${activeLanguage}`} />
+              <FieldMessage message={formErrors.fieldError(`questions[${index}].answerOptions[${optionIndex}].translations.${activeLanguage}`)} />
+            </div>
             <button type="button" disabled={question.answerOptions.length <= 2} onClick={() => updateQuestion(index, { answerOptions: question.answerOptions.filter((_, current) => current !== optionIndex).map((item, current) => ({ ...item, sortOrder: current })) })} className="px-2 text-sm font-bold text-red-700 disabled:opacity-40">{text('إزالة', language)}</button>
           </div>)}
             <button type="button" onClick={() => updateQuestion(index, { answerOptions: [...question.answerOptions, { text: '', translations: emptyLocalized(), isCorrect: false, sortOrder: question.answerOptions.length }] })} className="text-sm font-bold text-emerald-800">{text('إضافة خيار', language)}</button>
           </div>
           <div className="grid gap-4 md:grid-cols-2">
-            {fieldLabel('التفسير', question.explanationTranslations, (next) => updateQuestion(index, { explanationTranslations: next }), true)}
-            {fieldLabel('المصدر أو المرجع', question.sourceTranslations, (next) => updateQuestion(index, { sourceTranslations: next }), true)}
+            {fieldLabel('التفسير', question.explanationTranslations, (next) => updateQuestion(index, { explanationTranslations: next }), true, `questions[${index}].explanationTranslations.${activeLanguage}`)}
+            {fieldLabel('المصدر أو المرجع', question.sourceTranslations, (next) => updateQuestion(index, { sourceTranslations: next }), true, `questions[${index}].sourceTranslations.${activeLanguage}`)}
+            <p className="text-xs text-slate-500 md:col-span-2">{text('التفسير والمصدر اختياريان في المسودة، وإلزاميان قبل الإرسال للمراجعة والنشر.', language)}</p>
           </div>
           <label className="block text-sm font-bold">{text('النقاط', language)}<input type="number" min="1" max="1000" value={question.points} onChange={(event) => updateQuestion(index, { points: Number(event.target.value) })} className={inputClass} /></label>
         </article>)}

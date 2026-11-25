@@ -273,7 +273,6 @@ type MysteryBoxHeader = {
 type PlanTranslation = { name: string; features: string[] };
 type PlanTranslations = Partial<Record<SiteLanguage, PlanTranslation>>;
 type PlanDraft = {
-  slug: string;
   price: string;
   interval: 'month' | 'year';
   translations: Record<SiteLanguage, { name: string; features: string }>;
@@ -281,7 +280,6 @@ type PlanDraft = {
 
 function emptyPlanDraft(): PlanDraft {
   return {
-    slug: '',
     price: '',
     interval: 'month',
     translations: {
@@ -1669,6 +1667,7 @@ export function ReaderPage() {
   const [quizLocked, setQuizLocked] = useState(false);
   const [remainingSeconds, setRemainingSeconds] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const [completedPartsCount, setCompletedPartsCount] = useState(0);
   const [completion, setCompletion] = useState<CompletionPayload | null>(null);
   const [notificationPromptVisible, setNotificationPromptVisible] = useState(false);
@@ -2266,6 +2265,7 @@ export function CartPage() {
   const [checkingOut, setCheckingOut] = useState(false);
   const [promoCode, setPromoCode] = useState('');
   const [digitalConsent, setDigitalConsent] = useState(false);
+  const [consentError, setConsentError] = useState<string | null>(null);
   const [shippingAddress, setShippingAddress] = useState({ name: '', line1: '', city: '', postalCode: '', country: '', phone: '' });
 
   useEffect(() => {
@@ -2327,8 +2327,9 @@ export function CartPage() {
     event.preventDefault();
     if (!cart.items.length) return;
     const hasEbook = cart.items.some((item) => item.format === 'ebook');
+    setConsentError(null);
     if (hasEbook && !digitalConsent) {
-      setError('وافق على البدء الفوري في التنزيل قبل إتمام الدفع.');
+      setConsentError('يجب الموافقة على شروط التنزيل الرقمي قبل المتابعة.');
       return;
     }
     if (cart.hasPhysical && (!shippingAddress.name || !shippingAddress.line1 || !shippingAddress.city || !shippingAddress.postalCode || !shippingAddress.country || !shippingAddress.phone)) {
@@ -2380,7 +2381,7 @@ export function CartPage() {
         <div className="space-y-2 border-b border-slate-100 pb-4 text-sm"><div className="flex justify-between"><span>المجموع الفرعي</span><span>{formatPrice(cart.subtotal, cart.currency, language)}</span></div>{cart.hasPhysical && <div className="flex justify-between"><span>الشحن</span><span>{formatPrice(cart.shipping, cart.currency, language)}</span></div>}{promoCode.trim() && <p className="text-xs text-emerald-800">يُطبّق رمز الخصم عند إنشاء الطلب ويُتحقق منه على الخادم.</p>}<div className="flex justify-between text-lg font-black text-emerald-950"><span>الإجمالي</span><span>{formatPrice(cart.total, cart.currency, language)}</span></div></div>
         <label className="block text-sm font-semibold text-slate-700">رمز الخصم (اختياري)<input value={promoCode} onChange={(event) => setPromoCode(event.target.value.toUpperCase())} maxLength={64} dir="ltr" className="mt-2 w-full rounded-xl border border-emerald-950/15 px-3 py-2.5 text-left" /></label>
         {cart.hasPhysical && <fieldset className="space-y-3"><legend className="text-sm font-bold text-emerald-950">عنوان التوصيل</legend><input required placeholder="الاسم الكامل" value={shippingAddress.name} onChange={(event) => setShippingAddress({ ...shippingAddress, name: event.target.value })} className="w-full rounded-xl border border-emerald-950/15 px-3 py-2.5" /><input required placeholder="العنوان" value={shippingAddress.line1} onChange={(event) => setShippingAddress({ ...shippingAddress, line1: event.target.value })} className="w-full rounded-xl border border-emerald-950/15 px-3 py-2.5" /><div className="grid grid-cols-2 gap-3"><input required placeholder="المدينة" value={shippingAddress.city} onChange={(event) => setShippingAddress({ ...shippingAddress, city: event.target.value })} className="rounded-xl border border-emerald-950/15 px-3 py-2.5" /><input required placeholder="الرمز البريدي" value={shippingAddress.postalCode} onChange={(event) => setShippingAddress({ ...shippingAddress, postalCode: event.target.value })} className="rounded-xl border border-emerald-950/15 px-3 py-2.5" /><input required placeholder="رمز الدولة (FR)" minLength={2} maxLength={2} value={shippingAddress.country} onChange={(event) => setShippingAddress({ ...shippingAddress, country: event.target.value.toUpperCase() })} className="rounded-xl border border-emerald-950/15 px-3 py-2.5 uppercase" /><input required placeholder="الهاتف" value={shippingAddress.phone} onChange={(event) => setShippingAddress({ ...shippingAddress, phone: event.target.value })} className="rounded-xl border border-emerald-950/15 px-3 py-2.5" /></div></fieldset>}
-        {cart.items.some((item) => item.format === 'ebook') && <label className="flex items-start gap-2 rounded-xl bg-emerald-50 p-3 text-xs leading-6 text-emerald-950"><input required type="checkbox" checked={digitalConsent} onChange={(event) => setDigitalConsent(event.target.checked)} className="mt-1" />أوافق على البدء الفوري في تنزيل الكتب الإلكترونية، وأعلم أن حق التراجع عن المحتوى الرقمي يسقط بعد بدء التنزيل.</label>}
+        {cart.items.some((item) => item.format === 'ebook') && <div><label className={`flex items-start gap-2 rounded-xl border p-3 text-xs leading-6 text-emerald-950 ${consentError ? 'border-red-300 bg-red-50' : 'border-transparent bg-emerald-50'}`}><input type="checkbox" checked={digitalConsent} onChange={(event) => { setDigitalConsent(event.target.checked); if (event.target.checked) setConsentError(null); }} className="mt-1" />أوافق على البدء الفوري في تنزيل الكتب الإلكترونية، وأعلم أن حق التراجع عن المحتوى الرقمي يسقط بعد بدء التنزيل.</label>{consentError && <p role="alert" className="mt-2 text-sm font-bold text-red-700">{consentError}</p>}</div>}
         <button type="submit" disabled={checkingOut || !cart.items.length} className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-emerald-900 px-5 py-3.5 font-bold text-white disabled:opacity-50"><CreditCard size={17} /> {checkingOut ? 'جارٍ تحويلك للدفع…' : 'إتمام الدفع الآمن'}</button>
         <p className="text-center text-xs leading-6 text-slate-500"><ShieldCheck size={13} className="inline" /> دفع آمن عبر Stripe. لا نحتفظ ببيانات البطاقة.</p>
       </form>
@@ -2408,9 +2409,11 @@ export function BookDetailPage() {
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [checkingOut, setCheckingOut] = useState(false);
   const [digitalConsent, setDigitalConsent] = useState(false);
+  const [consentError, setConsentError] = useState<string | null>(null);
   const [cartBusy, setCartBusy] = useState(false);
   const [cartNotice, setCartNotice] = useState<string | null>(null);
   const [canDownload, setCanDownload] = useState(false);
+  const [downloaded, setDownloaded] = useState(false);
   const [checkingAccess, setCheckingAccess] = useState(false);
   const [downloadBusy, setDownloadBusy] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
@@ -2418,15 +2421,21 @@ export function BookDetailPage() {
   useEffect(() => {
     if (!book || book.format !== 'ebook' || !user) {
       setCanDownload(false);
+      setDownloaded(false);
       setCheckingAccess(false);
       return;
     }
     let active = true;
     setCanDownload(false);
+    setDownloaded(false);
     setCheckingAccess(true);
     setDownloadError(null);
-    api.get<{ canDownload: boolean }>(`/books/${encodeURIComponent(book.slug)}/access`)
-      .then(({ canDownload: access }) => { if (active) setCanDownload(access); })
+    api.get<{ canDownload: boolean; downloaded?: boolean }>(`/books/${encodeURIComponent(book.slug)}/access`)
+      .then(({ canDownload: access, downloaded: alreadyDownloaded }) => {
+        if (!active) return;
+        setCanDownload(access);
+        setDownloaded(Boolean(alreadyDownloaded));
+      })
       .catch((caught: unknown) => {
         if (active) setDownloadError(caught instanceof Error ? caught.message : 'تعذر التحقق من صلاحية التنزيل.');
       })
@@ -2442,6 +2451,8 @@ export function BookDetailPage() {
       const result = await api.get<{ url: string; requiresAuth?: boolean }>(`/books/${encodeURIComponent(book.slug)}/download`);
       if (result.requiresAuth) {
         const file = await api.getBlob(result.url);
+        setCanDownload(false);
+        setDownloaded(true);
         const objectUrl = URL.createObjectURL(file);
         const anchor = document.createElement('a');
         anchor.href = objectUrl;
@@ -2449,6 +2460,8 @@ export function BookDetailPage() {
         anchor.click();
         window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
       } else {
+        setCanDownload(false);
+        setDownloaded(true);
         window.location.assign(result.url);
       }
     } catch (caught) {
@@ -2463,7 +2476,11 @@ export function BookDetailPage() {
     if (!user) {
       const lines = readGuestCart();
       const existing = lines.find((line) => line.bookId === book.id);
-      if (existing) existing.quantity = book.format === 'ebook' ? 1 : Math.min(20, existing.quantity + quantity);
+      if (existing && book.format === 'ebook') {
+        setCheckoutError('هذا الكتاب موجود بالفعل في سلتك.');
+        return;
+      }
+      if (existing) existing.quantity = Math.min(20, existing.quantity + quantity);
       else lines.push({ bookId: book.id, quantity: book.format === 'ebook' ? 1 : quantity });
       writeGuestCart(lines);
       setCartNotice('أُضيف الكتاب إلى سلتك. ستُدمج السلة بعد تسجيل الدخول.');
@@ -2478,7 +2495,11 @@ export function BookDetailPage() {
       setCartNotice(t('تمت إضافة الكتاب إلى السلة.', language));
       window.dispatchEvent(new Event('cart:changed'));
     } catch (caught) {
-      setCheckoutError(caught instanceof Error ? caught.message : 'تعذر إضافة الكتاب إلى السلة.');
+      if (caught instanceof ApiError && caught.code === 'ALREADY_IN_CART') {
+        setCheckoutError('هذا الكتاب موجود بالفعل في سلتك.');
+      } else {
+        setCheckoutError(caught instanceof Error ? caught.message : 'تعذر إضافة الكتاب إلى السلة.');
+      }
     } finally {
       setCartBusy(false);
     }
@@ -2491,8 +2512,9 @@ export function BookDetailPage() {
       navigate('/login');
       return;
     }
+    setConsentError(null);
     if (book.format === 'ebook' && !digitalConsent) {
-      setCheckoutError(t('وافق على بدء التنزيل الفوري قبل إتمام الدفع.', language));
+      setConsentError(t('يجب الموافقة على شروط التنزيل الرقمي قبل المتابعة.', language));
       return;
     }
     setCheckingOut(true);
@@ -2532,6 +2554,7 @@ export function BookDetailPage() {
         {checkoutError && <div className="mt-5"><ErrorState message={checkoutError} /></div>}
         {cartNotice && <p role="status" className="mt-5 rounded-xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-900">{cartNotice} <Link to="/cart" className="underline">عرض السلة</Link></p>}
         {downloadError && <div className="mt-5"><ErrorState message={downloadError} /></div>}
+        {book.format === 'ebook' && downloaded && !canDownload && !checkingAccess && <p role="status" className="mt-5 rounded-xl bg-amber-50 p-3 text-sm font-semibold leading-6 text-amber-900">{t('لقد نزّلت هذا الكتاب بالفعل. لتنزيل نسخة جديدة يجب شراء الكتاب مرة أخرى.', language)}</p>}
         {book.format === 'ebook' && canDownload ? <button type="button" onClick={downloadEbook} disabled={downloadBusy || checkingAccess} className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-full bg-emerald-900 px-5 py-3 font-bold text-white disabled:opacity-50"><BookOpen size={17} /> {t(downloadBusy ? 'جارٍ تجهيز التنزيل…' : 'تنزيل الكتاب الإلكتروني', language)}</button> :
         <form onSubmit={checkout} className="mt-6 space-y-4 rounded-2xl border border-emerald-950/10 bg-white p-5">
           {book.format === 'print' && <>
@@ -2547,7 +2570,7 @@ export function BookDetailPage() {
             {book.stockQuantity !== null && book.stockQuantity !== undefined && book.stockQuantity > 0 && <label className="block text-sm font-semibold text-slate-700">الكمية<select value={quantity} onChange={(event) => setQuantity(Number(event.target.value))} className="mt-2 w-full rounded-xl border border-emerald-950/15 px-3 py-2.5">{Array.from({ length: Math.min(book.stockQuantity, 10) }, (_, index) => index + 1).map((count) => <option key={count} value={count}>{count}</option>)}</select></label>}
           </>}
           {book.format === 'print' && <p className="text-xs leading-6 text-slate-500">تُحسب تكلفة الشحن من إعدادات المتجر وتظهر بوضوح قبل تأكيد الدفع.</p>}
-          {book.format === 'ebook' && <label className="flex items-start gap-2 rounded-xl bg-emerald-50 p-3 text-xs leading-6 text-emerald-950"><input required type="checkbox" checked={digitalConsent} onChange={(event) => setDigitalConsent(event.target.checked)} className="mt-1" />أوافق على البدء الفوري في تنزيل الكتاب الإلكتروني، وأعلم أن حقي في التراجع عن المحتوى الرقمي يسقط بعد بدء التنزيل.</label>}
+          {book.format === 'ebook' && <div><label className={`flex items-start gap-2 rounded-xl border p-3 text-xs leading-6 text-emerald-950 ${consentError ? 'border-red-300 bg-red-50' : 'border-transparent bg-emerald-50'}`}><input type="checkbox" checked={digitalConsent} onChange={(event) => { setDigitalConsent(event.target.checked); if (event.target.checked) setConsentError(null); }} className="mt-1" />أوافق على البدء الفوري في تنزيل الكتاب الإلكتروني، وأعلم أن حقي في التراجع عن المحتوى الرقمي يسقط بعد بدء التنزيل.</label>{consentError && <p role="alert" className="mt-2 text-sm font-bold text-red-700">{consentError}</p>}</div>}
           {book.format === 'print' && returnLine && <p className="rounded-xl bg-emerald-50 p-3 text-xs leading-6 text-emerald-950">
             {returnLine}{' '}
             <Link to={`/${language}/policy/returns`} className="font-bold underline">{t('سياسة الإرجاع', language)}</Link>
@@ -2556,7 +2579,7 @@ export function BookDetailPage() {
             <button type="button" onClick={() => void addToCart()} disabled={cartBusy || (book.format === 'print' && book.stockQuantity === 0)} className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-emerald-900/20 bg-white px-5 py-3 font-bold text-emerald-900 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50">
               <ShoppingBag size={17} /> {cartBusy ? 'جارٍ الإضافة…' : 'أضف إلى السلة'}
             </button>
-            <button type="submit" disabled={checkingOut || (book.format === 'print' && book.stockQuantity === 0) || (book.format === 'ebook' && !digitalConsent)} className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-emerald-900 px-5 py-3 font-bold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50">
+            <button type="submit" disabled={checkingOut || (book.format === 'print' && book.stockQuantity === 0)} className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-emerald-900 px-5 py-3 font-bold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50">
               <CreditCard size={17} /> {checkingOut ? 'جارٍ تحويلك للدفع…' : 'اشترِ الآن'}
             </button>
           </div>
@@ -2887,6 +2910,16 @@ type AdminStoreOrder = {
   } | null;
   customer: { firstName: string; lastName: string; email: string } | null;
   items: Array<{ quantity: number; title: string; format: 'print' | 'ebook' | null }>;
+  downloads?: Array<{
+    orderItemId: number;
+    entitlementId: number | null;
+    title: string;
+    canDownload: boolean;
+    revokedAt: string | null;
+    downloadLimit: number | null;
+    downloadCount: number;
+    downloadsRemaining: number | null;
+  }>;
 };
 
 const fulfillmentLabels: Record<AdminStoreOrder['fulfillmentStatus'], string> = {
@@ -2950,6 +2983,85 @@ export function AdminStoreOrdersPage() {
     }
   }
 
+  async function resendConfirmation(order: AdminStoreOrder) {
+    setBusyId(order.id);
+    setError(null);
+    setNotice(null);
+    try {
+      await api.post(`/admin/store-orders/${order.id}/resend-confirmation`, {});
+      setNotice(`أُعيد إرسال تأكيد الطلب ${order.orderNumber || order.id}.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'تعذر إرسال البريد.');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function refundOrder(order: AdminStoreOrder) {
+    if (!window.confirm(`ردّ المبلغ كاملًا للطلب ${order.orderNumber || order.id} عبر Stripe؟`)) return;
+    setBusyId(order.id);
+    setError(null);
+    setNotice(null);
+    try {
+      await api.post(`/admin/store-orders/${order.id}/refund`, {});
+      setNotice(`تم ردّ مبلغ الطلب ${order.orderNumber || order.id} وإلغاء حقوق التنزيل.`);
+      setReloadKey((value) => value + 1);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'تعذر ردّ المبلغ عبر Stripe.');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function grantEntitlement(order: AdminStoreOrder, orderItemId: number) {
+    const reason = window.prompt('سبب منح حق التنزيل (إلزامي):')?.trim();
+    if (!reason || reason.length < 3) return;
+    setBusyId(order.id);
+    setError(null);
+    setNotice(null);
+    try {
+      await api.post(`/admin/store-orders/${order.id}/entitlements/grant`, { orderItemId, reason });
+      setNotice('أُعيد تفعيل حق التنزيل.');
+      setReloadKey((value) => value + 1);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'تعذر منح حق التنزيل.');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function revokeEntitlement(order: AdminStoreOrder, entitlementId: number) {
+    const reason = window.prompt('سبب إلغاء حق التنزيل (إلزامي):')?.trim();
+    if (!reason || reason.length < 3) return;
+    setBusyId(order.id);
+    setError(null);
+    setNotice(null);
+    try {
+      await api.post(`/admin/entitlements/${entitlementId}/revoke`, { reason });
+      setNotice('أُلغي حق التنزيل وسُجّل السبب في التدقيق.');
+      setReloadKey((value) => value + 1);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'تعذر إلغاء حق التنزيل.');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function resetDownloads(order: AdminStoreOrder, entitlementId: number) {
+    setBusyId(order.id);
+    setError(null);
+    setNotice(null);
+    try {
+      await api.post(`/admin/entitlements/${entitlementId}/reset-downloads`, {});
+      setNotice('أُعيد ضبط عدّاد تنزيلات الكتاب.');
+      setReloadKey((value) => value + 1);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'تعذر إعادة ضبط التنزيلات.');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   return translateTree(<main><Container className="max-w-7xl space-y-6">
     <div className="flex flex-wrap items-end justify-between gap-4">
       <div><h1 className="text-2xl font-black text-emerald-950">طلبات المتجر</h1><p className="mt-2 text-slate-600">كل الطلبات، بما فيها المعلّقة والفاشلة، مع حالة الدفع والتجهيز.</p></div>
@@ -2968,9 +3080,10 @@ export function AdminStoreOrdersPage() {
         return <article key={order.id} className="rounded-2xl border border-emerald-950/10 bg-white p-5 sm:p-6">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div><h2 className="font-bold text-emerald-950">طلب {order.orderNumber || `#${order.id}`} · {formatPrice(order.total, order.currency, language)}</h2><p className="mt-1 text-sm text-slate-600">{order.customer ? `${order.customer.firstName} ${order.customer.lastName} · ${order.customer.email}` : '—'}</p><p className="mt-1 text-xs text-slate-500">{new Date(order.createdAt).toLocaleDateString(language)}</p></div>
-            <div className="flex flex-wrap items-center gap-2"><span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-800">{order.status}</span><span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-900">{fulfillmentLabels[order.fulfillmentStatus]}</span><button type="button" onClick={() => void syncOrder(order)} disabled={busyId === order.id} className="rounded-lg border border-emerald-200 px-3 py-1.5 text-xs font-bold text-emerald-800 disabled:opacity-50">مزامنة Stripe</button></div>
+            <div className="flex flex-wrap items-center gap-2"><span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-800">{order.status}</span><span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-900">{fulfillmentLabels[order.fulfillmentStatus]}</span><button type="button" onClick={() => void syncOrder(order)} disabled={busyId === order.id} className="rounded-lg border border-emerald-200 px-3 py-1.5 text-xs font-bold text-emerald-800 disabled:opacity-50">مزامنة Stripe</button>{['paid', 'fulfilled'].includes(order.status) && <><button type="button" onClick={() => void resendConfirmation(order)} disabled={busyId === order.id} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-bold text-slate-700 disabled:opacity-50">إعادة إرسال التأكيد</button><button type="button" onClick={() => void refundOrder(order)} disabled={busyId === order.id} className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-bold text-red-700 disabled:opacity-50">ردّ عبر Stripe</button></>}</div>
           </div>
           <ul className="mt-4 list-inside list-disc text-sm text-slate-700">{order.items.map((item, index) => <li key={`${order.id}-${index}`}>{item.title} × {item.quantity} <span className="text-slate-500">({item.format === 'ebook' ? 'إلكتروني' : 'ورقي'})</span></li>)}</ul>
+          {!!order.downloads?.length && <div className="mt-4 rounded-xl border border-emerald-950/10 bg-[#f7f6f0] p-4"><h3 className="text-sm font-bold text-emerald-950">حقوق التنزيل</h3><div className="mt-2 space-y-2">{(order.downloads || []).map((download) => <div key={download.orderItemId} className="flex flex-wrap items-center justify-between gap-2 text-xs"><span className="font-semibold text-slate-700">{download.title} · {download.downloadsRemaining === null ? 'غير محدود' : `${download.downloadsRemaining} من ${download.downloadLimit}`}</span><span className="flex flex-wrap gap-1">{download.entitlementId && <button type="button" onClick={() => void resetDownloads(order, download.entitlementId as number)} disabled={busyId === order.id} className="rounded border border-emerald-200 px-2 py-1 font-bold text-emerald-800 disabled:opacity-50">إعادة ضبط التنزيلات</button>}{download.canDownload && download.entitlementId ? <button type="button" onClick={() => void revokeEntitlement(order, download.entitlementId as number)} disabled={busyId === order.id} className="rounded border border-red-200 px-2 py-1 font-bold text-red-700 disabled:opacity-50">إلغاء الحق</button> : <button type="button" onClick={() => void grantEntitlement(order, download.orderItemId)} disabled={busyId === order.id} className="rounded border border-emerald-200 px-2 py-1 font-bold text-emerald-800 disabled:opacity-50">منح الحق</button>}</span></div>)}</div></div>}
           {order.shippingAddress && <div className="mt-4 rounded-xl bg-[#f7f6f0] p-4 text-sm leading-7 text-slate-700"><p className="font-bold text-emerald-950">{order.shippingAddress.name} · {order.shippingAddress.phone}</p><p>{order.shippingAddress.line1}{order.shippingAddress.line2 ? `، ${order.shippingAddress.line2}` : ''}</p><p>{order.shippingAddress.postalCode} {order.shippingAddress.city}، {order.shippingAddress.country}</p></div>}
           {['paid', 'fulfilled'].includes(order.status) && order.items.some((item) => item.format === 'print') && <div className="mt-4 flex flex-wrap items-end gap-3">
             <label className="text-sm font-semibold text-slate-700">حالة التجهيز<select value={draft.fulfillmentStatus} onChange={(event) => setDrafts((value) => ({ ...value, [order.id]: { ...draft, fulfillmentStatus: event.target.value as AdminStoreOrder['fulfillmentStatus'] } }))} className="mt-1 block rounded-xl border border-emerald-950/15 px-3 py-2">{fulfillmentOrder.map((status) => <option key={status} value={status} disabled={fulfillmentOrder.indexOf(status) < fulfillmentOrder.indexOf(order.fulfillmentStatus)}>{fulfillmentLabels[status]}</option>)}</select></label>
@@ -3039,7 +3152,6 @@ export function AdminSubscriptionsPage() {
     try {
       const payload = {
         name: planDraft.translations.ar.name,
-        slug: planDraft.slug,
         price: Number(planDraft.price),
         currency: 'EUR',
         interval: planDraft.interval,
@@ -3080,7 +3192,6 @@ export function AdminSubscriptionsPage() {
     }])) as PlanDraft['translations'];
     setEditingPlanId(plan.id);
     setPlanDraft({
-      slug: plan.slug,
       price: String(plan.price),
       interval: plan.interval,
       translations: translationDraft
@@ -3117,7 +3228,6 @@ export function AdminSubscriptionsPage() {
             <label className="block text-sm font-semibold text-slate-700">اسم الباقة<input required value={planDraft.translations[code].name} onChange={(event) => setPlanDraft((current) => ({ ...current, translations: { ...current.translations, [code]: { ...current.translations[code], name: event.target.value } } }))} dir={code === 'ar' ? 'rtl' : 'ltr'} className="mt-2 w-full rounded-xl border border-emerald-950/15 px-3 py-2.5" /></label>
             <label className="block text-sm font-semibold text-slate-700">المزايا (ميزة واحدة في كل سطر)<textarea required rows={3} value={planDraft.translations[code].features} onChange={(event) => setPlanDraft((current) => ({ ...current, translations: { ...current.translations, [code]: { ...current.translations[code], features: event.target.value } } }))} dir={code === 'ar' ? 'rtl' : 'ltr'} className="mt-2 w-full rounded-xl border border-emerald-950/15 px-3 py-2.5" /></label>
           </fieldset>)}
-          <label className="block text-sm font-semibold text-slate-700">الرابط المختصر (slug)<input required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" value={planDraft.slug} onChange={(event) => setPlanDraft({ ...planDraft, slug: event.target.value })} dir="ltr" className="mt-2 w-full rounded-xl border border-emerald-950/15 px-3 py-2.5 text-left" /></label>
           <div className="grid grid-cols-2 gap-3"><label className="text-sm font-semibold text-slate-700">السعر باليورو<input required type="number" min="0.01" step="0.01" value={planDraft.price} onChange={(event) => setPlanDraft({ ...planDraft, price: event.target.value })} className="mt-2 w-full rounded-xl border border-emerald-950/15 px-3 py-2.5" /></label><label className="text-sm font-semibold text-slate-700">الفترة<select value={planDraft.interval} onChange={(event) => setPlanDraft({ ...planDraft, interval: event.target.value as 'month' | 'year' })} className="mt-2 w-full rounded-xl border border-emerald-950/15 px-3 py-2.5"><option value="month">شهرية</option><option value="year">سنوية</option></select></label></div>
           <div className="flex gap-3">
             <button disabled={planBusy} className="flex-1 rounded-full bg-emerald-900 px-5 py-3 font-bold text-white disabled:opacity-50">{planBusy ? 'جارٍ الحفظ…' : editingPlanId ? 'حفظ الباقة' : 'إنشاء الباقة'}</button>
@@ -3139,6 +3249,7 @@ type CheckoutDownload = {
   canDownload: boolean;
   downloadsRemaining: number | null;
   downloadLimit: number | null;
+  downloadCount: number;
 };
 
 type CheckoutOrder = {
@@ -3208,6 +3319,10 @@ export function CheckoutResultPage({ orderIdOverride }: { orderIdOverride?: stri
         setResult(response);
         setError(null);
         setLoading(false);
+        if (checkoutIsPaid(response)) {
+          window.dispatchEvent(new Event('cart:changed'));
+          window.localStorage.removeItem(GUEST_CART_KEY);
+        }
         if (checkoutIsPaid(response) || checkoutIsTerminalFailure(response)) return;
         if (attempts >= 30) { setTimedOut(true); return; }
         timer = window.setTimeout(check, 2000);
@@ -3229,10 +3344,32 @@ export function CheckoutResultPage({ orderIdOverride }: { orderIdOverride?: stri
     setDownloadBusy(download.slug);
     setDownloadError(null);
     try {
-      const token = await api.post<{ url: string }>(`/books/${encodeURIComponent(download.slug)}/download-token`, {});
+      const token = await api.post<{ url: string; downloadsRemaining: number | null }>(`/books/${encodeURIComponent(download.slug)}/download-token`, {});
+      setResult((current) => current?.order ? {
+        ...current,
+        order: {
+          ...current.order,
+          downloads: current.order.downloads.map((entry) => entry.orderItemId === download.orderItemId
+            ? { ...entry, downloadCount: entry.downloadCount + 1, downloadsRemaining: token.downloadsRemaining ?? 0 }
+            : entry)
+        }
+      } : current);
       window.location.assign(token.url);
     } catch (caught) {
-      setDownloadError(caught instanceof Error ? caught.message : 'تعذر تجهيز رابط التنزيل.');
+      if (caught instanceof ApiError && caught.code === 'DOWNLOAD_LIMIT_REACHED') {
+        setResult((current) => current?.order ? {
+          ...current,
+          order: {
+            ...current.order,
+            downloads: current.order.downloads.map((entry) => entry.orderItemId === download.orderItemId
+              ? { ...entry, downloadsRemaining: 0 }
+              : entry)
+          }
+        } : current);
+        setDownloadError('لقد نزّلت هذا الكتاب بالفعل. يمكنك العثور عليه في حسابك، ولا يُسمح بتنزيله مرة أخرى.');
+      } else {
+        setDownloadError(caught instanceof Error ? caught.message : 'تعذر تجهيز رابط التنزيل.');
+      }
     } finally {
       setDownloadBusy(null);
     }
@@ -3284,8 +3421,8 @@ export function CheckoutResultPage({ orderIdOverride }: { orderIdOverride?: stri
         {downloadError && <div className="mt-4"><ErrorState message={downloadError} /></div>}
         <div className="mt-4 grid gap-3 sm:grid-cols-2">{order.downloads.map((download) => <article key={download.orderItemId} className="flex gap-3 rounded-2xl border border-emerald-950/10 p-4">
           <div className="h-16 w-12 shrink-0 overflow-hidden rounded-lg bg-[#efe8d8]">{download.cover ? <img src={download.cover} alt="" className="h-full w-full object-cover" /> : <BookOpen className="m-3 text-emerald-800" size={24} />}</div>
-          <div className="min-w-0 flex-1"><h4 className="line-clamp-2 font-bold text-emerald-950">{download.title}</h4><p className="mt-1 text-xs text-slate-500">{download.downloadsRemaining === null ? 'تنزيلات غير محدودة' : `${download.downloadsRemaining} تنزيلات متبقية`}</p>
-            {download.canDownload ? <button type="button" onClick={() => void downloadBook(download)} disabled={downloadBusy === download.slug || download.downloadsRemaining === 0} className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-emerald-900 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"><BookOpen size={14} /> {downloadBusy === download.slug ? 'جارٍ التجهيز…' : 'تنزيل PDF'}</button> : <span className="mt-2 block text-xs font-bold text-red-700">غير متاح حاليًا</span>}
+          <div className="min-w-0 flex-1"><h4 className="line-clamp-2 font-bold text-emerald-950">{download.title}</h4><p className="mt-1 text-xs text-slate-500">{download.downloadsRemaining === null ? 'تنزيلات غير محدودة' : download.downloadCount > 0 || download.downloadsRemaining === 0 ? 'تم تنزيل هذا الكتاب بالفعل' : 'تنزيل واحد متاح'}</p>
+            {download.canDownload && download.downloadsRemaining !== 0 ? <><button type="button" onClick={() => void downloadBook(download)} disabled={downloadBusy === download.slug} className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-emerald-900 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"><BookOpen size={14} /> {downloadBusy === download.slug ? 'جارٍ التجهيز…' : 'تنزيل PDF (مرة واحدة)'}</button><p className="mt-2 text-xs leading-5 text-slate-500">بعد التنزيل مرة واحدة، يبقى الكتاب متاحًا في حسابك دون تنزيل جديد.</p></> : <><p className="mt-2 text-xs font-bold leading-5 text-amber-800">{download.downloadCount > 0 ? 'لقد نزّلت هذا الكتاب بالفعل. لا يُسمح بتنزيله مرة أخرى.' : 'يمكنك تنزيل هذا الكتاب من حسابك.'}</p><Link to="/account" className="mt-2 inline-block text-xs font-bold text-emerald-800 underline">الوصول إلى الكتاب من حسابي</Link></>}
           </div>
         </article>)}</div>
       </div>}

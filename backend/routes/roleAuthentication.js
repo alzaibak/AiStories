@@ -38,6 +38,7 @@ const {
   authenticationActionUrl
 } = require('../utils/emailAuthentication');
 const { sendAuthenticationCode, deliverEmail } = require('../utils/email');
+const { composeEmail } = require('../utils/emailLayout');
 const { recordAudit } = require('../utils/audit');
 const { subscriptionIsActive } = require('../utils/contentAccess');
 
@@ -70,12 +71,6 @@ function adminResetUrl(email, token, language) {
   url.searchParams.set('email', email);
   url.searchParams.set('token', token);
   return url.toString();
-}
-
-function escapeHtml(value) {
-  return String(value).replace(/[&<>"']/g, (character) => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-  })[character]);
 }
 
 function responseForChallengeError(res, status) {
@@ -803,11 +798,20 @@ router.post('/admin/superadmin/change-password', authenticate, allowRoles('SUPER
     await req.user.save();
     await recordAudit(req, 'SUPERADMIN_PASSWORD_CHANGED', 'User', req.user.id);
     try {
+      const message = composeEmail({
+        language: req.user.language,
+        preheader: 'Le mot de passe de votre compte superadministrateur vient d’être modifié.',
+        title: 'Mot de passe administrateur modifié',
+        intro: 'Le mot de passe de votre compte superadministrateur vient d’être modifié.',
+        note: 'Si vous n’êtes pas à l’origine de ce changement, contactez immédiatement l’équipe technique.',
+        footnote: 'Aucune autre action n’est nécessaire si vous êtes bien à l’origine de ce changement.'
+      });
       await deliverEmail({
         to: req.user.email,
         purpose: 'superadmin-password-changed',
         subject: 'Mot de passe administrateur modifié',
-        html: '<p>Le mot de passe de votre compte superadministrateur vient d’être modifié. Si vous n’êtes pas à l’origine de ce changement, contactez immédiatement l’équipe technique.</p>'
+        html: message.html,
+        text: message.text
       });
     } catch (error) {
       return res.status(503).json({
@@ -838,11 +842,22 @@ router.post('/admin/users/:id/reset-password', authenticate, allowRoles('SUPER_A
     });
     const link = adminResetUrl(target.email, token, target.language);
     try {
+      const message = composeEmail({
+        language: target.language,
+        preheader: 'Un lien pour définir un nouveau mot de passe administrateur.',
+        title: 'Réinitialisation du mot de passe',
+        intro: 'Une réinitialisation de mot de passe a été demandée pour votre compte administrateur.',
+        actionUrl: link,
+        actionLabel: 'Définir un nouveau mot de passe',
+        footnote: 'Ce lien expire dans 15 minutes et ne peut être utilisé qu’une seule fois.',
+        note: 'Si vous n’avez pas demandé cette réinitialisation, ignorez ce message : votre mot de passe actuel reste inchangé.'
+      });
       await deliverEmail({
         to: target.email,
         purpose: 'admin-password-reset',
         subject: 'Réinitialisation du mot de passe administrateur',
-        html: `<p>Une réinitialisation de mot de passe a été demandée. Ce lien expire dans 15 minutes et ne peut être utilisé qu’une seule fois.</p><p><a href="${escapeHtml(link)}">Définir un nouveau mot de passe</a></p><p>Si vous n’avez pas demandé cette réinitialisation, ignorez ce message.</p>`
+        html: message.html,
+        text: message.text
       });
     } catch (error) {
       await challenge.destroy();

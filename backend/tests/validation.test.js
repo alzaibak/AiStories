@@ -43,10 +43,10 @@ test('la validation rejette les entrées invalides avec des messages localisés 
   validateBody(loginSchema)(req, res, () => { continued = true; });
 
   assert.equal(continued, false);
-  assert.equal(res.statusCode, 400);
+  assert.equal(res.statusCode, 422);
   assert.equal(res.body.code, 'VALIDATION_FAILED');
   assert.equal(res.body.fields.email, 'Cette valeur est invalide.');
-  assert.equal(res.body.fields.password, 'Cette valeur est invalide.');
+  assert.equal(res.body.fields.password, 'Ce champ est obligatoire.');
 });
 
 test('la réinitialisation exige une adresse e-mail et un mot de passe fort', () => {

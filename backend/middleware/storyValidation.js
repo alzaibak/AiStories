@@ -363,7 +363,7 @@ const subscriptionCheckoutSchema = z.object({
 
 const planSchema = z.object({
   name: z.string().trim().min(1).max(120),
-  slug: slugValue,
+  slug: optionalSlugValue,
   price: z.number().positive().max(99999999.99),
   currency: z.string().trim().length(3).regex(/^[A-Za-z]{3}$/).transform((value) => value.toUpperCase()).default('EUR'),
   interval: z.enum(['month', 'year']),
@@ -404,7 +404,7 @@ const adminOrderUpdateSchema = z.object({
 });
 
 const communityEventFieldsSchema = z.object({
-  slug: slugValue,
+  slug: optionalSlugValue,
   translations: z.object({
     ar: z.object({ title: z.string().trim().min(1).max(255), rules: z.string().trim().min(1).max(10000) }),
     en: z.object({ title: z.string().trim().max(255).optional().default(''), rules: z.string().trim().max(10000).optional().default('') }).optional(),
@@ -473,7 +473,7 @@ const giftCodeRedemptionSchema = z.object({
 });
 
 const donationCampaignSchema = z.object({
-  slug: slugValue,
+  slug: optionalSlugValue,
   translations: z.object({
     ar: z.object({ title: z.string().trim().min(1).max(255), description: z.string().trim().min(1).max(10000) }),
     en: z.object({ title: z.string().trim().max(255).optional().default(''), description: z.string().trim().max(10000).optional().default('') }).optional(),

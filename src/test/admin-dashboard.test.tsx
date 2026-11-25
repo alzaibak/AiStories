@@ -113,7 +113,7 @@ describe('admin dashboard layout', () => {
     expect(container?.querySelector('button[aria-label="Collapse sidebar"]')).toBeTruthy();
   });
 
-  it('uses optional English tabs and suggests a slug from the entered title', async () => {
+  it('uses optional English tabs without exposing the generated slug', async () => {
     await renderAt('/ar/admin/content/stories/new');
     const arabicTitle = container?.querySelector<HTMLInputElement>('[role="tabpanel"] input');
     expect(arabicTitle?.required).toBe(true);
@@ -132,7 +132,7 @@ describe('admin dashboard layout', () => {
       englishTitle!.value = 'The Prophet Story';
       Simulate.change(englishTitle!);
     });
-    expect(container?.querySelector<HTMLInputElement>('input[pattern]')?.value).toBe('the-prophet-story');
+    expect(container?.querySelector<HTMLInputElement>('input[pattern]')).toBeNull();
 
     const previewButton = Array.from(container?.querySelectorAll<HTMLButtonElement>('button') || [])
       .find((button) => button.textContent?.includes('معاينة'));
