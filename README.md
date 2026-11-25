@@ -95,7 +95,7 @@ Remove-Item Env:\SUPERADMIN_RECOVERY_PASSWORD
 
 ## Données de démonstration
 
-Le seed crée le compte administrateur, deux histoires brouillon, une histoire de démonstration publiée (`companionship-in-the-cave`) modifiable depuis le tableau de bord admin, deux livres de préparation non publiés et un ebook de démonstration original publié (4,90 EUR). Ce dernier utilise un petit PDF local et son téléchargement reste protégé par un droit d’accès ; il ne nécessite pas de bucket S3. Les autres ebooks publiés utilisent le stockage S3/MinIO privé. Définissez un secret dédié à l’environnement avant d’exécuter le seed :
+Le seed crée le compte administrateur, deux histoires brouillon, une histoire de démonstration publiée (`companionship-in-the-cave`) modifiable depuis le tableau de bord admin, deux livres de préparation non publiés, un ebook de démonstration original publié (4,90 EUR) et une campagne propre « 300 livres imprimés de l’histoire de Yunus » avec trois lieux de distribution, trois paliers et deux actualités. Ce dernier utilise un petit PDF local et son téléchargement reste protégé par un droit d’accès ; il ne nécessite pas de bucket S3. Les autres ebooks publiés utilisent le stockage S3/MinIO privé. Définissez un secret dédié à l’environnement avant d’exécuter le seed :
 
 ```powershell
 $env:SEED_ADMIN_EMAIL = "admin@exemple.test"
@@ -118,6 +118,25 @@ En développement, `STORAGE_DRIVER=local` conserve les fichiers dans `backend/pr
 En production, configurez `STORAGE_DRIVER=s3` et `S3_BUCKET`. `S3_REGION` est facultatif (par défaut `us-east-1`); `S3_ENDPOINT` est facultatif pour AWS et doit être renseigné pour Cloudflare R2 ou MinIO; `S3_ACCESS_KEY_ID` et `S3_SECRET_ACCESS_KEY` sont facultatives ensemble si un rôle de service est disponible; `S3_FORCE_PATH_STYLE` est facultatif et activé automatiquement avec un endpoint personnalisé. Gardez le bucket privé. Les formulaires présignés et liens de lecture expirent après cinq minutes. Consultez [backend/.env.example](./backend/.env.example) pour la configuration complète.
 
 La migration `006-role-email-authentication` ajoute la vérification e-mail et les défis OTP. Les migrations `009` à `015` créent le schéma éditorial, les quiz chronométrés, le flux Stripe, les traductions manuelles et les formules multilingues. La migration `016-publishing-auth-and-slugs` ajoute le workflow de publication, les métadonnées de revue, la version des sessions et les anciennes redirections de slug. La migration `017-repair-book-publication-date` répare de façon idempotente le champ `books.publishedAt` s’il manque dans une base existante. Les codes OTP lecteur expirent après 10 minutes, autorisent cinq tentatives et appliquent un délai de renvoi de 60 secondes. Les routes lecteur sont `/api/v1/reader/auth/register/request-code`, `/api/v1/reader/auth/register/verify-code` et `/api/v1/reader/auth/register`; la connexion utilise `/api/v1/auth/login`. Le paiement exige une configuration Stripe, une formule créée dans les trois langues et un tarif d’expédition explicite pour les livres papier.
+
+## Paiements Stripe en local
+
+Sans transfert des webhooks, une commande reste `pending_payment` : la page de succès tente une réconciliation toutes les deux secondes, mais Stripe doit pouvoir joindre l’API pour confirmer immédiatement.
+
+1. Renseignez `STRIPE_SECRET_KEY` (clé `sk_test_…`) et `BOOK_SHIPPING_FEE` dans `backend/.env`.
+2. Connectez la CLI : `stripe login`.
+3. Transférez les événements vers l’API :
+
+   ```powershell
+   stripe listen --forward-to http://localhost:5000/api/v1/payments/webhook
+   ```
+
+4. Copiez la valeur `whsec_…` affichée dans `STRIPE_WEBHOOK_SECRET`, puis redémarrez l’API.
+5. Achetez un livre avec la carte de test `4242 4242 4242 4242`, une date future et un CVC quelconque. Pour tester un échec, utilisez `4000 0000 0000 0002`.
+
+`stripe trigger checkout.session.completed` crée un événement sans les métadonnées de commande : il est journalisé mais ne valide aucune commande. Testez plutôt un vrai Checkout depuis le site.
+
+La migration `036-payments-cart-donations-security` ajoute les statuts de commande, les montants en centimes, les événements Stripe, les jetons de téléchargement, les campagnes détaillées et le journal de sécurité. La migration `037-platform-recurring-donations` autorise les dons mensuels de soutien à la plateforme (sans campagne). Exécutez `npm run migrate --prefix backend` avant de démarrer l’API.
 
 ## Vérification
 
