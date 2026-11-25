@@ -193,6 +193,49 @@ const ReturnEvent = sequelize.define('ReturnEvent', {
   metadata: { type: DataTypes.JSON, allowNull: false, defaultValue: {} }
 }, { ...timestamps, tableName: 'return_events', updatedAt: false, indexes: [{ fields: ['returnRequestId'] }] });
 
+/*
+ * Four-eyes control for store-order refunds: an amount above the configured
+ * threshold only becomes refundable once a second administrator approves it.
+ */
+const OrderRefundApproval = sequelize.define('OrderRefundApproval', {
+  id,
+  orderId: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: { model: 'store_orders', key: 'id' },
+    onDelete: 'CASCADE'
+  },
+  amount: { type: DataTypes.DECIMAL(10, 2), allowNull: false },
+  currency: { type: DataTypes.STRING(3), allowNull: false, defaultValue: 'EUR' },
+  status: {
+    type: DataTypes.ENUM('pending', 'approved', 'rejected', 'executed', 'failed'),
+    allowNull: false,
+    defaultValue: 'pending'
+  },
+  requestedByAdminId: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: { model: 'users', key: 'id' },
+    onDelete: 'SET NULL'
+  },
+  approvedByAdminId: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: { model: 'users', key: 'id' },
+    onDelete: 'SET NULL'
+  },
+  approvedAt: { type: DataTypes.DATE, allowNull: true },
+  rejectedAt: { type: DataTypes.DATE, allowNull: true },
+  executedAt: { type: DataTypes.DATE, allowNull: true },
+  stripeRefundId: { type: DataTypes.STRING(255), allowNull: true },
+  failureReason: { type: DataTypes.TEXT, allowNull: true },
+  note: { type: DataTypes.TEXT, allowNull: true }
+}, {
+  ...timestamps,
+  tableName: 'order_refund_approvals',
+  indexes: [{ fields: ['orderId', 'status'] }]
+});
+
 const User = sequelize.models.User;
 const StoreOrder = sequelize.models.StoreOrder;
 const StoreOrderItem = sequelize.models.StoreOrderItem;
@@ -212,6 +255,8 @@ ReturnRequest.hasMany(ReturnRefund, { foreignKey: 'returnRequestId', as: 'refund
 ReturnRefund.belongsTo(ReturnRequest, { foreignKey: 'returnRequestId', as: 'returnRequest' });
 ReturnRequest.hasMany(ReturnEvent, { foreignKey: 'returnRequestId', as: 'events' });
 ReturnEvent.belongsTo(ReturnRequest, { foreignKey: 'returnRequestId', as: 'returnRequest' });
+StoreOrder.hasMany(OrderRefundApproval, { foreignKey: 'orderId', as: 'refundApprovals' });
+OrderRefundApproval.belongsTo(StoreOrder, { foreignKey: 'orderId', as: 'order' });
 
 module.exports = {
   RETURN_STATUSES,
@@ -219,5 +264,6 @@ module.exports = {
   ReturnRequest,
   ReturnItem,
   ReturnRefund,
-  ReturnEvent
+  ReturnEvent,
+  OrderRefundApproval
 };

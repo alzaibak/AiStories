@@ -12,6 +12,7 @@ const {
   RecurringDonation,
   ReturnRefund,
   ReturnRequest,
+  OrderRefundApproval,
   StoreCart,
   StoreCartItem,
   StoreOrder,
@@ -41,6 +42,13 @@ const { requestedLanguage } = require('../utils/contentLocalization');
 const { localizePlan } = require('../utils/planLocalization');
 const { sendTemplateEmail } = require('../utils/email');
 const { getReturnPolicy } = require('../utils/returns/policy');
+const {
+  orderRefundableAmountMinor,
+  requestRefundApproval,
+  approveRefundApproval,
+  rejectRefundApproval,
+  serializeRefundApproval
+} = require('../utils/refundApproval');
 const {
   normalizeOrderStatus,
   canTransition,
@@ -124,7 +132,7 @@ async function loadOrderForUser(orderId, userId) {
   });
 }
 
-function serializeOrder(order, { admin = false } = {}) {
+function serializeOrder(order, { admin = false, refundApproval = null } = {}) {
   const items = order.items || [];
   const downloads = items
     .filter((item) => item.book?.format === 'ebook')
@@ -190,6 +198,7 @@ function serializeOrder(order, { admin = false } = {}) {
       } : null,
       stripeCheckoutSessionId: order.stripeCheckoutSessionId,
       stripePaymentIntentId: order.stripePaymentIntentId,
+      refundApproval: serializeRefundApproval(refundApproval),
       events: (order.events || []).map((event) => ({
         id: event.id,
         type: event.type,
@@ -2258,6 +2267,17 @@ router.get('/admin/store-orders', ...admins, async (req, res, next) => {
       offset: (page - 1) * limit,
       distinct: true
     });
+    const orderIds = result.rows.map((order) => order.id);
+    const approvals = orderIds.length
+      ? await OrderRefundApproval.findAll({
+        where: { orderId: { [Op.in]: orderIds } },
+        order: [['createdAt', 'DESC']]
+      })
+      : [];
+    const latestApproval = new Map();
+    for (const approval of approvals) {
+      if (!latestApproval.has(approval.orderId)) latestApproval.set(approval.orderId, approval);
+    }
     const items = result.rows
       .filter((order) => {
         if (!req.query.type || req.query.type === 'all') return true;
@@ -2266,7 +2286,7 @@ router.get('/admin/store-orders', ...admins, async (req, res, next) => {
         const digital = formats.has('ebook');
         return req.query.type === 'physical' ? physical : req.query.type === 'digital' ? digital && !physical : physical && digital;
       })
-      .map((order) => serializeOrder(order, { admin: true }));
+      .map((order) => serializeOrder(order, { admin: true, refundApproval: latestApproval.get(order.id) || null }));
     res.set('Cache-Control', 'private, no-store');
     res.json({ items, total: result.count, page, limit });
   } catch (error) {
@@ -2284,7 +2304,11 @@ router.get('/admin/store-orders/:id', ...admins, async (req, res, next) => {
       ]
     });
     if (!order) return res.status(404).json({ message: 'Store order not found.' });
-    res.json(serializeOrder(order, { admin: true }));
+    const refundApproval = await OrderRefundApproval.findOne({
+      where: { orderId: order.id },
+      order: [['createdAt', 'DESC']]
+    });
+    res.json(serializeOrder(order, { admin: true, refundApproval }));
   } catch (error) {
     next(error);
   }
@@ -2305,6 +2329,70 @@ router.post('/admin/store-orders/:id/sync', ...admins, async (req, res, next) =>
   }
 });
 
+const refundApprovalStore = {
+  findPending: (orderId) => OrderRefundApproval.findOne({ where: { orderId, status: 'pending' } }),
+  create: (values) => OrderRefundApproval.create({ ...values, status: 'pending' }),
+  markApproved: (approval, approver) => approval.update({
+    status: 'approved',
+    approvedByAdminId: approver.id,
+    approvedAt: new Date()
+  }),
+  markExecuted: (approval, result) => approval.update({
+    status: 'executed',
+    executedAt: new Date(),
+    stripeRefundId: result?.refundId || null,
+    failureReason: null
+  }),
+  recordFailure: (approval, error) => approval.update({
+    status: 'pending',
+    failureReason: String(error?.message || 'Stripe refund failed').slice(0, 1000)
+  }),
+  markRejected: (approval, approver, note) => approval.update({
+    status: 'rejected',
+    approvedByAdminId: approver.id,
+    rejectedAt: new Date(),
+    note: note || null
+  })
+};
+
+/** Stripe capture of a paid order; only reached below the threshold or after approval. */
+async function executeStoreOrderRefund(order, { admin, req, refundApprovalId = null } = {}) {
+  const fromStatus = normalizeOrderStatus(order.status);
+  if (!['paid', 'fulfilled', 'partially_refunded'].includes(fromStatus)) {
+    throw apiError(409, 'Only paid orders can be refunded through Stripe.', 'ORDER_NOT_REFUNDABLE');
+  }
+  if (!order.stripePaymentIntentId) {
+    throw apiError(409, 'This order has no Stripe payment intent.', 'STRIPE_PAYMENT_MISSING');
+  }
+  const stripe = createStripeClient();
+  const refund = await stripe.refunds.create({
+    payment_intent: order.stripePaymentIntentId,
+    reason: 'requested_by_customer',
+    metadata: {
+      orderId: String(order.id),
+      adminId: String(admin.id),
+      ...(refundApprovalId ? { refundApprovalId: String(refundApprovalId) } : {})
+    }
+  }, { idempotencyKey: `store-order-refund-${order.id}` });
+  const items = await StoreOrderItem.findAll({ where: { orderId: order.id }, attributes: ['id'] });
+  if (items.length) {
+    await Entitlement.update({ revokedAt: new Date() }, {
+      where: { orderItemId: { [Op.in]: items.map((item) => item.id) }, revokedAt: null }
+    });
+  }
+  await order.update({ status: 'refunded', lastStripeSyncAt: new Date() });
+  await recordOrderEvent(order, 'admin_refund', {
+    fromStatus,
+    toStatus: 'refunded',
+    metadata: { refundId: refund.id, adminId: admin.id, ...(refundApprovalId ? { refundApprovalId } : {}) }
+  });
+  await recordAudit(req, 'REFUND_STORE_ORDER', 'StoreOrder', order.id, {
+    refundId: refund.id,
+    ...(refundApprovalId ? { refundApprovalId } : {})
+  });
+  return { id: order.id, status: 'refunded', refundId: refund.id };
+}
+
 router.post('/admin/store-orders/:id/refund', ...admins, async (req, res, next) => {
   try {
     const order = await StoreOrder.findByPk(parseId(req.params.id, 'Order'));
@@ -2316,22 +2404,60 @@ router.post('/admin/store-orders/:id/refund', ...admins, async (req, res, next) 
     if (!order.stripePaymentIntentId) {
       return res.status(409).json({ message: 'This order has no Stripe payment intent.', code: 'STRIPE_PAYMENT_MISSING' });
     }
-    const stripe = createStripeClient();
-    const refund = await stripe.refunds.create({
-      payment_intent: order.stripePaymentIntentId,
-      reason: 'requested_by_customer',
-      metadata: { orderId: String(order.id), adminId: String(req.user.id) }
-    }, { idempotencyKey: `store-order-refund-${order.id}` });
-    const items = await StoreOrderItem.findAll({ where: { orderId: order.id }, attributes: ['id'] });
-    if (items.length) {
-      await Entitlement.update({ revokedAt: new Date() }, {
-        where: { orderItemId: { [Op.in]: items.map((item) => item.id) }, revokedAt: null }
+    // Four-eyes circuit: a large refund is only recorded here, never sent to Stripe.
+    const gate = await requestRefundApproval({
+      store: refundApprovalStore,
+      order,
+      amountMinor: orderRefundableAmountMinor(order),
+      currency: order.currency,
+      admin: req.user
+    });
+    if (gate.approvalRequired) {
+      await recordAudit(req, 'REQUEST_STORE_ORDER_REFUND', 'StoreOrder', order.id, {
+        approvalId: gate.approval.id,
+        amount: gate.approval.amount,
+        threshold: gate.thresholdMinor
+      });
+      const approval = await OrderRefundApproval.findByPk(gate.approval.id);
+      return res.status(202).json({
+        id: order.id,
+        status: order.status,
+        refundId: null,
+        approvalRequired: true,
+        approval: serializeRefundApproval(approval || gate.approval)
       });
     }
-    await order.update({ status: 'refunded', lastStripeSyncAt: new Date() });
-    await recordOrderEvent(order, 'admin_refund', { fromStatus, toStatus: 'refunded', metadata: { refundId: refund.id, adminId: req.user.id } });
-    await recordAudit(req, 'REFUND_STORE_ORDER', 'StoreOrder', order.id, { refundId: refund.id });
-    res.json({ id: order.id, status: 'refunded', refundId: refund.id });
+    res.json(await executeStoreOrderRefund(order, { admin: req.user, req }));
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/admin/store-orders/:id/refund/approval', ...admins, async (req, res, next) => {
+  try {
+    const order = await StoreOrder.findByPk(parseId(req.params.id, 'Order'));
+    if (!order) return res.status(404).json({ message: 'Store order not found.' });
+    const approval = await refundApprovalStore.findPending(order.id);
+    if (!approval) {
+      return res.status(404).json({ message: 'No refund is awaiting approval.', code: 'REFUND_APPROVAL_NOT_FOUND' });
+    }
+    const decision = String(req.body?.decision || 'approve');
+    if (decision === 'reject') {
+      const note = String(req.body?.note || '').trim() || null;
+      const rejected = await rejectRefundApproval({ store: refundApprovalStore, approval, approver: req.user, note });
+      await recordAudit(req, 'REJECT_STORE_ORDER_REFUND', 'StoreOrder', order.id, { approvalId: approval.id, note });
+      return res.json({ ...rejected, refundId: null, approvalRequired: false });
+    }
+    if (decision !== 'approve') {
+      return res.status(422).json({ message: 'Invalid approval decision.', code: 'REFUND_APPROVAL_DECISION_INVALID' });
+    }
+    const result = await approveRefundApproval({
+      store: refundApprovalStore,
+      approval,
+      approver: req.user,
+      execute: (approved) => executeStoreOrderRefund(order, { admin: req.user, req, refundApprovalId: approved.id })
+    });
+    res.json({ ...result, approvalId: approval.id, approvalRequired: false });
   } catch (error) {
     next(error);
   }
