@@ -26,6 +26,7 @@ import { BrandMark } from '@/components/ui/BrandMark';
 import { buttonClasses } from '@/components/ui/Button';
 import { StoryCard } from '@/components/ui/StoryCard';
 import { CoverArt } from '@/components/ui/CoverArt';
+import { pluralMinutes, pluralParts } from '@/lib/plural';
 
 type SiteLanguage = 'ar' | 'en' | 'fr';
 const siteLanguages: SiteLanguage[] = ['ar', 'en', 'fr'];
@@ -48,6 +49,22 @@ function formatReadingTime(minutes: number, language: SiteLanguage) {
   if (language === 'fr') return `${minutes} min de lecture`;
   if (language === 'en') return `${minutes} min read`;
   return `نحو ${minutes} دقائق للقراءة`;
+}
+
+function retentionCopy(language: SiteLanguage) {
+  return {
+    points: t('نقطة', language),
+    streakLabel: t('تتابع الأيام', language),
+    level: t('المستوى', language),
+    days: (count: number) => language === 'fr' ? `${count} jour${count > 1 ? 's' : ''}` : language === 'en' ? `${count} day${count === 1 ? '' : 's'}` : `${count} أيام`,
+    finished: t('أكملت هذه الحكاية', language),
+    proof: (done: number, total: number) => language === 'fr'
+      ? `${done} partie${done > 1 ? 's' : ''} sur ${total} terminée${done > 1 ? 's' : ''}.`
+      : language === 'en'
+        ? `${done} of ${total} parts completed.`
+        : `أكملت ${done} من ${total} أجزاء.`,
+    back: t('العودة إلى الحكاية', language)
+  };
 }
 
 function localizedPlanName(plan: NonNullable<ReaderSubscription['plan']>, language: SiteLanguage) {
@@ -1118,7 +1135,6 @@ export function StoryDetailPage() {
   const { slug = '' } = useParams();
   const language = useSiteLanguage();
   const { user } = useStoryAuth();
-  const navigate = useLocalizedNavigate();
   const { data: story, loading, error } = useRemote<StorySummary>(`/stories/${encodeURIComponent(slug)}`);
   const { data: readingProgress } = useRemote<ReadingProgressEntry[]>(user ? '/reading-progress' : '');
   const parts = story?.parts || [];
@@ -1161,7 +1177,7 @@ export function StoryDetailPage() {
     : (libraryStories || []).filter((candidate) => candidate.id !== story?.id);
   const recommendations = recommendationPool.slice(0, 6);
 
-  const retention = retentionText(language);
+  const retention = retentionCopy(language);
   const [shareNotice, setShareNotice] = useState('');
 
   useEffect(() => {
@@ -1351,11 +1367,11 @@ export function StoryDetailPage() {
                 {(started || finished) && user && profile && (
                   <details className="mt-4 border-t border-line pt-3">
                     <summary className="cursor-pointer text-sm text-ink-muted hover:text-ink">
-                      {profile.user.points} {retention.points} · {retention.days(profile.streak.current)} {retention.streak} · {profile.level.name || profile.level.level}
+                      {profile.user.points} {retention.points} · {retention.days(profile.streak.current)} · {profile.level.name || profile.level.level}
                     </summary>
                     <div className="mt-3 grid gap-3 sm:grid-cols-3">
                       <div><p className="text-xs text-ink-faint">{retention.points}</p><p className="font-semibold text-ink">{profile.user.points}</p></div>
-                      <div><p className="text-xs text-ink-faint">{retention.streak}</p><p className="font-semibold text-ink">{retention.days(profile.streak.current)}</p></div>
+                      <div><p className="text-xs text-ink-faint">{retention.streakLabel}</p><p className="font-semibold text-ink">{retention.days(profile.streak.current)}</p></div>
                       <div><p className="text-xs text-ink-faint">{retention.level}</p><p className="font-semibold text-ink">{profile.level.name || profile.level.level}</p></div>
                     </div>
                   </details>
@@ -1739,7 +1755,7 @@ export function ReaderPage() {
       ? `Part ${part.partNumber} of ${totalParts}`
       : `الجزء ${part.partNumber} من ${totalParts}`;
   const isLastPart = !next;
-  const retention = retentionText(language);
+  const retention = retentionCopy(language);
 
   const sizeOptions: Array<{ value: ReaderPreferences['size']; label: string }> = [
     { value: 's', label: t('صغير', language) },
