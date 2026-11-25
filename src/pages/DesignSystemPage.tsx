@@ -10,7 +10,7 @@ import { StoryCard } from '@/components/ui/StoryCard';
 import { translateText, type SiteLanguage } from '@/lib/localization';
 import { SiteLayout } from '@/pages/stories/StoryPlatform';
 
-const modes = ['light', 'sepia', 'dark'] as const;
+const modes = ['light', 'reading', 'dark'] as const;
 type PreviewMode = (typeof modes)[number];
 
 const modeLabel: Record<PreviewMode, string> = {
@@ -62,7 +62,7 @@ function ThemePreview({
     >
       <div className="mb-3 flex items-center justify-between gap-2">
         <span className="inline-flex items-center gap-1.5 text-[0.6875rem] font-bold text-ink-muted">
-          {mode === 'light' ? <Sun size={13} /> : mode === 'sepia' ? <BookOpen size={13} /> : <Moon size={13} />}
+          {mode === 'light' ? <Sun size={13} /> : mode === 'reading' ? <BookOpen size={13} /> : <Moon size={13} />}
           {translateText(modeLabel[mode], language)}
         </span>
         <code dir="ltr" className="rounded-full border border-line bg-surface px-2 py-0.5 font-mono text-[0.625rem] text-ink-faint">
@@ -259,7 +259,7 @@ export default function DesignSystemPage() {
           <div className="grid gap-4 lg:grid-cols-3">
             {modes.map((mode) => (
               <ThemePreview key={mode} mode={mode} language={language}>
-                <StoryCard story={demoStory} language={language} progress={mode === 'sepia' ? 45 : undefined} />
+                <StoryCard story={demoStory} language={language} progress={mode === 'reading' ? 45 : undefined} />
               </ThemePreview>
             ))}
           </div>
@@ -291,9 +291,9 @@ export default function DesignSystemPage() {
                   timeLeftSeconds={mode === 'light' ? 48 : undefined}
                   questionText="أي وصف يناسب «قصة مستوحاة» في مكتبتنا؟"
                   options={demoOptions}
-                  selected={mode === 'sepia' || mode === 'dark' ? 3 : null}
+                  selected={mode === 'reading' || mode === 'dark' ? 3 : null}
                   feedback={
-                    mode === 'sepia'
+                    mode === 'reading'
                       ? {
                           status: 'wrong',
                           correctIds: [3],

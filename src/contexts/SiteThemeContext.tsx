@@ -1,64 +1,99 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from 'react';
 
-export type SiteTheme = 'light' | 'sepia' | 'dark';
+export type SiteTheme = 'light' | 'reading' | 'dark';
 
 const STORAGE_KEY = 'site-theme';
-const order: SiteTheme[] = ['light', 'sepia', 'dark'];
+const order: SiteTheme[] = ['light', 'reading', 'dark'];
+const themeColor: Record<SiteTheme, string> = {
+  light: '#FBF8F2',
+  reading: '#F1E4C8',
+  dark: '#111815'
+};
 
-function isSiteTheme(value: unknown): value is SiteTheme {
-  return value === 'light' || value === 'sepia' || value === 'dark';
+function normalizeTheme(value: unknown): SiteTheme | null {
+  if (value === 'light' || value === 'reading' || value === 'dark') return value;
+  // Older releases stored the sepia mode under this name.
+  if (value === 'sepia') return 'reading';
+  return null;
 }
 
-function readStoredTheme(): SiteTheme {
-  if (typeof window === 'undefined') return 'light';
+function systemTheme(): SiteTheme {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return 'light';
   try {
-    const stored = window.localStorage.getItem(STORAGE_KEY);
-    if (isSiteTheme(stored)) return stored;
+    if (window.matchMedia('(prefers-color-scheme: dark)').matches) return 'dark';
+    if (window.matchMedia('(prefers-color-scheme: light)').matches) return 'light';
+  } catch {
+    /* matchMedia can be unavailable */
+  }
+  return 'light';
+}
+
+function readStoredTheme(): SiteTheme | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return normalizeTheme(window.localStorage.getItem(STORAGE_KEY));
   } catch {
     /* storage can be unavailable in private mode */
   }
-  return 'light';
+  return null;
 }
 
 function applyTheme(theme: SiteTheme) {
   if (typeof document === 'undefined') return;
   const root = document.documentElement;
+  root.dataset.theme = theme;
+  // Kept so older stylesheets and previews keep resolving the same palette.
   root.dataset.siteTheme = theme;
   root.classList.toggle('dark', theme === 'dark');
   root.style.colorScheme = theme === 'dark' ? 'dark' : 'light';
   const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
-  if (meta) {
-    meta.content = theme === 'dark' ? '#0b1a24' : theme === 'sepia' ? '#f2e5cd' : '#fbf7ef';
-  }
+  if (meta) meta.content = themeColor[theme];
 }
 
 interface SiteThemeValue {
   theme: SiteTheme;
+  /** True once the visitor picked an explicit theme (otherwise system wins). */
+  followsSystem: boolean;
   setTheme: (theme: SiteTheme) => void;
+  useSystemTheme: () => void;
   cycleTheme: () => void;
 }
 
 const SiteThemeContext = createContext<SiteThemeValue | undefined>(undefined);
 
 export function SiteThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setThemeState] = useState<SiteTheme>(readStoredTheme);
+  const [explicitTheme, setExplicitTheme] = useState<SiteTheme | null>(readStoredTheme);
+  const [system, setSystem] = useState<SiteTheme>(systemTheme);
+  const theme = explicitTheme ?? system;
 
   useLayoutEffect(() => {
     applyTheme(theme);
   }, [theme]);
 
   useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return;
+    let query: MediaQueryList;
+    try {
+      query = window.matchMedia('(prefers-color-scheme: dark)');
+    } catch {
+      return;
+    }
+    const onChange = () => setSystem(systemTheme());
+    query.addEventListener?.('change', onChange);
+    return () => query.removeEventListener?.('change', onChange);
+  }, []);
+
+  useEffect(() => {
     const onStorage = (event: StorageEvent) => {
-      if (event.key === STORAGE_KEY && isSiteTheme(event.newValue)) {
-        setThemeState(event.newValue);
-      }
+      if (event.key !== STORAGE_KEY) return;
+      setExplicitTheme(normalizeTheme(event.newValue));
     };
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
   }, []);
 
   const setTheme = useCallback((next: SiteTheme) => {
-    setThemeState(next);
+    setExplicitTheme(next);
     try {
       window.localStorage.setItem(STORAGE_KEY, next);
     } catch {
@@ -66,9 +101,19 @@ export function SiteThemeProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const useSystemTheme = useCallback(() => {
+    setExplicitTheme(null);
+    try {
+      window.localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   const cycleTheme = useCallback(() => {
-    setThemeState((current) => {
-      const next = order[(order.indexOf(current) + 1) % order.length];
+    setExplicitTheme((current) => {
+      const active = current ?? systemTheme();
+      const next = order[(order.indexOf(active) + 1) % order.length];
       try {
         window.localStorage.setItem(STORAGE_KEY, next);
       } catch {
@@ -78,7 +123,10 @@ export function SiteThemeProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const value = useMemo(() => ({ theme, setTheme, cycleTheme }), [theme, setTheme, cycleTheme]);
+  const value = useMemo(
+    () => ({ theme, followsSystem: explicitTheme === null, setTheme, useSystemTheme, cycleTheme }),
+    [theme, explicitTheme, setTheme, useSystemTheme, cycleTheme]
+  );
   return <SiteThemeContext.Provider value={value}>{children}</SiteThemeContext.Provider>;
 }
 
@@ -87,7 +135,9 @@ export function useSiteTheme() {
   if (!context) {
     return {
       theme: 'light' as SiteTheme,
+      followsSystem: true,
       setTheme: () => undefined,
+      useSystemTheme: () => undefined,
       cycleTheme: () => undefined
     };
   }

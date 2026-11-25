@@ -417,13 +417,11 @@ function Header() {
       ? path.startsWith('/stories') || path.startsWith('/collections')
       : path === href || path.startsWith(`${href}/`);
 
-  const appearances: Array<{ value: 'light' | 'sepia' | 'dark'; label: string; Icon: typeof Sun }> = [
+  const appearances: Array<{ value: 'light' | 'reading' | 'dark'; label: string; Icon: typeof Sun }> = [
     { value: 'light', label: 'فاتح', Icon: Sun },
-    { value: 'sepia', label: 'وضع ورقي', Icon: BookOpen },
+    { value: 'reading', label: 'وضع القراءة', Icon: BookOpen },
     { value: 'dark', label: 'داكن', Icon: Moon }
   ];
-  const currentAppearance = appearances.find((item) => item.value === theme) || appearances[0];
-  const CurrentAppearanceIcon = currentAppearance.Icon;
 
   const iconButton = 'grid h-10 w-10 place-items-center rounded-full text-ink-muted transition hover:bg-surface-soft hover:text-ink';
 
@@ -461,41 +459,28 @@ function Header() {
             <Search size={19} strokeWidth={1.9} />
           </button>
 
-          <div className="relative hidden sm:block">
-            <button
-              type="button"
-              className={`${iconButton} flex w-auto items-center gap-1 px-2.5`}
-              aria-label={t('المظهر', language)}
-              aria-expanded={openMenu === 'theme'}
-              aria-haspopup="menu"
-              onClick={() => setOpenMenu(openMenu === 'theme' ? null : 'theme')}
-            >
-              <CurrentAppearanceIcon size={19} strokeWidth={1.9} />
-              <ChevronDown size={13} aria-hidden="true" />
-            </button>
-            {openMenu === 'theme' && (
-              <>
-                <button type="button" tabIndex={-1} aria-hidden="true" className="fixed inset-0 z-30 cursor-default" onClick={() => setOpenMenu(null)} />
-                <div role="menu" aria-label={t('المظهر', language)} className="ds-pop absolute end-0 top-full z-40 mt-2 w-44 rounded-2xl border border-line bg-surface p-1.5 shadow-lift">
-                  {appearances.map(({ value, label, Icon }) => (
-                    <button
-                      key={value}
-                      type="button"
-                      role="menuitemradio"
-                      aria-checked={theme === value}
-                      onClick={() => { setTheme(value); setOpenMenu(null); }}
-                      className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-semibold transition ${
-                        theme === value ? 'bg-brand-soft text-brand-ink' : 'text-ink-muted hover:bg-surface-soft hover:text-ink'
-                      }`}
-                    >
-                      <Icon size={16} aria-hidden="true" />
-                      {t(label, language)}
-                      {theme === value && <Check size={14} className="ms-auto" aria-hidden="true" />}
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
+          <div
+            role="group"
+            aria-label={t('المظهر', language)}
+            className="hidden items-center gap-0.5 rounded-full border border-line bg-surface p-0.5 lg:flex"
+          >
+            {appearances.map(({ value, label, Icon }) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={theme === value}
+                title={t(label, language)}
+                onClick={() => setTheme(value)}
+                className={`inline-flex h-8 items-center gap-1.5 rounded-full px-2.5 text-xs font-semibold transition ${
+                  theme === value
+                    ? 'bg-brand-soft text-brand-ink'
+                    : 'text-ink-muted hover:bg-surface-soft hover:text-ink'
+                }`}
+              >
+                <Icon size={15} strokeWidth={1.9} aria-hidden="true" />
+                <span className="hidden xl:inline">{t(label, language)}</span>
+              </button>
+            ))}
           </div>
 
           <div className="relative hidden md:block">
@@ -785,7 +770,7 @@ function Footer() {
               ))}
             </nav>
             <div className="flex items-center gap-1 rounded-full border border-line bg-surface p-1" role="group" aria-label={t('المظهر', language)}>
-              {([['light', Sun, 'فاتح'], ['sepia', BookOpen, 'وضع ورقي'], ['dark', Moon, 'داكن']] as const).map(([value, Icon, label]) => (
+              {([['light', Sun, 'فاتح'], ['reading', BookOpen, 'وضع القراءة'], ['dark', Moon, 'داكن']] as const).map(([value, Icon, label]) => (
                 <button
                   key={value}
                   type="button"
@@ -798,6 +783,7 @@ function Footer() {
                   }`}
                 >
                   <Icon size={14} aria-hidden="true" />
+                  <span className="sr-only">{t(label, language)}</span>
                 </button>
               ))}
             </div>
@@ -2920,6 +2906,15 @@ type AdminStoreOrder = {
     downloadCount: number;
     downloadsRemaining: number | null;
   }>;
+  refundApproval?: {
+    id: number;
+    amount: number | string;
+    currency: string;
+    status: 'pending' | 'approved' | 'rejected' | 'executed' | 'failed';
+    requestedByAdminId: number | null;
+    approvedByAdminId: number | null;
+    requestedAt: string | null;
+  } | null;
 };
 
 const fulfillmentLabels: Record<AdminStoreOrder['fulfillmentStatus'], string> = {
@@ -3003,11 +2998,39 @@ export function AdminStoreOrdersPage() {
     setError(null);
     setNotice(null);
     try {
-      await api.post(`/admin/store-orders/${order.id}/refund`, {});
-      setNotice(`تم ردّ مبلغ الطلب ${order.orderNumber || order.id} وإلغاء حقوق التنزيل.`);
+      const result = await api.post<{ approvalRequired?: boolean }>(`/admin/store-orders/${order.id}/refund`, {});
+      if (result?.approvalRequired) {
+        setNotice(`ردّ مبلغ الطلب ${order.orderNumber || order.id} يتطلب موافقة مسؤول ثانٍ؛ لم يُنفَّذ أي رد عبر Stripe بعد.`);
+      } else {
+        setNotice(`تم ردّ مبلغ الطلب ${order.orderNumber || order.id} وإلغاء حقوق التنزيل.`);
+      }
       setReloadKey((value) => value + 1);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'تعذر ردّ المبلغ عبر Stripe.');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function decideRefund(order: AdminStoreOrder, decision: 'approve' | 'reject') {
+    let note = '';
+    if (decision === 'reject') {
+      note = window.prompt('سبب رفض الردّ (إلزامي):')?.trim() || '';
+      if (note.length < 3) return;
+    } else if (!window.confirm(`اعتماد ردّ مبلغ الطلب ${order.orderNumber || order.id} وتنفيذه عبر Stripe؟`)) {
+      return;
+    }
+    setBusyId(order.id);
+    setError(null);
+    setNotice(null);
+    try {
+      await api.post(`/admin/store-orders/${order.id}/refund/approval`, { decision, ...(note ? { note } : {}) });
+      setNotice(decision === 'approve'
+        ? `تم اعتماد ردّ مبلغ الطلب ${order.orderNumber || order.id} وتنفيذه عبر Stripe.`
+        : `تم رفض طلب ردّ مبلغ الطلب ${order.orderNumber || order.id}.`);
+      setReloadKey((value) => value + 1);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'تعذر معالجة طلب الردّ.');
     } finally {
       setBusyId(null);
     }
@@ -3080,7 +3103,9 @@ export function AdminStoreOrdersPage() {
         return <article key={order.id} className="rounded-2xl border border-emerald-950/10 bg-white p-5 sm:p-6">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div><h2 className="font-bold text-emerald-950">طلب {order.orderNumber || `#${order.id}`} · {formatPrice(order.total, order.currency, language)}</h2><p className="mt-1 text-sm text-slate-600">{order.customer ? `${order.customer.firstName} ${order.customer.lastName} · ${order.customer.email}` : '—'}</p><p className="mt-1 text-xs text-slate-500">{new Date(order.createdAt).toLocaleDateString(language)}</p></div>
-            <div className="flex flex-wrap items-center gap-2"><span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-800">{order.status}</span><span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-900">{fulfillmentLabels[order.fulfillmentStatus]}</span><button type="button" onClick={() => void syncOrder(order)} disabled={busyId === order.id} className="rounded-lg border border-emerald-200 px-3 py-1.5 text-xs font-bold text-emerald-800 disabled:opacity-50">مزامنة Stripe</button>{['paid', 'fulfilled'].includes(order.status) && <><button type="button" onClick={() => void resendConfirmation(order)} disabled={busyId === order.id} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-bold text-slate-700 disabled:opacity-50">إعادة إرسال التأكيد</button><button type="button" onClick={() => void refundOrder(order)} disabled={busyId === order.id} className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-bold text-red-700 disabled:opacity-50">ردّ عبر Stripe</button></>}</div>
+            <div className="flex flex-wrap items-center gap-2"><span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-800">{order.status}</span><span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-900">{fulfillmentLabels[order.fulfillmentStatus]}</span><button type="button" onClick={() => void syncOrder(order)} disabled={busyId === order.id} className="rounded-lg border border-emerald-200 px-3 py-1.5 text-xs font-bold text-emerald-800 disabled:opacity-50">مزامنة Stripe</button>{['paid', 'fulfilled'].includes(order.status) && <><button type="button" onClick={() => void resendConfirmation(order)} disabled={busyId === order.id} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-bold text-slate-700 disabled:opacity-50">إعادة إرسال التأكيد</button>{order.refundApproval?.status === 'pending'
+                  ? <><span className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-900">ردّ بانتظار موافقة مسؤول ثانٍ</span><button type="button" onClick={() => void decideRefund(order, 'approve')} disabled={busyId === order.id} className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800 disabled:opacity-50">اعتماد الردّ</button><button type="button" onClick={() => void decideRefund(order, 'reject')} disabled={busyId === order.id} className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-bold text-red-700 disabled:opacity-50">رفض الردّ</button></>
+                  : <button type="button" onClick={() => void refundOrder(order)} disabled={busyId === order.id} className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-bold text-red-700 disabled:opacity-50">ردّ عبر Stripe</button>}</>}</div>
           </div>
           <ul className="mt-4 list-inside list-disc text-sm text-slate-700">{order.items.map((item, index) => <li key={`${order.id}-${index}`}>{item.title} × {item.quantity} <span className="text-slate-500">({item.format === 'ebook' ? 'إلكتروني' : 'ورقي'})</span></li>)}</ul>
           {!!order.downloads?.length && <div className="mt-4 rounded-xl border border-emerald-950/10 bg-[#f7f6f0] p-4"><h3 className="text-sm font-bold text-emerald-950">حقوق التنزيل</h3><div className="mt-2 space-y-2">{(order.downloads || []).map((download) => <div key={download.orderItemId} className="flex flex-wrap items-center justify-between gap-2 text-xs"><span className="font-semibold text-slate-700">{download.title} · {download.downloadsRemaining === null ? 'غير محدود' : `${download.downloadsRemaining} من ${download.downloadLimit}`}</span><span className="flex flex-wrap gap-1">{download.entitlementId && <button type="button" onClick={() => void resetDownloads(order, download.entitlementId as number)} disabled={busyId === order.id} className="rounded border border-emerald-200 px-2 py-1 font-bold text-emerald-800 disabled:opacity-50">إعادة ضبط التنزيلات</button>}{download.canDownload && download.entitlementId ? <button type="button" onClick={() => void revokeEntitlement(order, download.entitlementId as number)} disabled={busyId === order.id} className="rounded border border-red-200 px-2 py-1 font-bold text-red-700 disabled:opacity-50">إلغاء الحق</button> : <button type="button" onClick={() => void grantEntitlement(order, download.orderItemId)} disabled={busyId === order.id} className="rounded border border-emerald-200 px-2 py-1 font-bold text-emerald-800 disabled:opacity-50">منح الحق</button>}</span></div>)}</div></div>}

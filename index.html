@@ -12,15 +12,27 @@
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
     <script>
-      // Apply the saved reading appearance before first paint (public site only).
-      try {
-        var preferred = localStorage.getItem('site-theme');
-        if (preferred === 'dark' || preferred === 'sepia' || preferred === 'light') {
-          document.documentElement.dataset.siteTheme = preferred;
-          if (preferred === 'dark') document.documentElement.classList.add('dark');
-          document.documentElement.style.colorScheme = preferred === 'dark' ? 'dark' : 'light';
+      // Apply the reading appearance before first paint: saved choice first,
+      // otherwise the system preference. Prevents a light flash for dark users.
+      (function () {
+        var theme = 'light';
+        try {
+          var saved = localStorage.getItem('site-theme');
+          if (saved === 'sepia') saved = 'reading';
+          if (saved === 'light' || saved === 'reading' || saved === 'dark') {
+            theme = saved;
+          } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+            theme = 'dark';
+          }
+        } catch (error) {
+          theme = 'light';
         }
-      } catch (error) {}
+        var root = document.documentElement;
+        root.dataset.theme = theme;
+        root.dataset.siteTheme = theme;
+        if (theme === 'dark') root.classList.add('dark');
+        root.style.colorScheme = theme === 'dark' ? 'dark' : 'light';
+      })();
     </script>
     <link rel="preload" href="/fonts/ibm-plex-sans-arabic-400-arabic.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="preload" href="/fonts/ibm-plex-sans-arabic-600-arabic.woff2" as="font" type="font/woff2" crossorigin />

@@ -492,3 +492,367 @@ html[lang='ar'] .site-root,
     scroll-behavior: auto !important;
   }
 }
+
+/* =============================================================================
+   Theme tokens — light / reading / dark
+   Applied on <html data-theme> and inherited by every public surface.
+   The --ds-* rgb triplets are the bridge consumed by Tailwind colours.
+   ============================================================================= */
+
+:root[data-theme='light'] {
+  --bg: #FBF8F2;
+  --surface: #FFFFFF;
+  --surface-2: #F3EEE3;
+  --text: #1E2923;
+  --text-muted: #5E6B63;
+  --line: #E4DCCB;
+  --primary: #1F5C4A;
+  --primary-contrast: #FFFFFF;
+  --accent: #B8893B;
+  --success: #2F7D5B;
+  --focus: #1F5C4A;
+
+  --ds-canvas-rgb: 251 248 242;
+  --ds-surface-rgb: 255 255 255;
+  --ds-surface-soft-rgb: 243 238 227;
+  --ds-surface-sunken-rgb: 235 228 212;
+  --ds-ink-rgb: 30 41 35;
+  --ds-ink-muted-rgb: 94 107 99;
+  --ds-ink-faint-rgb: 123 134 126;
+  --ds-line-rgb: 228 220 203;
+  --ds-line-strong-rgb: 208 198 177;
+  --ds-brand-rgb: 31 92 74;
+  --ds-brand-strong-rgb: 23 72 58;
+  --ds-brand-soft-rgb: 232 241 235;
+  --ds-brand-ink-rgb: 25 78 62;
+  --ds-on-brand-rgb: 255 255 255;
+  --ds-gold-rgb: 184 137 59;
+  --ds-gold-soft-rgb: 246 235 214;
+  --ds-gold-ink-rgb: 120 82 22;
+  --ds-danger-rgb: 168 58 48;
+  --ds-danger-soft-rgb: 250 233 230;
+  --ds-success-rgb: 47 125 91;
+  --ds-success-soft-rgb: 231 243 236;
+  --ds-focus-rgb: 31 92 74;
+  --ds-src-quran-bg: 232 242 236;
+  --ds-src-quran-ink: 25 84 64;
+  --ds-src-quran-line: 197 222 209;
+  --ds-src-hadith-bg: 250 239 218;
+  --ds-src-hadith-ink: 112 76 16;
+  --ds-src-hadith-line: 232 211 172;
+  --ds-src-history-bg: 233 239 245;
+  --ds-src-history-ink: 38 74 106;
+  --ds-src-history-line: 198 214 230;
+  --ds-src-inspired-bg: 248 235 227;
+  --ds-src-inspired-ink: 120 55 37;
+  --ds-src-inspired-line: 233 210 197;
+  color-scheme: light;
+}
+
+:root[data-theme='reading'] {
+  --bg: #F1E4C8;
+  --surface: #F7EDD6;
+  --surface-2: #E8D8B5;
+  --text: #3A2E1E;
+  --text-muted: #6F5D44;
+  --line: #D9C69E;
+  --primary: #5B4A2E;
+  --primary-contrast: #FBF3E0;
+  --accent: #9A6B1F;
+  --success: #4F6B3A;
+  --focus: #5B4A2E;
+
+  --ds-canvas-rgb: 241 228 200;
+  --ds-surface-rgb: 247 237 214;
+  --ds-surface-soft-rgb: 232 216 181;
+  --ds-surface-sunken-rgb: 222 204 166;
+  --ds-ink-rgb: 58 46 30;
+  --ds-ink-muted-rgb: 111 93 68;
+  --ds-ink-faint-rgb: 128 109 82;
+  --ds-line-rgb: 217 198 158;
+  --ds-line-strong-rgb: 197 175 130;
+  --ds-brand-rgb: 91 74 46;
+  --ds-brand-strong-rgb: 76 61 37;
+  --ds-brand-soft-rgb: 233 222 196;
+  --ds-brand-ink-rgb: 84 67 40;
+  --ds-on-brand-rgb: 251 243 224;
+  --ds-gold-rgb: 154 107 31;
+  --ds-gold-soft-rgb: 240 226 194;
+  --ds-gold-ink-rgb: 104 68 14;
+  --ds-danger-rgb: 152 62 44;
+  --ds-danger-soft-rgb: 242 226 218;
+  --ds-success-rgb: 79 107 58;
+  --ds-success-soft-rgb: 231 236 219;
+  --ds-focus-rgb: 91 74 46;
+  --ds-src-quran-bg: 231 236 219;
+  --ds-src-quran-ink: 52 82 48;
+  --ds-src-quran-line: 196 208 178;
+  --ds-src-hadith-bg: 244 227 193;
+  --ds-src-hadith-ink: 102 70 16;
+  --ds-src-hadith-line: 222 200 158;
+  --ds-src-history-bg: 228 232 234;
+  --ds-src-history-ink: 52 72 88;
+  --ds-src-history-line: 196 205 212;
+  --ds-src-inspired-bg: 241 223 206;
+  --ds-src-inspired-ink: 112 58 38;
+  --ds-src-inspired-line: 224 197 174;
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+  --bg: #111815;
+  --surface: #18211D;
+  --surface-2: #202B26;
+  --text: #E8E2D2;
+  --text-muted: #A3ADA5;
+  --line: #2C3A33;
+  --primary: #5FB89A;
+  --primary-contrast: #0D1411;
+  --accent: #D9B15F;
+  --success: #6CC49A;
+  --focus: #5FB89A;
+
+  --ds-canvas-rgb: 17 24 21;
+  --ds-surface-rgb: 24 33 29;
+  --ds-surface-soft-rgb: 32 43 38;
+  --ds-surface-sunken-rgb: 13 19 16;
+  --ds-ink-rgb: 232 226 210;
+  --ds-ink-muted-rgb: 163 173 165;
+  --ds-ink-faint-rgb: 132 143 135;
+  --ds-line-rgb: 44 58 51;
+  --ds-line-strong-rgb: 64 82 72;
+  --ds-brand-rgb: 95 184 154;
+  --ds-brand-strong-rgb: 121 201 172;
+  --ds-brand-soft-rgb: 27 49 42;
+  --ds-brand-ink-rgb: 130 205 178;
+  --ds-on-brand-rgb: 13 20 17;
+  --ds-gold-rgb: 217 177 95;
+  --ds-gold-soft-rgb: 46 40 26;
+  --ds-gold-ink-rgb: 226 190 120;
+  --ds-danger-rgb: 226 141 130;
+  --ds-danger-soft-rgb: 52 30 28;
+  --ds-success-rgb: 108 196 154;
+  --ds-success-soft-rgb: 22 48 41;
+  --ds-focus-rgb: 95 184 154;
+  --ds-src-quran-bg: 21 50 43;
+  --ds-src-quran-ink: 158 222 196;
+  --ds-src-quran-line: 44 82 70;
+  --ds-src-hadith-bg: 50 42 27;
+  --ds-src-hadith-ink: 236 205 148;
+  --ds-src-hadith-line: 82 68 40;
+  --ds-src-history-bg: 25 41 55;
+  --ds-src-history-ink: 162 196 224;
+  --ds-src-history-line: 46 68 88;
+  --ds-src-inspired-bg: 52 33 29;
+  --ds-src-inspired-ink: 232 178 158;
+  --ds-src-inspired-line: 82 56 46;
+  --shadow-soft: 0 1px 2px rgb(0 0 0 / 0.35), 0 10px 28px -16px rgb(0 0 0 / 0.7);
+  --shadow-lift: 0 2px 6px rgb(0 0 0 / 0.4), 0 24px 52px -24px rgb(0 0 0 / 0.75);
+  --shadow-glow: 0 18px 60px -26px rgb(95 184 154 / 0.4);
+  color-scheme: dark;
+}
+
+/* Legacy alias kept for the design-system previews. */
+[data-site-theme='sepia'] {
+  --ds-canvas-rgb: 241 228 200;
+  --ds-surface-rgb: 247 237 214;
+  --ds-surface-soft-rgb: 232 216 181;
+  --ds-surface-sunken-rgb: 222 204 166;
+  --ds-ink-rgb: 58 46 30;
+  --ds-ink-muted-rgb: 111 93 68;
+  --ds-ink-faint-rgb: 128 109 82;
+  --ds-line-rgb: 217 198 158;
+  --ds-line-strong-rgb: 197 175 130;
+  --ds-brand-rgb: 91 74 46;
+  --ds-brand-strong-rgb: 76 61 37;
+  --ds-brand-soft-rgb: 233 222 196;
+  --ds-brand-ink-rgb: 84 67 40;
+  --ds-on-brand-rgb: 251 243 224;
+  --ds-gold-rgb: 154 107 31;
+  --ds-gold-soft-rgb: 240 226 194;
+  --ds-gold-ink-rgb: 104 68 14;
+  --ds-success-rgb: 79 107 58;
+  --ds-focus-rgb: 91 74 46;
+}
+
+/* Paper grain: two very light radial layers, never strong enough to disturb text. */
+.site-root {
+  background-image:
+    radial-gradient(circle at 18% 12%, rgb(var(--ds-surface-rgb) / 0.55) 0%, transparent 42%),
+    radial-gradient(circle at 82% 88%, rgb(var(--ds-gold-rgb) / 0.06) 0%, transparent 46%),
+    radial-gradient(rgb(var(--ds-ink-rgb) / 0.028) 0.6px, transparent 0.6px);
+  background-size: 100% 100%, 100% 100%, 4px 4px;
+  background-attachment: fixed, fixed, scroll;
+  transition: background-color 180ms ease, color 180ms ease;
+}
+
+/* Arabic display face: Naskh for titles only (human, calligraphic). */
+.site-root[lang='ar'] .ds-title,
+.site-root[lang='ar'] h1,
+.site-root[lang='ar'] h2 {
+  font-family: 'Noto Naskh Arabic', 'IBM Plex Sans Arabic', serif;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1.45;
+}
+
+/* Reading column with user preferences. */
+.reader-shell {
+  --reader-font-size: 1.25rem;
+  --reader-line-height: 2;
+  --reader-width: 38rem;
+}
+.reader-shell[data-reader-size='s'] { --reader-font-size: 1.0625rem; }
+.reader-shell[data-reader-size='m'] { --reader-font-size: 1.25rem; }
+.reader-shell[data-reader-size='l'] { --reader-font-size: 1.4375rem; }
+.reader-shell[data-reader-size='xl'] { --reader-font-size: 1.625rem; }
+.reader-shell[data-reader-spacing='compact'] { --reader-line-height: 1.75; }
+.reader-shell[data-reader-spacing='normal'] { --reader-line-height: 2; }
+.reader-shell[data-reader-spacing='airy'] { --reader-line-height: 2.3; }
+.reader-shell[data-reader-width='narrow'] { --reader-width: 30rem; }
+.reader-shell[data-reader-width='wide'] { --reader-width: 46rem; }
+
+.reader-body {
+  font-family: var(--font-reading);
+  font-size: var(--reader-font-size);
+  line-height: var(--reader-line-height);
+  max-inline-size: var(--reader-width);
+  margin-inline: auto;
+  color: rgb(var(--ds-ink-rgb));
+  text-align: start;
+  white-space: pre-line;
+  overflow-wrap: break-word;
+}
+
+.reader-scroll-progress {
+  position: fixed;
+  inset-inline: 0;
+  top: var(--header-height);
+  z-index: 30;
+  height: 2px;
+  background: transparent;
+  pointer-events: none;
+}
+.reader-scroll-progress > span {
+  display: block;
+  height: 100%;
+  background: rgb(var(--ds-brand-rgb));
+  transition: width 120ms linear;
+}
+
+/* Journey timeline */
+.journey {
+  position: relative;
+  display: grid;
+  gap: 0;
+}
+.journey::before {
+  content: '';
+  position: absolute;
+  inset-inline-start: 1.1875rem;
+  top: 1.5rem;
+  bottom: 1.5rem;
+  width: 1px;
+  background: rgb(var(--ds-line-rgb));
+}
+.journey-row {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  padding-block: 0.85rem;
+}
+.journey-dot {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 2.375rem;
+  height: 2.375rem;
+  border-radius: 999px;
+  border: 1px solid rgb(var(--ds-line-strong-rgb));
+  background: rgb(var(--ds-canvas-rgb));
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: rgb(var(--ds-ink-muted-rgb));
+  font-variant-numeric: tabular-nums;
+}
+.journey-row[data-state='done'] .journey-dot {
+  border-color: rgb(var(--ds-success-rgb));
+  color: rgb(var(--ds-success-rgb));
+}
+.journey-row[data-state='current'] .journey-dot {
+  border-color: rgb(var(--ds-brand-rgb));
+  color: rgb(var(--ds-brand-rgb));
+  box-shadow: 0 0 0 4px rgb(var(--ds-brand-rgb) / 0.1);
+}
+.journey-row[data-state='locked'] .journey-dot {
+  border-style: dashed;
+  color: rgb(var(--ds-ink-faint-rgb));
+}
+.journey-row[data-state='current'] {
+  background: rgb(var(--ds-surface-rgb));
+  border: 1px solid rgb(var(--ds-brand-rgb) / 0.28);
+  border-radius: 16px;
+  padding-inline: 0.9rem;
+  margin-inline-start: -0.9rem;
+}
+.journey-row[data-state='locked'] .journey-title {
+  color: rgb(var(--ds-ink-muted-rgb));
+}
+@keyframes journey-pulse {
+  0%, 100% { box-shadow: 0 0 0 4px rgb(var(--ds-brand-rgb) / 0.08); }
+  50% { box-shadow: 0 0 0 7px rgb(var(--ds-brand-rgb) / 0.16); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .journey-row[data-state='current'] .journey-dot {
+    animation: journey-pulse 2.4s ease-in-out 1;
+  }
+}
+
+/* Eight-point star divider */
+.star-divider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  color: rgb(var(--ds-gold-rgb));
+}
+.star-divider::before,
+.star-divider::after {
+  content: '';
+  height: 1px;
+  width: min(6rem, 18vw);
+  background: linear-gradient(to right, transparent, rgb(var(--ds-line-strong-rgb)), transparent);
+}
+
+/* One-off celebration toast */
+@keyframes calm-check {
+  0% { opacity: 0; transform: translateY(6px) scale(0.98); }
+  18% { opacity: 1; transform: translateY(0) scale(1); }
+  82% { opacity: 1; }
+  100% { opacity: 0; }
+}
+.calm-toast {
+  animation: calm-check 1.5s ease-in-out both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .calm-toast { animation: none; }
+}
+
+.reader-scroll-progress {
+  position: fixed;
+  inset-inline: 0;
+  top: var(--header-height);
+  z-index: 30;
+  height: 2px;
+  background: transparent;
+  pointer-events: none;
+}
+.reader-scroll-progress > span {
+  display: block;
+  height: 100%;
+  background: rgb(var(--ds-brand-rgb));
+  transition: width 120ms linear;
+}

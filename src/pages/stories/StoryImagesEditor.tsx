@@ -95,11 +95,12 @@ function imageText(value: string, language: SiteLanguage) {
   return imageCopy[value]?.[language] || value;
 }
 
-export type CropRatio = '3:4' | '16:9' | '1:1';
+export type CropRatio = '3:4' | '3:2' | '16:9' | '1:1';
 export type CropRequest = { file: File; role: 'cover' | 'hero'; ratio: CropRatio };
 
 const cropDimensions: Record<CropRatio, { width: number; height: number; label: string }> = {
   '3:4': { width: 900, height: 1200, label: '3:4' },
+  '3:2': { width: 1200, height: 800, label: '3:2' },
   '16:9': { width: 1600, height: 900, label: '16:9' },
   '1:1': { width: 1000, height: 1000, label: '1:1' }
 };

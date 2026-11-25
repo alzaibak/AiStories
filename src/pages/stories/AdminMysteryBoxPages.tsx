@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import type { SiteLanguage } from '@/lib/localization';
+import { ImageCropper, type CropRequest } from './StoryImagesEditor';
 
 type Language = SiteLanguage;
 type CopyKey = keyof typeof copy.ar;
@@ -1760,6 +1761,7 @@ function AppearanceTab({ form, update, itemValue, contentLanguage, setContentLan
   const imageInput = useRef<HTMLInputElement>(null);
   const [imageBusy, setImageBusy] = useState(false);
   const [imageError, setImageError] = useState('');
+  const [cropRequest, setCropRequest] = useState<CropRequest | null>(null);
 
   async function uploadImage(file: File | null) {
     if (!file) return;
@@ -1822,10 +1824,27 @@ function AppearanceTab({ form, update, itemValue, contentLanguage, setContentLan
                 </button>
               )}
               <span className="text-[11px] text-slate-500">{t('photoFormats')}</span>
-              <input ref={imageInput} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(event) => void uploadImage(event.target.files?.[0] || null)} />
+              <input ref={imageInput} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(event) => {
+                const file = event.target.files?.[0] || null;
+                event.currentTarget.value = '';
+                if (!file) return;
+                setImageError('');
+                if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 5 * 1024 * 1024) {
+                  setImageError(t('photoFormats'));
+                  return;
+                }
+                setCropRequest({ file, role: 'cover', ratio: '3:2' });
+              }} />
             </div>
           </div>
           {imageError && <p role="alert" className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-xs font-semibold text-red-800">{imageError}</p>}
+          {cropRequest && <ImageCropper
+            request={cropRequest}
+            language={contentLanguage}
+            busy={imageBusy}
+            onCancel={() => setCropRequest(null)}
+            onConfirm={async (file) => { await uploadImage(file); setCropRequest(null); }}
+          />}
           <label className="mt-3 block text-xs font-semibold text-slate-600">
             {t('imageUrlLabel')}
             <input dir="ltr" value={appearance.bannerImageUrl} onChange={(event) => setAppearance({ bannerImageUrl: event.target.value })} className={`${inputClass} text-left`} placeholder="https://…" />
