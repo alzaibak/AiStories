@@ -30,6 +30,9 @@ type Part = {
   title: string;
   content: string;
   endingHook: string;
+  status?: 'published' | 'coming_soon';
+  expectedAt?: string | null;
+  teaser?: Partial<Record<Language, string>> | null;
   translations: Partial<Record<Language, Record<string, string>>>;
   estimatedReadingMinutes: number;
   isFree: boolean;
@@ -435,7 +438,15 @@ export default function AdminContentPage() {
   const [partText, setPartText] = useState(emptyFields(['title', 'content', 'endingHook']));
   const [partBlocks, setPartBlocks] = useState<PartBlock[]>([]);
   const [partImage, setPartImage] = useState({ illustrationImage: '', illustrationAlt: emptyAlt() });
-  const [partForm, setPartForm] = useState({ storyId: '', partNumber: '1', estimatedReadingMinutes: '5', isFree: false });
+  const [partForm, setPartForm] = useState({
+    storyId: '',
+    partNumber: '1',
+    estimatedReadingMinutes: '5',
+    isFree: false,
+    status: 'published' as 'published' | 'coming_soon',
+    expectedAt: '',
+    teaser: { ar: '', en: '', fr: '' } as Record<Language, string>
+  });
   const [partLanguage, setPartLanguage] = useState<Language>('ar');
   const [editingPartId, setEditingPartId] = useState<number | null>(null);
   const [highlightedPartId, setHighlightedPartId] = useState<number | null>(null);
@@ -734,7 +745,14 @@ export default function AdminContentPage() {
       storyId: String(storyId),
       partNumber: String(part.partNumber),
       estimatedReadingMinutes: String(part.estimatedReadingMinutes),
-      isFree: part.isFree
+      isFree: part.isFree,
+      status: part.status === 'coming_soon' ? 'coming_soon' : 'published',
+      expectedAt: part.expectedAt ? part.expectedAt.slice(0, 10) : '',
+      teaser: {
+        ar: part.teaser?.ar || '',
+        en: part.teaser?.en || '',
+        fr: part.teaser?.fr || ''
+      }
     });
     setPartText({
       ar: {
@@ -1080,12 +1098,21 @@ export default function AdminContentPage() {
           <form onChange={() => setHasUnsavedChanges(true)} onSubmit={async (event) => {
             const targetStoryId = storyId || partForm.storyId;
             const saved = await submit(event, async () => {
+              const isUpcoming = partForm.status === 'coming_soon';
+              const teaser = Object.fromEntries(
+                Object.entries(partForm.teaser).filter(([, value]) => value.trim())
+              );
               const payload = {
                 partNumber: Number(partForm.partNumber),
                 title: partText.ar.title,
-                content: plainContent(partBlocks) || partText.ar.content,
-                blocks: blocksForApi(partBlocks),
-                endingHook: partText.ar.endingHook,
+                content: isUpcoming ? '' : plainContent(partBlocks) || partText.ar.content,
+                blocks: isUpcoming ? undefined : blocksForApi(partBlocks),
+                endingHook: isUpcoming ? '' : partText.ar.endingHook,
+                status: partForm.status,
+                expectedAt: isUpcoming && partForm.expectedAt
+                  ? new Date(`${partForm.expectedAt}T00:00:00.000Z`).toISOString()
+                  : null,
+                teaser: isUpcoming && Object.keys(teaser).length ? teaser : undefined,
                 translations: languageRecord(partText),
                 illustrationImage: partImage.illustrationImage || null,
                 illustrationAlt: localizedAltOrUndefined(partImage.illustrationAlt),
@@ -1100,6 +1127,7 @@ export default function AdminContentPage() {
               setPartText(emptyFields(['title', 'content', 'endingHook']));
               setPartBlocks([]);
               setPartImage({ illustrationImage: '', illustrationAlt: emptyAlt() });
+              setPartForm({ storyId: '', partNumber: '1', estimatedReadingMinutes: '5', isFree: false, status: 'published', expectedAt: '', teaser: { ar: '', en: '', fr: '' } });
               setEditingPartId(null);
             }, editingPartId ? 'تم تحديث الجزء.' : 'تمت إضافة الجزء بمحتواه اليدوي لكل لغة.', 'part');
             if (saved && targetStoryId) {
@@ -1115,15 +1143,63 @@ export default function AdminContentPage() {
                 setPartForm({ ...partForm, storyId: selectedId, partNumber: String(nextNumber) });
               }} className={selectClass}><option value="">اختر قصة</option>{stories.map((story) => <option key={story.id} value={story.id}>{story.title} — {storyStatusLabels[locale as Language][story.status] || storyStatusLabels.en[story.status] || story.status}</option>)}</select><FieldError errors={errorsFor('part')} field="storyId" /></label>}
             <LanguageFields values={partText} activeLanguage={partLanguage} onActiveLanguageChange={setPartLanguage} onChange={(lang, value) => updateFields(setPartText, 'title', lang, value)} field="title" label="عنوان الجزء" errors={errorsFor('part')} />
-            <PartBlocksEditor
-              blocks={partBlocks}
-              onChange={(next) => { setPartBlocks(next); setHasUnsavedChanges(true); }}
-              disabled={busy}
-              title={partText.ar.title}
-              readingMinutes={Number(partForm.estimatedReadingMinutes) || 5}
-              endingHook={partText.ar.endingHook}
-            />
-            <LanguageFields values={partText} activeLanguage={partLanguage} onActiveLanguageChange={setPartLanguage} onChange={(lang, value) => updateFields(setPartText, 'endingHook', lang, value)} field="endingHook" label="نهاية الجزء" multiline errors={errorsFor('part')} />
+            <div className="rounded-xl border border-emerald-950/10 bg-slate-50 p-4">
+              <label className="inline-flex items-center gap-2 text-sm font-semibold">
+                <input
+                  type="checkbox"
+                  checked={partForm.status === 'coming_soon'}
+                  disabled={busy}
+                  onChange={async (event) => {
+                    const next = event.target.checked;
+                    if (next && editingPartId) {
+                      try {
+                        const impact = await api.get<{ completedBy: number }>(`/admin/content/parts/${editingPartId}/impact`);
+                        if (impact.completedBy > 0 && !window.confirm(`هذا الجزء أكملَه ${impact.completedBy} قارئ. سيختفي محتواه من القراءة حتى تنشره مرة أخرى. هل تريد المتابعة؟`)) return;
+                      } catch {
+                        /* the warning is best effort */
+                      }
+                    }
+                    setPartForm({ ...partForm, status: next ? 'coming_soon' : 'published' });
+                  }}
+                />
+                جزء قادم قريبًا (بدون محتوى)
+              </label>
+              <p className="mt-1 text-xs text-slate-600">يظهر دائمًا بعد آخر جزء منشور، ولا يُحتسب في تقدّم القراءة.</p>
+              {partForm.status === 'coming_soon' && (
+                <div className="mt-4 space-y-3">
+                  <label className="block text-sm font-semibold">تاريخ الصدور المتوقع (اختياري)
+                    <input type="date" value={partForm.expectedAt} onChange={(event) => setPartForm({ ...partForm, expectedAt: event.target.value })} className={inputClass} />
+                  </label>
+                  <div className="grid gap-3 md:grid-cols-3">
+                    {(['ar', 'en', 'fr'] as Language[]).map((lang) => (
+                      <label key={lang} className="block text-sm font-semibold">
+                        {lang === 'ar' ? 'تشويق عربي' : lang === 'en' ? 'Teaser (EN)' : 'Teaser (FR)'}
+                        <textarea
+                          rows={2}
+                          maxLength={500}
+                          value={partForm.teaser[lang] || ''}
+                          onChange={(event) => setPartForm({ ...partForm, teaser: { ...partForm.teaser, [lang]: event.target.value } })}
+                          className={`${inputClass} mt-1`}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+            {partForm.status !== 'coming_soon' && (
+              <>
+                <PartBlocksEditor
+                  blocks={partBlocks}
+                  onChange={(next) => { setPartBlocks(next); setHasUnsavedChanges(true); }}
+                  disabled={busy}
+                  title={partText.ar.title}
+                  readingMinutes={Number(partForm.estimatedReadingMinutes) || 5}
+                  endingHook={partText.ar.endingHook}
+                />
+                <LanguageFields values={partText} activeLanguage={partLanguage} onActiveLanguageChange={setPartLanguage} onChange={(lang, value) => updateFields(setPartText, 'endingHook', lang, value)} field="endingHook" label="نهاية الجزء" multiline errors={errorsFor('part')} />
+              </>
+            )}
             <AdminImageField label="صورة الجزء" hint="اختيارية، تظهر أعلى نص الجزء في القارئ (16:9)." value={partImage.illustrationImage} alt={partImage.illustrationAlt} ratio="16:9" role="hero" onChange={(value) => setPartImage((current) => ({ ...current, illustrationImage: value }))} onAltChange={(illustrationAlt) => setPartImage((current) => ({ ...current, illustrationAlt }))} disabled={busy} />
             <div className="grid gap-4 md:grid-cols-2">
               <label className="text-sm font-semibold">رقم الجزء<input required type="number" min="1" value={partForm.partNumber} onChange={(event) => setPartForm({ ...partForm, partNumber: event.target.value })} className={inputClass} />
@@ -1138,6 +1214,7 @@ export default function AdminContentPage() {
               <button disabled={busy || !stories.length || Boolean(blocksInvalid(partBlocks))} className={submitClass}>{editingPartId ? 'حفظ التعديل' : 'إضافة الجزء'}</button>
               {editingPartId && <button type="button" onClick={() => {
                 setEditingPartId(null);
+                setPartForm({ storyId: '', partNumber: '1', estimatedReadingMinutes: '5', isFree: false, status: 'published', expectedAt: '', teaser: { ar: '', en: '', fr: '' } });
                 setPartText(emptyFields(['title', 'content', 'endingHook']));
                 setPartBlocks([]);
                 setPartImage({ illustrationImage: '', illustrationAlt: emptyAlt() });
@@ -1152,8 +1229,12 @@ export default function AdminContentPage() {
             {partForm.storyId && !selectedStory?.parts?.length && <p className="mt-3 text-sm text-slate-600">لا توجد أجزاء بعد.</p>}
             <ol className="mt-3 space-y-3">
               {[...(selectedStory?.parts || [])].sort((a, b) => a.partNumber - b.partNumber).map((part, index, parts) => <li key={part.id} className={`rounded-xl border p-3 transition-colors ${highlightedPartId === part.id ? 'border-emerald-700 bg-emerald-100 ring-2 ring-emerald-300' : 'border-emerald-950/10 bg-white'}`}>
-                <p className="font-semibold">{part.partNumber}. {part.title}</p>
-                <p className="mt-1 text-xs text-slate-500">{part.estimatedReadingMinutes} {locale === 'ar' ? 'د' : 'min'} · {part.isFree ? 'مجاني' : 'مميز'}</p>
+                <p className="font-semibold">{part.partNumber}. {part.title}{part.status === 'coming_soon' && <span className="ms-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-800">قريبًا</span>}</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  {part.status === 'coming_soon'
+                    ? (part.expectedAt ? new Date(part.expectedAt).toLocaleDateString(locale) : 'بدون تاريخ')
+                    : <>{part.estimatedReadingMinutes} {locale === 'ar' ? 'د' : 'min'} · {part.isFree ? 'مجاني' : 'مميز'}</>}
+                </p>
                 <div className="mt-3 flex flex-wrap gap-2 text-xs">
                   <button type="button" onClick={() => editPart(part, selectedStory!.id)} className="font-bold text-emerald-800 underline">تعديل</button>
                   <button type="button" disabled={busy || index === 0} onClick={() => runPartAction(
@@ -1172,13 +1253,21 @@ export default function AdminContentPage() {
                       editPart(duplicate, selectedStory!.id);
                     }
                   )} className="font-bold text-emerald-800 underline">نسخ</button>
-                  <button type="button" disabled={busy} onClick={() => {
-                    if (window.confirm(translateText('هل تريد حذف هذا الجزء؟', locale as Language))) {
-                      void runPartAction(
-                        () => api.delete(`/admin/content/parts/${part.id}`),
-                        'تم حذف الجزء.'
-                      );
+                  <button type="button" disabled={busy} onClick={async () => {
+                    let completedBy = 0;
+                    try {
+                      completedBy = (await api.get<{ completedBy: number }>(`/admin/content/parts/${part.id}/impact`)).completedBy;
+                    } catch {
+                      /* the warning is best effort */
                     }
+                    const message = completedBy > 0
+                      ? `هذا الجزء أكملَه ${completedBy} قارئ. حذفه سيُزيله من تقدّمهم ولن يمكنهم الرجوع إليه. هل تريد المتابعة؟`
+                      : translateText('هل تريد حذف هذا الجزء؟', locale as Language);
+                    if (!window.confirm(message)) return;
+                    void runPartAction(
+                      () => api.delete(`/admin/content/parts/${part.id}`),
+                      'تم حذف الجزء.'
+                    );
                   }} className="font-bold text-red-700 underline">حذف</button>
                 </div>
               </li>)}

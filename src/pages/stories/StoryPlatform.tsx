@@ -54,6 +54,47 @@ function formatReadingTime(minutes: number, language: SiteLanguage) {
   return `نحو ${minutes} دقائق للقراءة`;
 }
 
+type StoryPartStatus = 'completed' | 'current' | 'available' | 'locked_sequence' | 'locked_subscription' | 'login_required' | 'coming_soon';
+
+function formatLongDate(value: string | null | undefined, language: SiteLanguage) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  try {
+    return new Intl.DateTimeFormat(language === 'ar' ? 'ar' : language, { year: 'numeric', month: 'long', day: 'numeric' }).format(date);
+  } catch {
+    return '';
+  }
+}
+
+/** Wording of the reading journey, shared by the story page, the reader and the account. */
+function readingOrderCopy(language: SiteLanguage) {
+  const fill = (key: string, value: number) => t(key, language).replace('{n}', String(value));
+  return {
+    nextPart: t('الجزء التالي', language),
+    continueTo: (n: number) => fill('تابع إلى الجزء {n}', n),
+    finishStory: t('أنهيتُ الحكاية', language),
+    finishFirst: (n: number) => fill('أكمل الجزء {n} أولًا', n),
+    startFirst: t('ابدأ من الجزء الأول', language),
+    createAccount: t('أنشئ حسابًا مجانيًا لمتابعة القراءة', language),
+    autoSaved: t('تُحفظ قراءتك تلقائيًا', language),
+    comingSoon: t('الحلقة القادمة قريبًا', language),
+    releasesOn: (value: string | null | undefined) => {
+      const date = formatLongDate(value, language);
+      return date ? `${t('يصدر في', language)} ${date}` : t('الحلقة القادمة قريبًا', language);
+    },
+    notify: t('أخبرني عند صدوره', language),
+    notifyOn: t('سنراسلك بالبريد عند صدوره', language),
+    bravo: t('أحسنت! أنهيت هذه الحكاية', language),
+    discover: t('اكتشف حكايات أخرى', language),
+    allStories: t('كل الحكايات', language),
+    newPart: t('جزء جديد متاح', language),
+    quiz: t('اختبر فهمك', language),
+    tryAgain: t('تعذر الحفظ. أعد المحاولة.', language),
+    previousPart: t('الجزء السابق', language)
+  };
+}
+
 function retentionCopy(language: SiteLanguage) {
   return {
     points: t('نقطة', language),
@@ -104,6 +145,9 @@ type StoryPart = {
   endingHook?: string;
   isFree?: boolean;
   accessible?: boolean;
+  status?: StoryPartStatus;
+  expectedAt?: string | null;
+  teaser?: string | null;
   illustrationImage?: string | null;
   illustrationAlt?: string | null;
 };
@@ -111,6 +155,12 @@ type StoryPart = {
 type ReadingProgressEntry = {
   storyId: number;
   completedParts: number[];
+  nextPart?: { id: number; partNumber: number } | null;
+  finished?: boolean;
+  newPartAvailable?: boolean;
+  publishedParts?: number;
+  upcomingPart?: { partNumber: number; expectedAt: string | null; teaser: string | null } | null;
+  story?: { id: number; title: string; slug: string; cover?: string | null };
 };
 
 type ProfileLevel = { level: number; name?: string | null; points?: number };
@@ -154,6 +204,15 @@ type StorySummary = {
   coverVariants?: Array<{ width: number; url: string }> | null;
   collection?: { id: number; title: string; slug: string; isFree?: boolean };
   parts?: StoryPart[];
+  progress?: {
+    completedParts: number[];
+    completedCount: number;
+    totalParts: number;
+    currentPartNumber: number | null;
+    finished: boolean;
+    newPartAvailable?: boolean;
+  };
+  upcomingPart?: { id: number; partNumber: number; title: string; expectedAt: string | null; teaser: string | null } | null;
   videos?: Array<{
     id: number;
     title?: string;
@@ -1140,30 +1199,23 @@ export function StoryDetailPage() {
   const { data: story, loading, error } = useRemote<StorySummary>(`/stories/${encodeURIComponent(slug)}`);
   const { data: readingProgress } = useRemote<ReadingProgressEntry[]>(user ? '/reading-progress' : '');
   const parts = story?.parts || [];
-  const completedParts = readingProgress?.find((entry) => entry.storyId === story?.id)?.completedParts || [];
-  const completedPartSet = new Set(completedParts);
-  const completedCount = parts.filter((part) => completedPartSet.has(part.id)).length;
-  const readableParts = parts.filter((part) => part.accessible);
-  const finished = parts.length > 0 && completedCount === parts.length;
+  const publishedParts = parts.filter((part) => part.status !== 'coming_soon');
+  const upcoming = story?.upcomingPart || null;
+  const completedCount = story?.progress?.completedCount
+    ?? publishedParts.filter((part) => part.status === 'completed').length;
+  const totalParts = story?.progress?.totalParts ?? publishedParts.length;
+  const finished = Boolean(story?.progress?.finished);
+  const newPartAvailable = Boolean(story?.progress?.newPartAvailable);
   const started = completedCount > 0;
-  const totalMinutes = parts.reduce((total, part) => total + (part.estimatedReadingMinutes || 0), 0);
-  const progressPercent = parts.length ? Math.max(0, Math.min(100, Math.round((completedCount / parts.length) * 100))) : 0;
-  const lastPart = parts[parts.length - 1];
+  const totalMinutes = publishedParts.reduce((total, part) => total + (part.estimatedReadingMinutes || 0), 0);
+  const progressPercent = totalParts ? Math.max(0, Math.min(100, Math.round((completedCount / totalParts) * 100))) : 0;
+  const lastPart = publishedParts[publishedParts.length - 1];
+  const currentPart = parts.find((part) => part.status === 'current');
+  const order = readingOrderCopy(language);
   const { data: profile } = useRemote<ProfileSummary>(user && started ? '/me/profile-summary' : '');
   const { data: libraryStories } = useRemote<StorySummary[]>('/stories?limit=100');
   const readIds = new Set((readingProgress || []).filter((entry) => entry.completedParts?.length).map((entry) => entry.storyId));
 
-  const [resumePartNumber, setResumePartNumber] = useState<number | null>(null);
-  useEffect(() => {
-    if (!story) return;
-    const stored = Number(window.localStorage.getItem(`reader-last-part:${story.id}`));
-    setResumePartNumber(Number.isSafeInteger(stored) && stored > 0 ? stored : null);
-  }, [story]);
-
-  const resumePart = parts.find((part) => part.partNumber === resumePartNumber && part.accessible)
-    || readableParts.find((part) => !completedPartSet.has(part.id))
-    || readableParts[0];
-  const currentPart = finished ? undefined : resumePart;
   const nextStory = (libraryStories || []).find((candidate) => candidate.id !== story?.id && !readIds.has(candidate.id))
     || (libraryStories || []).find((candidate) => candidate.id !== story?.id);
 
@@ -1220,11 +1272,15 @@ export function StoryDetailPage() {
     : story?.sourceBadge === 'authentic_hadith'
       ? t('من السنة النبوية', language)
       : t('قصة موثقة', language);
+  // The main button always points to the first part the reader may open and has
+  // not finished yet; a finished story offers the quiz or the next episode.
   const primaryHref = finished
     ? `/stories/${story?.slug}/read/${lastPart?.partNumber || 1}#quiz`
     : currentPart
       ? `/stories/${story?.slug}/read/${currentPart.partNumber}`
-      : '/membership';
+      : user && user.role === 'READER' && !currentPart
+        ? '/membership'
+        : `/stories/${story?.slug}/read/1`;
   const primaryLabel = finished
     ? t('أعد القراءة', language)
     : currentPart
@@ -1232,6 +1288,7 @@ export function StoryDetailPage() {
         ? `${t('تابع القراءة', language)} — ${t('الجزء', language)} ${currentPart.partNumber}`
         : t('ابدأ القراءة', language)
       : t('افتح الحكاية بالاشتراك', language);
+  const waitingForNextEpisode = finished && Boolean(upcoming);
 
   return (
     <SiteLayout>
@@ -1284,11 +1341,22 @@ export function StoryDetailPage() {
                     </span>
                   </p>
 
+                  {newPartAvailable && (
+                    <p className="mt-5 inline-flex items-center gap-1.5 rounded-full bg-gold-soft px-3 py-1 text-xs font-semibold text-gold-ink">
+                      <Sparkles size={13} aria-hidden="true" /> {order.newPart}
+                    </p>
+                  )}
                   <div className="mt-8 flex items-center gap-3">
-                    <Link to={primaryHref} className={buttonClasses({ size: 'lg' })}>
-                      {primaryLabel}
-                      {!finished && <ChevronLeft size={17} className="ltr:rotate-180" aria-hidden="true" />}
-                    </Link>
+                    {waitingForNextEpisode ? (
+                      <span className={buttonClasses({ size: 'lg', variant: 'secondary', className: 'cursor-default' })}>
+                        <Clock3 size={17} aria-hidden="true" /> {order.comingSoon}
+                      </span>
+                    ) : (
+                      <Link to={primaryHref} className={buttonClasses({ size: 'lg' })}>
+                        {primaryLabel}
+                        {!finished && <ChevronLeft size={17} className="ltr:rotate-180" aria-hidden="true" />}
+                      </Link>
+                    )}
                     <button
                       type="button"
                       onClick={() => void copyLink()}
@@ -1313,8 +1381,9 @@ export function StoryDetailPage() {
                 <div className="flex flex-wrap items-baseline justify-between gap-3">
                   <h2 id="journey-heading" className="font-display text-[1.375rem] font-semibold text-ink">{t('رحلة القراءة', language)}</h2>
                   <p className="text-sm text-ink-muted">
-                    {completedCount} {t('من', language)} {parts.length} {t('أجزاء', language)}
-                    {progressPercent >= 100 && <span className="text-success"> · {t('مكتملة', language)}</span>}
+                    {completedCount} {t('من', language)} {totalParts} {t('أجزاء', language)}
+                    {upcoming && <span> · +1 {t('قريبًا', language)}</span>}
+                    {finished && !upcoming && <span className="text-success"> · {t('مكتملة', language)}</span>}
                   </p>
                 </div>
                 {user && parts.length > 0 && (
@@ -1325,10 +1394,17 @@ export function StoryDetailPage() {
 
                 <ol className="journey mt-5">
                   {parts.map((part) => {
-                    const done = completedPartSet.has(part.id);
-                    const locked = !done && part.accessible === false;
-                    const current = !done && !locked && currentPart?.id === part.id;
-                    const state = done ? 'done' : locked ? 'locked' : current ? 'current' : 'todo';
+                    const status: StoryPartStatus = part.status
+                      ?? (part.accessible === false ? 'locked_subscription' : 'available');
+                    const done = status === 'completed';
+                    const current = status === 'current';
+                    const coming = status === 'coming_soon';
+                    const lockedByOrder = status === 'locked_sequence';
+                    const lockedByPlan = status === 'locked_subscription';
+                    const needsAccount = status === 'login_required';
+                    const position = publishedParts.findIndex((candidate) => candidate.id === part.id);
+                    const previousNumber = position > 0 ? publishedParts[position - 1].partNumber : Math.max(1, part.partNumber - 1);
+                    const state = done ? 'done' : current ? 'current' : 'locked';
                     return (
                       <li
                         key={part.id}
@@ -1337,7 +1413,7 @@ export function StoryDetailPage() {
                         aria-current={current ? 'step' : undefined}
                       >
                         <span className="journey-dot" aria-hidden="true">
-                          {done ? <Check size={17} /> : locked ? <LockKeyhole size={15} /> : part.partNumber}
+                          {done ? <Check size={17} /> : coming ? <Clock3 size={15} /> : current ? part.partNumber : <LockKeyhole size={15} />}
                         </span>
                         <div className="min-w-0 flex-1">
                           <p className="journey-title flex flex-wrap items-baseline gap-x-2" dir="auto">
@@ -1346,18 +1422,38 @@ export function StoryDetailPage() {
                             </span>
                           </p>
                           <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.8125rem] text-ink-muted">
-                            <span className="inline-flex items-center gap-1">
-                              <Clock3 size={12} aria-hidden="true" /> ≈ {pluralMinutes(part.estimatedReadingMinutes, language)}
-                            </span>
+                            {coming ? (
+                              <span className="inline-flex items-center gap-1">
+                                <Clock3 size={12} aria-hidden="true" />
+                                {part.expectedAt ? order.releasesOn(part.expectedAt) : order.comingSoon}
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1">
+                                <Clock3 size={12} aria-hidden="true" /> ≈ {pluralMinutes(part.estimatedReadingMinutes, language)}
+                              </span>
+                            )}
                             {(done || current) && <span aria-hidden="true">·</span>}
                             {done && <span className="text-success">{t('اكتمل', language)}</span>}
-                            {current && <span>{t('الجزء التالي', language)}</span>}
+                            {current && <span>{order.nextPart}</span>}
+                            {coming && part.teaser && <span dir="auto" className="line-clamp-1">· {part.teaser}</span>}
                           </p>
                         </div>
                         <div className="journey-actions shrink-0 self-center">
-                          {locked ? (
+                          {coming ? (
+                            <span className="inline-flex min-h-11 items-center rounded-full border border-line px-3.5 text-xs font-semibold text-ink-muted">
+                              {order.comingSoon}
+                            </span>
+                          ) : lockedByOrder ? (
+                            <button type="button" disabled aria-disabled="true" className="inline-flex min-h-11 cursor-not-allowed items-center rounded-full border border-line px-3.5 text-xs font-semibold text-ink-faint">
+                              {order.finishFirst(previousNumber)}
+                            </button>
+                          ) : lockedByPlan ? (
                             <Link to="/membership" className="inline-flex min-h-11 items-center rounded-full border border-line px-3.5 text-xs font-semibold text-ink-muted hover:text-ink">
                               {t('افتح بالاشتراك', language)}
+                            </Link>
+                          ) : needsAccount ? (
+                            <Link to="/login" className="inline-flex min-h-11 items-center rounded-full border border-line px-3.5 text-xs font-semibold text-brand-ink">
+                              {t('سجّل الدخول', language)}
                             </Link>
                           ) : (
                             <Link
@@ -1373,6 +1469,28 @@ export function StoryDetailPage() {
                       </li>
                     );
                   })}
+                  <li className="journey-row" data-state={finished ? 'todo' : 'locked'}>
+                    <span className="journey-dot" aria-hidden="true">
+                      {finished ? <CircleHelp size={16} /> : <LockKeyhole size={15} />}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="journey-title font-semibold text-ink">{order.quiz}</p>
+                      <p className="mt-1 text-[0.8125rem] text-ink-muted">
+                        {finished ? t('أجب عن أسئلة قصيرة مستندة إلى مصادر القصة.', language) : t('يُفتح الاختبار بعد إكمال الجزء الأخير', language)}
+                      </p>
+                    </div>
+                    <div className="journey-actions shrink-0 self-center">
+                      {finished ? (
+                        <Link to={`/stories/${story.slug}/read/${lastPart?.partNumber || 1}#quiz`} className="inline-flex min-h-11 items-center gap-1.5 rounded-full border border-line px-4 text-xs font-semibold text-brand-ink hover:bg-brand-soft">
+                          {order.quiz}
+                        </Link>
+                      ) : (
+                        <button type="button" disabled aria-disabled="true" className="inline-flex min-h-11 cursor-not-allowed items-center rounded-full border border-line px-3.5 text-xs font-semibold text-ink-faint">
+                          {t('يُفتح لاحقًا', language)}
+                        </button>
+                      )}
+                    </div>
+                  </li>
                 </ol>
 
                 {user && profile && (
@@ -1410,19 +1528,18 @@ export function StoryDetailPage() {
                 </details>
               )}
 
-              <div className="mt-10 grid gap-4 md:grid-cols-2">
-                <section className="ds-card theme-card p-5">
-                  <h2 className="text-base font-semibold text-ink">{t('اختبر فهمك', language)}</h2>
-                  <p className="mt-1 text-sm leading-7 text-ink-muted">{t('اختبار قصير مبني على مصادر الحكاية.', language)}</p>
-                  {finished ? (
-                    <Link to={`/stories/${story.slug}/read/${lastPart?.partNumber || 1}#quiz`} className={buttonClasses({ size: 'sm', className: 'mt-4' })}>
-                      {t('اختبر فهمك', language)}
-                    </Link>
-                  ) : (
-                    <p className="mt-3 text-xs text-ink-faint">{t('يُفتح الاختبار بعد إكمال الجزء الأخير', language)}</p>
-                  )}
+              {waitingForNextEpisode && upcoming && (
+                <section className="ds-card theme-card mt-8 p-5 sm:p-6">
+                  <p className="ds-eyebrow">{order.comingSoon}</p>
+                  <h2 dir="auto" className="mt-2 font-display text-lg font-semibold text-ink">
+                    {t('الجزء', language)} {upcoming.partNumber} — {upcoming.title}
+                  </h2>
+                  <p className="mt-1 text-sm text-ink-muted">{order.releasesOn(upcoming.expectedAt)}</p>
+                  {upcoming.teaser && <p dir="auto" className="mt-2 text-sm leading-7 text-ink-muted">{upcoming.teaser}</p>}
                 </section>
+              )}
 
+              <div className="mt-10 grid gap-4">
                 <section className="ds-card theme-card p-5">
                   <p className="ds-eyebrow">{t('الحكاية التالية', language)}</p>
                   {nextStory ? (
@@ -1611,9 +1728,16 @@ export function ReaderPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [completedPartsCount, setCompletedPartsCount] = useState(0);
   const [completion, setCompletion] = useState<CompletionPayload | null>(null);
-  const [notificationPromptVisible, setNotificationPromptVisible] = useState(false);
+
   const [completedPartIds, setCompletedPartIds] = useState<number[]>([]);
   const [lightbox, setLightbox] = useState<{ url: string; alt: string; caption?: string } | null>(null);
+  const [accessIssue, setAccessIssue] = useState<{ code: string } | null>(null);
+  const [savingFailed, setSavingFailed] = useState(false);
+  const [showEndScreen, setShowEndScreen] = useState(false);
+  const [recommendations, setRecommendations] = useState<StorySummary[]>([]);
+  const [remindersOn, setRemindersOn] = useState(false);
+  const endSentinel = useRef<HTMLDivElement | null>(null);
+  const autoCompleted = useRef(false);
 
   // Persist an explicit choice without overriding the site theme on first mount.
   useEffect(() => {
@@ -1701,27 +1825,41 @@ export function ReaderPage() {
     let active = true;
     setLoading(true);
     setError(null);
-    Promise.all([
-      api.get<StorySummary>(`/stories/${encodeURIComponent(slug)}`),
-      api.get<StoryPart & { content: string; endingHook: string; blocks?: ReaderBlock[] }>(`/stories/${encodeURIComponent(slug)}/parts/${number}`)
-    ]).then(([storyResponse, partResponse]) => {
+    setAccessIssue(null);
+    setQuiz(null);
+    setQuizLocked(false);
+    setSavingFailed(false);
+    setShowEndScreen(false);
+    autoCompleted.current = false;
+    api.get<StorySummary>(`/stories/${encodeURIComponent(slug)}`).then(async (storyResponse) => {
       if (!active) return;
       setStory(storyResponse);
-      setPart(partResponse);
-      setQuiz(null);
-      setQuizLocked(false);
       try {
-        window.localStorage.setItem(`reader-last-part:${storyResponse.id}`, String(partResponse.partNumber));
-      } catch {
-        /* ignore */
+        const partResponse = await api.get<StoryPart & { content: string; endingHook: string; blocks?: ReaderBlock[] }>(`/stories/${encodeURIComponent(slug)}/parts/${number}`);
+        if (!active) return;
+        setPart(partResponse);
+        try {
+          window.localStorage.setItem(`reader-last-part:${storyResponse.id}`, String(partResponse.partNumber));
+        } catch {
+          /* ignore */
+        }
+        api.get<Quiz>(`/stories/${encodeURIComponent(slug)}/parts/${number}/quiz`).then((quizResponse) => {
+          if (active) setQuiz(quizResponse);
+        }).catch((caught: unknown) => {
+          if (active && caught instanceof ApiError && caught.code === 'CONTENT_LOCKED') setQuizLocked(true);
+        });
+      } catch (caught) {
+        if (!active) return;
+        // A locked part is not an error: the reader gets a calm explanation.
+        if (caught instanceof ApiError && caught.code && ['SEQUENCE_LOCKED', 'LOGIN_REQUIRED', 'SUBSCRIPTION_REQUIRED', 'COMING_SOON', 'CONTENT_LOCKED'].includes(caught.code)) {
+          setAccessIssue({ code: caught.code });
+          setPart(null);
+        } else {
+          setError(caught instanceof Error ? caught.message : 'تعذر تحميل الجزء.');
+        }
       }
-      api.get<Quiz>(`/stories/${encodeURIComponent(slug)}/parts/${number}/quiz`).then((quizResponse) => {
-        if (active) setQuiz(quizResponse);
-      }).catch((caught: unknown) => {
-        if (active && caught instanceof ApiError && caught.code === 'CONTENT_LOCKED') setQuizLocked(true);
-      });
     }).catch((caught: unknown) => {
-      if (active) setError(caught instanceof Error ? caught.message : 'تعذر تحميل الجزء.');
+      if (active) setError(caught instanceof Error ? caught.message : 'تعذر تحميل الحكاية.');
     }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [slug, number, language]);
@@ -1753,36 +1891,128 @@ export function ReaderPage() {
     };
   }, [story, part]);
 
-  async function markAsRead() {
-    if (!user || !story || !part) return;
+  /**
+   * Completes the current part on the server. The call is idempotent and is
+   * retried once, so a short network glitch never loses the reading position.
+   */
+  async function completeCurrentPart() {
+    if (!user || !story || !part) return null;
+    const send = () => api.post<{
+      alreadyCompleted: boolean;
+      progress: { completedParts: number[]; completedCount: number; totalParts: number };
+      nextPart: { id: number; partNumber: number; title: string; estimatedReadingMinutes: number } | null;
+      completion: CompletionPayload | null;
+      storyFinished: boolean;
+      upcomingPart: { partNumber: number; expectedAt: string | null; teaser: string | null } | null;
+    }>(`/stories/${encodeURIComponent(slug)}/parts/${part.partNumber}/complete`, {});
     setBusy(true);
-    setNotice(null);
+    setSavingFailed(false);
     try {
-      const progress = await api.get<ReadingProgressEntry[]>('/reading-progress');
-      const completedParts = progress.find((entry) => entry.storyId === story.id)?.completedParts || [];
-      const nextCompleted = [...new Set([...completedParts, part.id])];
-      const saved = await api.put<{ completion?: CompletionPayload | null }>(`/reading-progress/${story.id}`, {
-        lastPartId: part.id,
-        completedParts: nextCompleted
-      });
-      setCompletedPartsCount(nextCompleted.length);
-      setCompletedPartIds(nextCompleted);
-      if (saved?.completion) setCompletion(saved.completion);
-      setNotice(t('تم حفظ تقدّمك في القراءة.', language));
-      if (nextCompleted.length > 0 && !user.emailPreferences?.reminders) {
-        setNotificationPromptVisible(true);
+      let response;
+      try {
+        response = await send();
+      } catch {
+        response = await send();
       }
-      const following = story.parts?.find((candidate) => candidate.partNumber === part.partNumber + 1);
-      if (following?.accessible) {
-        navigate(`/stories/${story.slug}/read/${following.partNumber}`);
-        window.scrollTo({ top: 0, behavior: 'auto' });
-      }
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'تعذر حفظ تقدّم القراءة.');
+      setCompletedPartIds(response.progress.completedParts.map(Number));
+      setCompletedPartsCount(response.progress.completedCount);
+      if (response.completion) setCompletion(response.completion);
+      setStory((current) => current ? {
+        ...current,
+        upcomingPart: response.upcomingPart
+          ? { id: current.upcomingPart?.id || 0, partNumber: response.upcomingPart.partNumber, title: current.upcomingPart?.title || '', ...response.upcomingPart }
+          : current.upcomingPart
+      } : current);
+      return response;
+    } catch {
+      setSavingFailed(true);
+      return null;
     } finally {
       setBusy(false);
     }
   }
+
+  async function continueToNextPart() {
+    const response = await completeCurrentPart();
+    if (!response) return;
+    if (response.nextPart) {
+      navigate(`/stories/${story?.slug}/read/${response.nextPart.partNumber}`);
+      window.scrollTo({ top: 0, behavior: 'auto' });
+      return;
+    }
+    setShowEndScreen(true);
+  }
+
+  async function finishStory() {
+    const response = await completeCurrentPart();
+    if (response) setShowEndScreen(true);
+  }
+
+  async function enableReminders() {
+    setBusy(true);
+    try {
+      await api.patch<{ emailPreferences: { marketing: boolean; reminders: boolean } }>('/account/email-preferences', {
+        marketing: user?.emailPreferences?.marketing ?? false,
+        reminders: true
+      });
+      setRemindersOn(true);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'تعذر تحديث التذكيرات.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Reaching the end of the text and staying there for about two seconds
+  // completes the part, exactly like the end-of-part button.
+  useEffect(() => {
+    if (!user || !part || autoCompleted.current || completedPartIds.includes(part.id)) return;
+    const node = endSentinel.current;
+    if (!node || typeof IntersectionObserver === 'undefined') return;
+    let timer = 0;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        if (timer) return;
+        timer = window.setTimeout(() => {
+          timer = 0;
+          if (autoCompleted.current) return;
+          autoCompleted.current = true;
+          void completeCurrentPart();
+        }, 2000);
+      } else if (timer) {
+        window.clearTimeout(timer);
+        timer = 0;
+      }
+    }, { threshold: 0.6 });
+    observer.observe(node);
+    return () => {
+      if (timer) window.clearTimeout(timer);
+      observer.disconnect();
+    };
+  }, [user, part, completedPartIds]);
+
+  useEffect(() => {
+    if (user?.emailPreferences?.reminders) setRemindersOn(true);
+  }, [user?.emailPreferences?.reminders]);
+
+  // Unread stories for the end-of-story screen.
+  useEffect(() => {
+    if (!showEndScreen || !story || !user) return;
+    let active = true;
+    Promise.all([
+      api.get<StorySummary[]>('/stories?limit=100'),
+      api.get<ReadingProgressEntry[]>('/reading-progress')
+    ]).then(([all, progress]) => {
+      if (!active) return;
+      const readIds = new Set((progress || [])
+        .filter((entry) => entry.completedParts?.length)
+        .map((entry) => entry.storyId));
+      setRecommendations((all || [])
+        .filter((candidate) => candidate.id !== story.id && !readIds.has(candidate.id))
+        .slice(0, 6));
+    }).catch(() => { /* optional */ });
+    return () => { active = false; };
+  }, [showEndScreen, story?.id, user?.id]);
 
   async function startQuiz() {
     if (!user) return;
@@ -1821,19 +2051,87 @@ export function ReaderPage() {
     }
   }
 
+  const order = readingOrderCopy(language);
+
   if (loading) return <SiteLayout><Container className="py-16"><LoadingState /></Container></SiteLayout>;
+
+  // A locked part is explained calmly, with the way forward, never as an error.
+  if (accessIssue) {
+    const currentNumber = story?.progress?.currentPartNumber ?? 1;
+    const returnTo = `/stories/${slug}/read/${number || 1}`;
+    const isLogin = accessIssue.code === 'LOGIN_REQUIRED';
+    const isComing = accessIssue.code === 'COMING_SOON';
+    const isPlan = accessIssue.code === 'SUBSCRIPTION_REQUIRED' || accessIssue.code === 'CONTENT_LOCKED';
+    return (
+      <SiteLayout>
+        <main>
+          <Container className="max-w-xl py-16 text-center sm:py-24">
+            <span className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-brand-soft text-brand-ink" aria-hidden="true">
+              {isComing ? <Clock3 size={24} /> : <LockKeyhole size={24} />}
+            </span>
+            <h1 className="font-display mt-6 text-2xl leading-relaxed text-ink">
+              {isComing
+                ? t('الحلقة القادمة قريبًا', language)
+                : isPlan
+                  ? t('هذا الجزء متاح للمشتركين.', language)
+                  : isLogin
+                    ? t('أنشئ حسابًا مجانيًا لمتابعة القراءة', language)
+                    : t('أكمل الجزء {n} أولًا', language).replace('{n}', String(Math.max(1, currentNumber)))}
+            </h1>
+            <p className="mt-3 text-sm leading-7 text-ink-muted">
+              {isComing
+                ? (story?.upcomingPart?.expectedAt ? order.releasesOn(story.upcomingPart.expectedAt) : t('نعمل عليها الآن.', language))
+                : isPlan
+                  ? t('اشترك لتتابع هذه الحكاية.', language)
+                  : isLogin
+                    ? t('تُحفظ قراءتك تلقائيًا بمجرد إنشاء حساب.', language)
+                    : t('القراءة بالترتيب تحافظ على تسلسل الحكاية.', language)}
+            </p>
+            <div className="mt-7 flex flex-wrap justify-center gap-3">
+              {isLogin ? (
+                <>
+                  <Link to={`/login?next=${encodeURIComponent(returnTo)}`} className={buttonClasses({ size: 'md' })}>{t('سجّل الدخول', language)}</Link>
+                  <Link to={`/register?next=${encodeURIComponent(returnTo)}`} className={buttonClasses({ variant: 'secondary', size: 'md' })}>{t('إنشاء حساب مجاني', language)}</Link>
+                </>
+              ) : isPlan ? (
+                <Link to="/membership" className={buttonClasses({ size: 'md' })}>{t('عرض الاشتراكات', language)}</Link>
+              ) : isComing ? null : (
+                <>
+                  <Link to={`/stories/${slug}/read/${currentNumber}`} className={buttonClasses({ size: 'md' })}>
+                    {t('تابع إلى الجزء {n}', language).replace('{n}', String(currentNumber))}
+                    <ChevronLeft size={17} className="ltr:rotate-180" aria-hidden="true" />
+                  </Link>
+                  <Link to={`/stories/${slug}/read/1`} className="inline-flex min-h-11 items-center text-sm font-semibold text-ink-muted underline underline-offset-4 hover:text-ink">
+                    {t('ابدأ من الجزء الأول', language)}
+                  </Link>
+                </>
+              )}
+            </div>
+            <div className="mt-8">
+              <Link to={`/stories/${slug}`} className="inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-brand-ink">
+                <ArrowLeft size={16} aria-hidden="true" /> {t('العودة إلى الحكاية', language)}
+              </Link>
+            </div>
+          </Container>
+        </main>
+      </SiteLayout>
+    );
+  }
+
   if (error && !part) return <SiteLayout><Container className="py-12"><ErrorState message={error} /><Link to={`/stories/${slug}`} className="mt-5 inline-flex items-center gap-2 font-semibold text-brand-ink"><ArrowLeft size={16} /> {t('العودة إلى الحكاية', language)}</Link></Container></SiteLayout>;
   if (!story || !part) return <Navigate to="/stories" replace />;
+  const upcomingPart = story.upcomingPart || null;
 
-  const previous = story.parts?.find((candidate) => candidate.partNumber === number - 1);
-  const next = story.parts?.find((candidate) => candidate.partNumber === number + 1);
-  const totalParts = story.parts?.length || part.partNumber;
+  const publishedParts = (story.parts || []).filter((candidate) => candidate.status !== 'coming_soon');
+  const previous = publishedParts.find((candidate) => candidate.partNumber === number - 1);
+  const nextPartEntry = publishedParts.find((candidate) => candidate.partNumber === number + 1);
+  const totalParts = publishedParts.length || part.partNumber;
   const partPosition = language === 'fr'
     ? `Partie ${part.partNumber} sur ${totalParts}`
     : language === 'en'
       ? `Part ${part.partNumber} of ${totalParts}`
       : `الجزء ${part.partNumber} من ${totalParts}`;
-  const isLastPart = !next;
+  const isLastPart = !nextPartEntry;
   const retention = retentionCopy(language);
   const blocks: ReaderBlock[] = part.blocks?.length
     ? part.blocks
@@ -2063,67 +2361,125 @@ export function ReaderPage() {
             </div>
           )}
 
-          <div className="mx-auto mt-10 max-w-[46rem] border-t border-line pt-6">
+          <div ref={endSentinel} className="mx-auto mt-10 max-w-[46rem] border-t border-line pt-6">
             {user ? (
-              <div className="hidden flex-wrap items-center justify-between gap-3 sm:flex">
-                {previous ? (
-                  <Link to={`/stories/${slug}/read/${previous.partNumber}`} className="inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-ink-muted hover:text-ink">
-                    <ChevronRight size={17} className="ltr:hidden" aria-hidden="true" />
-                    <ChevronLeft size={17} className="rtl:hidden" aria-hidden="true" />
-                    {t('الجزء السابق', language)}
-                  </Link>
-                ) : <span />}
-                <button type="button" onClick={() => void markAsRead()} disabled={busy} className={buttonClasses({ size: 'md' })}>
-                  {busy ? t('جارٍ الحفظ…', language) : isLastPart ? t('أنهِ الحكاية', language) : t('أنهِ الجزء وتابع', language)}
-                  {!isLastPart && <ChevronLeft size={17} className="ltr:rotate-180" aria-hidden="true" />}
-                </button>
+              <div className="ds-card p-6 sm:p-7">
+                {!isLastPart && nextPartEntry ? (
+                  <>
+                    <p className="ds-eyebrow">{order.nextPart}</p>
+                    <p dir="auto" className="mt-2 text-lg font-semibold text-ink">
+                      {t('الجزء', language)} {nextPartEntry.partNumber} — {nextPartEntry.title}
+                      <span className="ms-2 text-sm font-normal text-ink-muted">· ≈ {formatReadingTime(nextPartEntry.estimatedReadingMinutes || 5, language)}</span>
+                    </p>
+                    <div className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-3">
+                      <button type="button" onClick={() => void continueToNextPart()} disabled={busy} className={buttonClasses({ size: 'md' })}>
+                        {busy ? t('جارٍ الحفظ…', language) : order.continueTo(nextPartEntry.partNumber)}
+                        <ChevronLeft size={17} className="ltr:rotate-180" aria-hidden="true" />
+                      </button>
+                      {previous && (
+                        <Link to={`/stories/${slug}/read/${previous.partNumber}`} className="inline-flex min-h-11 items-center text-sm font-semibold text-ink-muted underline decoration-line-strong underline-offset-4 hover:text-ink">
+                          {order.previousPart}
+                        </Link>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <p className="ds-eyebrow">{t('نهاية الحكاية', language)}</p>
+                    <p className="mt-2 text-lg font-semibold text-ink">{order.finishStory}</p>
+                    <div className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-3">
+                      <button type="button" onClick={() => void finishStory()} disabled={busy} className={buttonClasses({ size: 'md' })}>
+                        {busy ? t('جارٍ الحفظ…', language) : order.finishStory}
+                      </button>
+                      {previous && (
+                        <Link to={`/stories/${slug}/read/${previous.partNumber}`} className="inline-flex min-h-11 items-center text-sm font-semibold text-ink-muted underline decoration-line-strong underline-offset-4 hover:text-ink">
+                          {order.previousPart}
+                        </Link>
+                      )}
+                    </div>
+                  </>
+                )}
+                {finishedPart && (
+                  <p className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-success"><Check size={13} aria-hidden="true" /> {t('اكتمل', language)}</p>
+                )}
               </div>
             ) : (
               <div className="ds-card p-5 sm:p-6">
-                <p className="text-sm font-semibold text-ink">{t('سجّل الدخول للحفظ', language)}</p>
-                <p className="mt-1 text-xs text-ink-muted">{t('يمكنك متابعة القراءة بدون حفظ', language)}</p>
+                <p className="text-sm font-semibold text-ink">{order.createAccount}</p>
                 <div className="mt-4 flex flex-wrap items-center gap-3">
-                  <Link to="/login" className={buttonClasses({ size: 'md' })}>{t('سجّل الدخول', language)}</Link>
-                  <Link to="/register" className="inline-flex min-h-11 items-center text-sm font-semibold text-ink-muted underline decoration-line-strong underline-offset-4 hover:text-ink">{t('إنشاء حساب مجاني', language)}</Link>
+                  <Link to={`/login?next=${encodeURIComponent(`/stories/${slug}/read/${number + 1}`)}`} className={buttonClasses({ size: 'md' })}>{t('سجّل الدخول', language)}</Link>
+                  <Link to={`/register?next=${encodeURIComponent(`/stories/${slug}/read/${number + 1}`)}`} className="inline-flex min-h-11 items-center text-sm font-semibold text-ink-muted underline decoration-line-strong underline-offset-4 hover:text-ink">{t('إنشاء حساب مجاني', language)}</Link>
                 </div>
+                <p className="mt-3 text-xs text-ink-muted">{order.autoSaved}</p>
               </div>
             )}
           </div>
 
+          {savingFailed && (
+            <div className="mx-auto mt-4 flex max-w-[46rem] flex-wrap items-center gap-3 rounded-xl bg-surface-soft p-4 text-sm" role="alert">
+              <p className="text-ink-muted">{order.tryAgain}</p>
+              <button type="button" onClick={() => void completeCurrentPart()} disabled={busy} className="min-h-11 rounded-full border border-line px-4 font-semibold text-brand-ink">
+                {t('أعد المحاولة', language)}
+              </button>
+            </div>
+          )}
+
           {notice && <p role="status" className="calm-toast mx-auto mt-4 flex max-w-[46rem] items-center gap-2 text-sm font-semibold text-success"><Check size={16} aria-hidden="true" /> {notice}</p>}
           {error && <div className="mx-auto mt-4 max-w-[46rem]"><ErrorState message={error} /></div>}
 
-          {isLastPart && user && finishedPart && (
-            <section className="ds-card theme-card mx-auto mt-10 max-w-[46rem] p-6">
-              <p className="ds-eyebrow">{t('نهاية الحكاية', language)}</p>
-              <h2 className="ds-title mt-2 text-2xl text-ink">{retention.finished}</h2>
-              <p className="mt-2 text-sm leading-7 text-ink-muted">{retention.proof(completedPartsCount, totalParts)}</p>
-              <div className="mt-5 flex flex-wrap gap-2">
-                {quiz && <a href="#quiz" className={buttonClasses({ size: 'sm' })}><CircleHelp size={15} aria-hidden="true" /> {t('اختبر فهمك', language)}</a>}
-                <Link to={`/stories/${story.slug}`} className={buttonClasses({ variant: 'secondary', size: 'sm' })}>{retention.back}</Link>
-                <Link to="/stories" className={buttonClasses({ variant: 'quiet', size: 'sm' })}>{t('اختر حكاية', language)}</Link>
-              </div>
-              {completion && (
-                <div className="mt-5 border-t border-line pt-4">
-                  <p className="flex items-center gap-2 text-sm font-semibold text-brand-ink"><Award size={16} aria-hidden="true" /> {completion.pointsGained > 0 ? `+${completion.pointsGained}` : '0'} {retention.points}</p>
-                  <p className="mt-1 text-xs text-ink-muted"><Flame size={12} className="inline" aria-hidden="true" /> {retention.days(completion.streak.current)} · {completion.level.name || completion.level.level}</p>
-                </div>
+          {showEndScreen && (
+            <section className="ds-card theme-card mx-auto mt-10 max-w-[46rem] p-6 sm:p-8">
+              {upcomingPart ? (
+                <>
+                  <p className="ds-eyebrow">{t('نهاية الجزء', language)}</p>
+                  <h2 className="ds-title mt-2 text-2xl text-ink">{order.comingSoon}</h2>
+                  <p className="mt-1 text-sm text-ink-muted">{order.releasesOn(upcomingPart.expectedAt)}</p>
+                  {upcomingPart.teaser && <p dir="auto" className="mt-3 text-sm leading-7 text-ink">{upcomingPart.teaser}</p>}
+                  <div className="mt-5">
+                    {remindersOn ? (
+                      <p className="inline-flex items-center gap-2 text-sm font-semibold text-success"><Check size={15} aria-hidden="true" /> {order.notifyOn}</p>
+                    ) : (
+                      <button type="button" onClick={() => void enableReminders()} disabled={busy} className={buttonClasses({ size: 'sm' })}>
+                        {order.notify}
+                      </button>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="ds-eyebrow">{t('نهاية الحكاية', language)}</p>
+                  <h2 className="ds-title mt-2 text-2xl text-ink">{order.bravo}</h2>
+                  {completion && (
+                    <div className="mt-3">
+                      <p className="flex items-center gap-2 text-sm font-semibold text-brand-ink"><Award size={16} aria-hidden="true" /> {completion.pointsGained > 0 ? `+${completion.pointsGained}` : '0'} {retention.points}</p>
+                      <p className="mt-1 text-xs text-ink-muted"><Flame size={12} className="inline" aria-hidden="true" /> {retention.days(completion.streak.current)} · {completion.level.name || completion.level.level}</p>
+                    </div>
+                  )}
+                  <div className="mt-5 flex flex-wrap gap-2">
+                    {quiz && <a href="#quiz" className={buttonClasses({ size: 'sm' })}><CircleHelp size={15} aria-hidden="true" /> {order.quiz}</a>}
+                    <Link to={`/stories/${story.slug}`} className={buttonClasses({ variant: 'secondary', size: 'sm' })}>{retention.back}</Link>
+                  </div>
+                  {!!recommendations.length && (
+                    <div className="mt-7 border-t border-line pt-5">
+                      <h3 className="text-base font-semibold text-ink">{order.discover}</h3>
+                      <div className="ds-scroll-x mt-3 flex gap-4 pb-2">
+                        {recommendations.map((candidate) => (
+                          <div key={candidate.id} className="w-[15rem] shrink-0 snap-start">
+                            <StoryCard story={candidate} language={language} />
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mt-3 text-end">
+                        <Link to="/stories" className="text-sm font-semibold text-brand-ink hover:underline">{order.allStories}</Link>
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </section>
           )}
 
-          {user && completedPartsCount > 0 && notificationPromptVisible && (
-            <div className="mx-auto mt-6 max-w-[46rem] rounded-2xl border border-line p-4 text-sm text-ink">
-              <p className="font-semibold">{t('هل نرسل لك تذكيرًا لطيفًا بالحكاية القادمة؟', language)}</p>
-              <p className="mt-1 text-ink-muted">{t('يمكنك تفعيل التذكيرات أو إيقافها في أي وقت من إعدادات حسابك.', language)}</p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <Link to="/account" className={buttonClasses({ size: 'sm' })}>{t('إدارة التذكيرات', language)}</Link>
-                <button type="button" onClick={() => setNotificationPromptVisible(false)} className="min-h-9 rounded-full border border-line px-4 text-sm font-semibold text-ink-muted hover:text-ink">{t('ليس الآن', language)}</button>
-              </div>
-            </div>
-          )}
-
-          {quiz && isLastPart && (
+          {quiz && (
             <section id="quiz" className="mx-auto mt-12 max-w-[46rem] scroll-mt-24 rounded-2xl border border-line bg-surface p-6 sm:p-8">
               <h2 className="text-xl font-semibold text-ink">{t('اختبر فهمك', language)}</h2>
               <p className="mt-1 text-sm leading-7 text-ink-muted">{t('أجب عن أسئلة قصيرة مستندة إلى مصادر القصة.', language)}</p>
@@ -2168,11 +2524,11 @@ export function ReaderPage() {
           <div className="flex items-center gap-2">
             {previous && <Link to={`/stories/${slug}/read/${previous.partNumber}`} className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-line text-ink-muted" aria-label={t('الجزء السابق', language)}><ChevronRight size={18} aria-hidden="true" /></Link>}
             {user ? (
-              <button type="button" onClick={() => void markAsRead()} disabled={busy} className={buttonClasses({ size: 'md', block: true })}>
-                {busy ? t('جارٍ الحفظ…', language) : isLastPart ? t('أنهِ الحكاية', language) : t('أنهِ الجزء وتابع', language)}
+              <button type="button" onClick={() => void (isLastPart ? finishStory() : continueToNextPart())} disabled={busy} className={buttonClasses({ size: 'md', block: true })}>
+                {busy ? t('جارٍ الحفظ…', language) : isLastPart ? order.finishStory : order.continueTo(nextPartEntry?.partNumber || number + 1)}
               </button>
             ) : (
-              <Link to="/login" className={buttonClasses({ size: 'md', block: true })}>{t('سجّل الدخول للحفظ', language)}</Link>
+              <Link to={`/register?next=${encodeURIComponent(`/stories/${slug}/read/${number + 1}`)}`} className={buttonClasses({ size: 'md', block: true })}>{order.createAccount}</Link>
             )}
           </div>
         </div>
@@ -2879,7 +3235,10 @@ export function BookDetailPage() {
         <p className="mt-5 leading-8 text-ink-muted">{book.description || 'كتاب يجمع بين متعة الحكاية وقيمها.'}</p>
         <p className="mt-5 text-xl font-semibold text-brand-ink">{formatPrice(book.price, book.currency, language)}</p>
         {book.format === 'ebook' && <p className="mt-2 text-sm leading-6 text-ink-muted">{t('يُشترى هذا الكتاب الإلكتروني بشكل منفصل، ولا يشمله الاشتراك.', language)}</p>}
-        {book.format === 'ebook' && bookLanguages.length > 0 && <div className="mt-4 rounded-2xl border border-line bg-surface p-4">
+        {book.format === 'ebook' && bookLanguages.length === 1 && <div className="mt-4 rounded-2xl border border-line bg-surface p-4">
+          <p className="text-sm font-semibold text-brand-ink">{t('نسخة PDF:', language)} {bookLanguageLabel(bookLanguages[0])}</p>
+        </div>}
+        {book.format === 'ebook' && bookLanguages.length > 1 && <div className="mt-4 rounded-2xl border border-line bg-surface p-4">
           <label className="block text-sm font-semibold text-brand-ink">{t('اختر لغة الكتاب الإلكتروني (PDF)', language)}
             <select value={languageChoice || bookLanguages[0]} onChange={(event) => setLanguageChoice(event.target.value)} className="mt-2 w-full rounded-xl border border-line px-3 py-2.5">{bookLanguages.map((code) => <option key={code} value={code}>{bookLanguageLabel(code)}</option>)}</select>
           </label>
@@ -3283,7 +3642,7 @@ export function AccountPage() {
     </form>
     <TeamAccountPanel />
     <div className="mt-10 grid gap-8 lg:grid-cols-[1.25fr_0.75fr]">
-      <section><SectionHeading title="تابع القراءة" />{loading && <LoadingState />}{error && <ErrorState message={error} />}{!loading && !error && !progress?.length && <EmptyState>لم تحفظ أي تقدّم بعد. <Link to="/stories" className="font-semibold text-brand-ink underline">اكتشف القصص</Link></EmptyState>}{!!progress?.length && <div className="space-y-3">{progress.map((item) => <Link key={item.id} to={item.nextPart ? `/stories/${item.story?.slug || ''}/read/${item.nextPart.partNumber}` : `/stories/${item.story?.slug || ''}`} className="flex items-center justify-between gap-4 rounded-2xl border border-line bg-surface p-5 hover:border-line"><div><h3 className="font-semibold text-brand-ink">{item.story?.title || 'حكاية'}</h3><p className="mt-1 text-sm text-ink-muted">{t('أتممت', language)} {item.completedParts.length} {t('أجزاء', language)} · {item.nextPart ? `${t('التالي', language)} ${item.nextPart.partNumber}` : t('افتح الحكاية', language)}</p></div><ChevronLeft size={20} className="text-brand-ink" /></Link>)}</div>}</section>
+      <section><SectionHeading title="تابع القراءة" />{loading && <LoadingState />}{error && <ErrorState message={error} />}{!loading && !error && !progress?.length && <EmptyState>لم تحفظ أي تقدّم بعد. <Link to="/stories" className="font-semibold text-brand-ink underline">اكتشف القصص</Link></EmptyState>}{!!progress?.length && <div className="space-y-3">{progress.map((item) => <Link key={item.id} to={item.nextPart ? `/stories/${item.story?.slug || ''}/read/${item.nextPart.partNumber}` : `/stories/${item.story?.slug || ''}`} className="flex items-center justify-between gap-4 rounded-2xl border border-line bg-surface p-5 hover:border-line"><div><h3 className="font-semibold text-brand-ink">{item.story?.title || 'حكاية'}</h3><p className="mt-1 text-sm text-ink-muted">{t('أتممت', language)} {item.completedParts.length}{item.publishedParts ? ` ${t('من', language)} ${item.publishedParts}` : ''} {t('أجزاء', language)} · {item.newPartAvailable ? t('جزء جديد متاح', language) : item.finished ? (item.upcomingPart ? t('الحلقة القادمة قريبًا', language) : t('أكملت هذه الحكاية', language)) : item.nextPart ? `${t('التالي', language)} ${item.nextPart.partNumber}` : t('افتح الحكاية', language)}</p></div><ChevronLeft size={20} className="text-brand-ink" /></Link>)}</div>}</section>
       <section><SectionHeading title="حالة الاشتراك" /><div className="rounded-3xl border border-line bg-surface p-6">
         {!subscriptions.length ? <><span className="grid h-12 w-12 place-items-center rounded-2xl bg-gold-soft text-gold-ink"><Star size={22} /></span><h3 className="mt-4 font-semibold text-brand-ink">لا يوجد اشتراك حالي</h3><p className="mt-2 text-sm leading-7 text-ink-muted">تابع قراءة الأجزاء المجانية أو اختر إحدى الباقات المتاحة أدناه.</p></> :
           <div className="space-y-4">{subscriptions.map((subscription) => <SubscriptionCard key={subscription.id} subscription={subscription} busy={updatingSubscriptionId === subscription.id} onCancel={() => updateSubscription(subscription.id, 'cancel')} onResume={() => updateSubscription(subscription.id, 'resume')} />)}</div>}

@@ -1,0 +1,17 @@
+{
+  "name": "حكايات إسلامية — قصص موثوقة لكل العائلة",
+  "short_name": "حكايات إسلامية",
+  "description": "قصص إسلامية موثوقة، مقسمة إلى أجزاء ممتعة مع كتب للعائلة.",
+  "lang": "ar",
+  "dir": "rtl",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#FBF8F2",
+  "theme_color": "#21604D",
+  "icons": [
+    { "src": "/brand/icon-192.png", "type": "image/png", "sizes": "192x192" },
+    { "src": "/brand/icon-512.png", "type": "image/png", "sizes": "512x512" },
+    { "src": "/brand/logo-mark.svg", "type": "image/svg+xml", "sizes": "any", "purpose": "any" }
+  ]
+}

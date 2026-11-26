@@ -48,6 +48,19 @@ const { validateBody } = require('../middleware/validation');
 const schemas = require('../middleware/storyValidation');
 const { canAccessPart, canAccessBook, subscriptionIsActive } = require('../utils/contentAccess');
 const {
+  isComingSoon,
+  publishedParts,
+  comingSoonPart,
+  completedIdSet,
+  previousPart,
+  partAccess,
+  partStates,
+  firstReadablePartNumber,
+  storyFinished,
+  newPartAvailable,
+  nextPartAfter
+} = require('../utils/storySequence');
+const {
   getMaxDocumentBytes,
   getStorageDriver,
   ensureLocalStorageDirectories,
@@ -550,8 +563,8 @@ async function publicationRequirements(story) {
   if (!story.reviewChecklist?.reviewedAt) missing.push('source review checklist: review date');
   if (!story.reviewChecklist?.representationConfirmed) missing.push('representation review checklist');
   const parts = await StoryPart.findAll({ where: { storyId: story.id }, order: [['partNumber', 'ASC']] });
-  if (!parts.some((part) => part.title?.trim() && part.content?.trim())) {
-    missing.push('at least one episode with Arabic text');
+  if (!parts.some((part) => part.status !== 'coming_soon' && part.title?.trim() && part.content?.trim())) {
+    missing.push('at least one published episode with Arabic text');
   }
   return missing;
 }
@@ -661,21 +674,23 @@ async function findPublishedStory(slug) {
   return Story.findOne({ where: { slug: redirect.newSlug, status: 'published' }, include });
 }
 
-async function findAccessiblePart(story, partNumber, user) {
-  const part = story.parts.find((candidate) => candidate.partNumber === partNumber);
-  if (!part) throw notFound('Partie introuvable.');
-  if (!await canAccessPart({
-    userId: user?.id,
-    role: user?.role,
-    story,
-    part
-  })) {
-    const error = new Error('Un abonnement actif ou un droit d’accès est requis pour cette partie.');
-    error.status = 403;
-    error.code = 'CONTENT_LOCKED';
-    throw error;
-  }
-  return part;
+/**
+ * Every reader endpoint answers a locked part the same way: a typed code plus
+ * the part the reader must finish first, so the page can offer the right button
+ * instead of a raw error.
+ */
+function sendPartAccessError(res, issue, part) {
+  res.set('Cache-Control', 'private, no-store');
+  return res.status(issue.status || 403).json({
+    message: issue.message,
+    code: issue.code,
+    partNumber: part?.partNumber ?? null,
+    requiredPartNumber: issue.requiredPartNumber ?? null
+  });
+}
+
+function localizedPartTitle(part, language) {
+  return localizeFields(part, language, ['title'])?.title || part.title;
 }
 
 function shuffle(items) {
@@ -863,12 +878,29 @@ router.get('/stories/:slug', optionalAuthenticate, async (req, res, next) => {
     if (!localizedStory) return res.status(404).json({ message: 'Histoire introuvable dans cette langue.' });
     const reviewerName = story.reviewerName ||
       (story.reviewer ? `${story.reviewer.firstName} ${story.reviewer.lastName}` : null);
-    const parts = await Promise.all(story.parts
-      .sort((left, right) => left.partNumber - right.partNumber)
-      .map(async (part) => {
-        const localizedPart = localizeFields(part, language, ['title']);
-        if (!localizedPart) return null;
-        return ({
+    const progress = req.user
+      ? await ReadingProgress.findOne({ where: { userId: req.user.id, storyId: story.id } })
+      : null;
+    const completed = completedIdSet(progress);
+    const accessibleByPart = new Map();
+    for (const candidate of publishedParts(story)) {
+      accessibleByPart.set(candidate.id, await canAccessPart({
+        userId: req.user?.id,
+        role: req.user?.role,
+        story,
+        part: candidate
+      }));
+    }
+    const states = await partStates({
+      story,
+      user: req.user,
+      completedIds: completed,
+      accessibleFor: (candidate) => accessibleByPart.get(candidate.id)
+    });
+    const parts = states.map(({ part, status }) => {
+      const localizedPart = localizeFields(part, language, ['title']);
+      if (!localizedPart) return null;
+      return {
         id: part.id,
         partNumber: part.partNumber,
         title: localizedPart.title,
@@ -877,14 +909,14 @@ router.get('/stories/:slug', optionalAuthenticate, async (req, res, next) => {
         illustrationImage: part.illustrationImage || null,
         illustrationAlt: part.illustrationAlt?.[language] || part.illustrationAlt?.ar || null,
         isFree: part.isFree,
-        accessible: await canAccessPart({
-          userId: req.user?.id,
-          role: req.user?.role,
-          story,
-          part
-        })
-      });
-      }));
+        // The reader never gets part content here, only where they stand.
+        status,
+        accessible: ['completed', 'current', 'available'].includes(status),
+        expectedAt: part.expectedAt || null,
+        teaser: part.teaser?.[language] || part.teaser?.ar || null
+      };
+    }).filter(Boolean);
+    const upcoming = comingSoonPart(story);
     const videos = await Promise.all(story.videos.filter((video) => video.status === 'published').map(async (video) => {
       const part = video.partId
         ? story.parts.find((candidate) => candidate.id === video.partId)
@@ -937,7 +969,22 @@ router.get('/stories/:slug', optionalAuthenticate, async (req, res, next) => {
         title: localizeFields(story.collection, language, ['title'])?.title || '',
         slug: story.collection.slug
       },
-      parts: parts.filter(Boolean),
+      parts,
+      progress: {
+        completedParts: [...completed],
+        completedCount: parts.filter((part) => part.status === 'completed').length,
+        totalParts: publishedParts(story).length,
+        currentPartNumber: firstReadablePartNumber(states),
+        finished: storyFinished(story, completed),
+        newPartAvailable: newPartAvailable(story, completed)
+      },
+      upcomingPart: upcoming ? {
+        id: upcoming.id,
+        partNumber: upcoming.partNumber,
+        title: localizeFields(upcoming, language, ['title'])?.title || upcoming.title,
+        expectedAt: upcoming.expectedAt || null,
+        teaser: upcoming.teaser?.[language] || upcoming.teaser?.ar || null
+      } : null,
       videos
     });
   } catch (error) {
@@ -951,7 +998,30 @@ router.get('/stories/:slug/parts/:partNumber', optionalAuthenticate, async (req,
     const partNumber = parseId(req.params.partNumber, 'Numéro de partie');
     const story = await findPublishedStory(req.params.slug);
     if (!story) return res.status(404).json({ message: 'Histoire introuvable.' });
-    const part = await findAccessiblePart(story, partNumber, req.user);
+    const part = story.parts.find((candidate) => candidate.partNumber === partNumber);
+    if (!part) return res.status(404).json({ message: 'Partie introuvable.' });
+    const progress = req.user
+      ? await ReadingProgress.findOne({ where: { userId: req.user.id, storyId: story.id } })
+      : null;
+    const completed = completedIdSet(progress);
+    const issue = await partAccess({ story, part, user: req.user, completedIds: completed });
+    if (issue) return sendPartAccessError(res, issue, part);
+    if (req.user) {
+      // Opening a part remembers where the reader stopped; completion is explicit.
+      if (progress) {
+        progress.lastPartId = part.id;
+        progress.lastReadAt = new Date();
+        await progress.save();
+      } else {
+        await ReadingProgress.create({
+          userId: req.user.id,
+          storyId: story.id,
+          lastPartId: part.id,
+          completedParts: [],
+          lastReadAt: new Date()
+        });
+      }
+    }
     const storedBlocks = Array.isArray(part.blocks) ? part.blocks : [];
     const localizedBlocks = storedBlocks.length ? localizeBlocks(storedBlocks, language) : [];
     let localizedPart = localizeFields(part, language, ['title', 'content', 'endingHook']);
@@ -975,6 +1045,69 @@ router.get('/stories/:slug/parts/:partNumber', optionalAuthenticate, async (req,
   }
 });
 
+router.post('/stories/:slug/parts/:partNumber/complete', authenticate, async (req, res, next) => {
+  try {
+    const language = requestedLanguage(req.query.lang || req.user.language);
+    const partNumber = parseId(req.params.partNumber, 'Numéro de partie');
+    const story = await findPublishedStory(req.params.slug);
+    if (!story) return res.status(404).json({ message: 'Histoire introuvable.' });
+    const part = story.parts.find((candidate) => candidate.partNumber === partNumber);
+    if (!part) return res.status(404).json({ message: 'Partie introuvable.' });
+    const [progress] = await ReadingProgress.findOrCreate({
+      where: { userId: req.user.id, storyId: story.id },
+      defaults: { userId: req.user.id, storyId: story.id, completedParts: [], lastReadAt: new Date() }
+    });
+    const completedBefore = completedIdSet(progress);
+    const issue = await partAccess({ story, part, user: req.user, completedIds: completedBefore });
+    if (issue) return sendPartAccessError(res, issue, part);
+    const alreadyCompleted = completedBefore.has(part.id);
+    if (!alreadyCompleted) {
+      progress.completedParts = [...new Set([...(Array.isArray(progress.completedParts) ? progress.completedParts : []), part.id])];
+      progress.lastPartId = part.id;
+      progress.lastReadAt = new Date();
+      await progress.save();
+    }
+    // A retry never awards points again; it only replays the current summary.
+    const { completion } = await awardPartProgress({
+      user: req.user,
+      story,
+      completedPartIds: Array.isArray(progress.completedParts) ? progress.completedParts.map(Number) : [],
+      pointsTriggered: !alreadyCompleted
+    });
+    const completed = completedIdSet(progress);
+    const nextPart = nextPartAfter(story, part);
+    const upcoming = comingSoonPart(story);
+    res.set('Cache-Control', 'private, no-store');
+    res.json({
+      partNumber: part.partNumber,
+      alreadyCompleted,
+      progress: {
+        completedParts: [...completed],
+        lastPartId: progress.lastPartId,
+        completedCount: publishedParts(story).filter((candidate) => completed.has(candidate.id)).length,
+        totalParts: publishedParts(story).length
+      },
+      nextPart: nextPart ? {
+        id: nextPart.id,
+        partNumber: nextPart.partNumber,
+        title: localizedPartTitle(nextPart, language),
+        estimatedReadingMinutes: nextPart.estimatedReadingMinutes
+      } : null,
+      completion,
+      storyFinished: storyFinished(story, completed),
+      upcomingPart: upcoming ? {
+        id: upcoming.id,
+        partNumber: upcoming.partNumber,
+        title: localizedPartTitle(upcoming, language),
+        expectedAt: upcoming.expectedAt || null,
+        teaser: upcoming.teaser?.[language] || upcoming.teaser?.ar || null
+      } : null
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.get('/stories/:slug/parts/:partNumber/quiz', optionalAuthenticate, async (req, res, next) => {
   try {
     const partNumber = parseId(req.params.partNumber, 'Numéro de partie');
@@ -982,6 +1115,12 @@ router.get('/stories/:slug/parts/:partNumber/quiz', optionalAuthenticate, async 
     if (!story) return res.status(404).json({ message: 'Histoire introuvable.' });
     const part = story.parts.find((candidate) => candidate.partNumber === partNumber);
     if (!part) return res.status(404).json({ message: 'Partie introuvable.' });
+    const progress = req.user
+      ? await ReadingProgress.findOne({ where: { userId: req.user.id, storyId: story.id } })
+      : null;
+    const completed = completedIdSet(progress);
+    const issue = await partAccess({ story, part, user: req.user, completedIds: completed });
+    if (issue) return sendPartAccessError(res, issue, part);
     const quizzes = await Quiz.findAll({
       where: {
         storyId: story.id,
@@ -995,11 +1134,16 @@ router.get('/stories/:slug/parts/:partNumber/quiz', optionalAuthenticate, async 
         order: [['sortOrder', 'ASC']]
       }]
     });
-    const lastPartNumber = Math.max(...story.parts.map((candidate) => candidate.partNumber));
+    const readable = publishedParts(story);
+    const lastPartNumber = readable.length ? readable[readable.length - 1].partNumber : 0;
     const quiz = quizzes.find((candidate) => candidate.partId === part.id) ||
       (part.partNumber === lastPartNumber ? quizzes.find((candidate) => candidate.partId == null) : null);
     if (!quiz) return res.status(404).json({ message: 'Quiz validé introuvable.' });
-    await checkQuizAccess(quiz, req.user);
+    // The quiz follows the reading rules of its part: never openable earlier.
+    const quizWithContext = { ...quiz.toJSON(), story, ...(quiz.partId ? { part } : {}) };
+    if (quiz.accessMode === 'premium' || !completed.has(part.id)) {
+      await checkQuizAccess(quizWithContext, req.user);
+    }
     const language = requestedLanguage(req.query.lang);
     res.json({
       id: quiz.id,
@@ -2371,7 +2515,7 @@ router.get('/reading-progress', authenticate, async (req, res, next) => {
           {
             model: StoryPart,
             as: 'parts',
-            attributes: ['id', 'partNumber', 'isFree', 'releaseAt', 'earlyAccessUntil']
+            attributes: ['id', 'partNumber', 'isFree', 'status', 'releaseAt', 'earlyAccessUntil', 'expectedAt', 'teaser']
           }
         ]
       }],
@@ -2379,17 +2523,32 @@ router.get('/reading-progress', authenticate, async (req, res, next) => {
     });
     const payload = await Promise.all(progressRows.map(async (row) => {
       const story = row.story;
-      const completedParts = new Set(Array.isArray(row.completedParts) ? row.completedParts : []);
+      const completedParts = completedIdSet(row);
       let nextPart = null;
+      let finished = false;
+      let hasNewPart = false;
+      let upcoming = null;
       if (story) {
-        const unreadParts = [...(story.parts || [])]
-          .sort((left, right) => left.partNumber - right.partNumber)
-          .filter((part) => !completedParts.has(part.id));
-        for (const part of unreadParts) {
-          if (await canAccessPart({ userId: req.user.id, role: req.user.role, story, part })) {
-            nextPart = { id: part.id, partNumber: part.partNumber };
-            break;
-          }
+        const states = await partStates({
+          story,
+          user: req.user,
+          completedIds: completedParts,
+          accessibleFor: (part) => canAccessPart({ userId: req.user.id, role: req.user.role, story, part })
+        });
+        const currentNumber = firstReadablePartNumber(states);
+        if (currentNumber) {
+          const current = publishedParts(story).find((part) => part.partNumber === currentNumber);
+          nextPart = { id: current.id, partNumber: current.partNumber };
+        }
+        finished = storyFinished(story, completedParts);
+        hasNewPart = newPartAvailable(story, completedParts);
+        const placeholder = comingSoonPart(story);
+        if (placeholder) {
+          upcoming = {
+            partNumber: placeholder.partNumber,
+            expectedAt: placeholder.expectedAt || null,
+            teaser: placeholder.teaser?.[req.user.language] || placeholder.teaser?.ar || null
+          };
         }
       }
       const json = row.toJSON();
@@ -2397,7 +2556,14 @@ router.get('/reading-progress', authenticate, async (req, res, next) => {
         delete json.story.parts;
         delete json.story.collection;
       }
-      return { ...json, nextPart };
+      return {
+        ...json,
+        nextPart,
+        finished,
+        newPartAvailable: hasNewPart,
+        upcomingPart: upcoming,
+        publishedParts: story ? publishedParts(story).length : 0
+      };
     }));
     res.json(payload);
   } catch (error) {
@@ -2420,10 +2586,33 @@ router.put('/reading-progress/:storyId', authenticate, validateBody(schemas.read
     if (lastPartId && !validPartIds.has(lastPartId)) {
       return res.status(400).json({ message: 'La dernière partie ne correspond pas à cette histoire.' });
     }
-    for (const partId of [...new Set([...partIds, ...(lastPartId ? [lastPartId] : [])])]) {
+    const existingProgress = await ReadingProgress.findOne({ where: { userId: req.user.id, storyId } });
+    const previouslyCompleted = completedIdSet(existingProgress);
+    const finalCompleted = new Set(partIds);
+    for (const partId of partIds) {
       const part = story.parts.find((candidate) => candidate.id === partId);
+      if (!part) continue;
+      // Progress saved before this rule existed stays valid and never re-locks.
+      if (previouslyCompleted.has(partId)) continue;
+      if (isComingSoon(part)) {
+        return res.status(422).json({ message: 'Cette partie n’est pas encore disponible.', code: 'COMING_SOON', partNumber: part.partNumber });
+      }
+      const previous = previousPart(story, part);
+      if (previous && !finalCompleted.has(previous.id)) {
+        return res.status(409).json({
+          message: `Terminez d’abord la partie ${previous.partNumber}.`,
+          code: 'SEQUENCE_LOCKED',
+          requiredPartNumber: previous.partNumber
+        });
+      }
       if (!await canAccessPart({ userId: req.user.id, role: req.user.role, story, part })) {
-        return res.status(403).json({ message: 'La progression ne peut pas inclure une partie sans droit d’accès.' });
+        return res.status(403).json({ message: 'La progression ne peut pas inclure une partie sans droit d’accès.', code: 'SUBSCRIPTION_REQUIRED' });
+      }
+    }
+    if (lastPartId && !previouslyCompleted.has(lastPartId)) {
+      const lastPart = story.parts.find((candidate) => candidate.id === lastPartId);
+      if (lastPart && !await canAccessPart({ userId: req.user.id, role: req.user.role, story, part: lastPart })) {
+        return res.status(403).json({ message: 'La progression ne peut pas inclure une partie sans droit d’accès.', code: 'SUBSCRIPTION_REQUIRED' });
       }
     }
     const [progress] = await ReadingProgress.findOrCreate({
@@ -2434,69 +2623,82 @@ router.put('/reading-progress/:storyId', authenticate, validateBody(schemas.read
     progress.lastPartId = lastPartId;
     progress.lastReadAt = new Date();
     await progress.save();
-    const badgeEngine = require('../utils/badges/engine');
-    let badgeResult = { newAwards: [], pointsGained: 0, totalPoints: 0 };
-    try {
-      badgeResult = await badgeEngine.evaluateUserBadges(req.user.id, { trigger: 'part_completed' });
-    } catch (error) {
-      console.warn(`Impossible d'évaluer les badges pour l'utilisateur ${req.user.id} :`, error?.message || error);
-    }
-    const isComplete = story.parts.length > 0 && story.parts.every((part) => partIds.includes(part.id));
-    let completion = null;
-    if (isComplete) {
-      const awarded = await ensureBadgeAward(req.user.id, 'story-complete', 'story', story.id, { storyId: story.id, completedParts: partIds });
-      const certificate = await maybeIssueCertificate({
-        userId: req.user.id,
-        badgeTypeId: awarded.badgeTypeId,
-        title: `Certificate: ${story.title}`,
-        storyId: story.id
-      });
-      if (certificate) {
-        await ensureBadgeAward(req.user.id, 'story-certificate', 'story', story.id, { certificateId: certificate.certificate.id, storyId: story.id });
-      }
-      try {
-        const profile = await badgeEngine.profileSummary(req.user.id, {
-          language: requestedLanguage(req.user.language)
-        });
-        completion = {
-          completedParts: partIds.length,
-          totalParts: story.parts.length,
-          pointsGained: Number(badgeResult.pointsGained) || 0,
-          totalPoints: profile.user.points,
-          level: profile.level,
-          streak: { current: profile.streak.current, best: profile.streak.best },
-          newBadges: (badgeResult.newAwards || []).map((badge) => ({
-            id: badge.id,
-            name: badge.name,
-            points: badge.points,
-            iconKey: badge.iconKey
-          })),
-          nextBadges: (profile.nextBadges || []).map((badge) => ({
-            id: badge.id,
-            name: badge.name,
-            iconKey: badge.iconKey,
-            points: badge.points,
-            currentValue: badge.progress.currentValue,
-            targetValue: badge.progress.targetValue,
-            ratio: badge.progress.ratio
-          }))
-        };
-      } catch (error) {
-        console.warn(`Résumé de fin d'histoire indisponible pour ${req.user.id} :`, error?.message || error);
-      }
-    }
+    const { completion } = await awardPartProgress({ user: req.user, story, completedPartIds: partIds });
     res.json({ ...progress.toJSON(), completion });
   } catch (error) {
     next(error);
   }
 });
 
+/**
+ * Points, badges and the end-of-story payload for a saved progress. Shared by
+ * PUT /reading-progress and POST /stories/:slug/parts/:n/complete so both award
+ * exactly the same thing, and only for parts that were just completed.
+ */
+async function awardPartProgress({ user, story, completedPartIds, pointsTriggered = true }) {
+  const badgeEngine = require('../utils/badges/engine');
+  let badgeResult = { newAwards: [], pointsGained: 0, totalPoints: 0 };
+  if (pointsTriggered) {
+    try {
+      badgeResult = await badgeEngine.evaluateUserBadges(user.id, { trigger: 'part_completed' });
+    } catch (error) {
+      console.warn(`Impossible d'évaluer les badges pour l'utilisateur ${user.id} :`, error?.message || error);
+    }
+  }
+  const readable = publishedParts(story);
+  const isComplete = readable.length > 0 && readable.every((part) => completedPartIds.includes(part.id));
+  let completion = null;
+  if (isComplete) {
+    const awarded = await ensureBadgeAward(user.id, 'story-complete', 'story', story.id, { storyId: story.id, completedParts: completedPartIds });
+    const certificate = await maybeIssueCertificate({
+      userId: user.id,
+      badgeTypeId: awarded.badgeTypeId,
+      title: `Certificate: ${story.title}`,
+      storyId: story.id
+    });
+    if (certificate) {
+      await ensureBadgeAward(user.id, 'story-certificate', 'story', story.id, { certificateId: certificate.certificate.id, storyId: story.id });
+    }
+    try {
+      const profile = await badgeEngine.profileSummary(user.id, {
+        language: requestedLanguage(user.language)
+      });
+      completion = {
+        completedParts: completedPartIds.length,
+        totalParts: readable.length,
+        pointsGained: Number(badgeResult.pointsGained) || 0,
+        totalPoints: profile.user.points,
+        level: profile.level,
+        streak: { current: profile.streak.current, best: profile.streak.best },
+        newBadges: (badgeResult.newAwards || []).map((badge) => ({
+          id: badge.id,
+          name: badge.name,
+          points: badge.points,
+          iconKey: badge.iconKey
+        })),
+        nextBadges: (profile.nextBadges || []).map((badge) => ({
+          id: badge.id,
+          name: badge.name,
+          iconKey: badge.iconKey,
+          points: badge.points,
+          currentValue: badge.progress.currentValue,
+          targetValue: badge.progress.targetValue,
+          ratio: badge.progress.ratio
+        }))
+      };
+    } catch (error) {
+      console.warn(`Résumé de fin d'histoire indisponible pour ${user.id} :`, error?.message || error);
+    }
+  }
+  return { badgeResult, completion, isComplete };
+}
+
 async function findPublishedStoryById(id) {
   return Story.findOne({
     where: { id, status: 'published' },
     include: [
       { model: Collection, as: 'collection' },
-      { model: StoryPart, as: 'parts', attributes: ['id', 'partNumber', 'isFree', 'releaseAt', 'earlyAccessUntil'] }
+      { model: StoryPart, as: 'parts', attributes: ['id', 'partNumber', 'isFree', 'status', 'releaseAt', 'earlyAccessUntil'] }
     ]
   });
 }
@@ -2771,6 +2973,31 @@ router.post('/admin/content/stories/:id/archive', ...publishers, async (req, res
   }
 });
 
+/**
+ * Numbers are kept as 1..N with no gaps; the upcoming placeholder always stays
+ * after the last published part.
+ */
+async function renumberStoryParts(storyId, transaction) {
+  const parts = await StoryPart.findAll({
+    where: { storyId },
+    order: [['partNumber', 'ASC']],
+    ...(transaction ? { transaction } : {})
+  });
+  const ordered = [...parts].sort((left, right) => {
+    const leftUpcoming = left.status === 'coming_soon' ? 1 : 0;
+    const rightUpcoming = right.status === 'coming_soon' ? 1 : 0;
+    return leftUpcoming - rightUpcoming || left.partNumber - right.partNumber;
+  });
+  // Two passes: the unique index forbids duplicate numbers mid-swap.
+  for (let index = 0; index < ordered.length; index += 1) {
+    await ordered[index].update({ partNumber: -(index + 1) }, { transaction });
+  }
+  for (let index = 0; index < ordered.length; index += 1) {
+    await ordered[index].update({ partNumber: index + 1 }, { transaction });
+  }
+  return ordered;
+}
+
 router.post('/admin/content/stories/:id/parts', ...contentEditors, validateBody(schemas.partSchema), async (req, res, next) => {
   try {
     const storyId = parseId(req.params.id, 'Histoire');
@@ -2780,8 +3007,15 @@ router.post('/admin/content/stories/:id/parts', ...contentEditors, validateBody(
       where: { storyId, partNumber: req.body.partNumber }
     });
     if (existing) throw partNumberConflict(existing);
-    const content = resolvePartContent(req.body);
-    if (!content) {
+    const isUpcoming = req.body.status === 'coming_soon';
+    if (isUpcoming && await StoryPart.findOne({ where: { storyId, status: 'coming_soon' } })) {
+      return res.status(409).json({
+        message: 'Cette histoire a déjà une partie à venir.',
+        code: 'UPCOMING_PART_EXISTS'
+      });
+    }
+    const content = isUpcoming ? '' : resolvePartContent(req.body);
+    if (!isUpcoming && !content) {
       return res.status(422).json({
         message: 'Ajoutez au moins un bloc de texte arabe.',
         code: 'PART_CONTENT_REQUIRED',
@@ -2793,11 +3027,13 @@ router.post('/admin/content/stories/:id/parts', ...contentEditors, validateBody(
       ...rest,
       storyId,
       content,
+      endingHook: isUpcoming ? '' : rest.endingHook,
       translations: syncPartTranslations(rest.translations, blocks)
     });
-    if (blocks) await syncPartBlocks(part, blocks);
+    if (blocks && !isUpcoming) await syncPartBlocks(part, blocks);
+    await renumberStoryParts(storyId);
     await sendPublishedStoryBackToReview(req, story);
-    await recordAudit(req, 'CREATE_STORY_PART', 'StoryPart', part.id, { storyId });
+    await recordAudit(req, 'CREATE_STORY_PART', 'StoryPart', part.id, { storyId, upcoming: isUpcoming });
     res.status(201).json(await partWithBlocks(part.id));
   } catch (error) {
     if (isPartNumberUniqueError(error) && req.body.partNumber !== undefined) {
@@ -2821,8 +3057,18 @@ router.patch('/admin/content/parts/:id', ...contentEditors, validateBody(schemas
       if (existing) throw partNumberConflict(existing);
     }
     const { blocks, ...rest } = req.body;
-    const content = resolvePartContent(rest, part.content);
-    if (!content) {
+    const nextStatus = rest.status || part.status;
+    const becomesUpcoming = nextStatus === 'coming_soon';
+    if (becomesUpcoming && part.status !== 'coming_soon') {
+      const other = await StoryPart.findOne({ where: { storyId: part.storyId, status: 'coming_soon', id: { [Op.ne]: part.id } } });
+      if (other) {
+        return res.status(409).json({ message: 'Cette histoire a déjà une partie à venir.', code: 'UPCOMING_PART_EXISTS' });
+      }
+    }
+    // Turning a part into a placeholder hides it, but its text is kept so it can
+    // be published again later without retyping anything.
+    const content = becomesUpcoming ? part.content : resolvePartContent(rest, part.content);
+    if (!becomesUpcoming && !content) {
       return res.status(422).json({
         message: 'Ajoutez au moins un bloc de texte arabe.',
         code: 'PART_CONTENT_REQUIRED',
@@ -2832,9 +3078,11 @@ router.patch('/admin/content/parts/:id', ...contentEditors, validateBody(schemas
     await part.update({
       ...rest,
       content,
+      endingHook: becomesUpcoming ? part.endingHook : (rest.endingHook ?? part.endingHook),
       translations: blocks ? syncPartTranslations(rest.translations ?? part.translations, blocks) : rest.translations
     });
-    if (blocks) await syncPartBlocks(part, blocks);
+    if (blocks && !becomesUpcoming) await syncPartBlocks(part, blocks);
+    await renumberStoryParts(part.storyId);
     const story = await Story.findByPk(part.storyId);
     await sendPublishedStoryBackToReview(req, story);
     await recordAudit(req, 'UPDATE_STORY_PART', 'StoryPart', part.id);
@@ -2885,12 +3133,14 @@ router.post('/admin/content/parts/:id/move', ...contentEditors, async (req, res,
     });
     if (!result) return res.status(404).json({ message: 'Partie introuvable.' });
     if (!result.changed) return res.json(result.parts);
+    // Keep the upcoming placeholder after the last published part.
+    const ordered = await renumberStoryParts(result.storyId);
     const story = await Story.findByPk(result.storyId);
     await sendPublishedStoryBackToReview(req, story);
     await recordAudit(req, 'REORDER_STORY_PARTS', 'StoryPart', Number(req.params.id), {
       direction: req.body.direction
     });
-    res.json(result.parts);
+    res.json(ordered);
   } catch (error) {
     next(error);
   }
@@ -2924,6 +3174,22 @@ router.post('/admin/content/parts/:id/duplicate', ...contentEditors, async (req,
   }
 });
 
+router.get('/admin/content/parts/:id/impact', ...contentEditors, async (req, res, next) => {
+  try {
+    const part = await StoryPart.findByPk(parseId(req.params.id, 'Partie'));
+    if (!part) return res.status(404).json({ message: 'Partie introuvable.' });
+    const rows = await ReadingProgress.findAll({
+      where: { storyId: part.storyId },
+      attributes: ['userId', 'completedParts']
+    });
+    const completedBy = rows.filter((row) => completedIdSet(row).has(part.id)).length;
+    const quizzes = await Quiz.count({ where: { partId: part.id } });
+    res.json({ partId: part.id, completedBy, quizzes });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.delete('/admin/content/parts/:id', ...contentEditors, async (req, res, next) => {
   try {
     const partId = parseId(req.params.id, 'Partie');
@@ -2932,6 +3198,7 @@ router.delete('/admin/content/parts/:id', ...contentEditors, async (req, res, ne
       if (!part) return null;
       await Quiz.destroy({ where: { partId }, transaction });
       await part.destroy({ transaction });
+      await renumberStoryParts(part.storyId, transaction);
       return part.storyId;
     });
     if (!storyId) return res.status(404).json({ message: 'Partie introuvable.' });

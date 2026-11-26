@@ -174,8 +174,12 @@ const partSchema = z.object({
   illustrationAlt: optionalLocalizedValue(300).optional(),
   translations: translationsSchema(['title', 'content', 'endingHook']),
   estimatedReadingMinutes: z.number().int().min(1).max(120).default(5),
-  endingHook: z.string().trim().min(1).max(2000),
+  // Empty only for a coming-soon placeholder; published parts require a hook.
+  endingHook: z.string().trim().max(2000).optional().default(''),
   isFree: z.boolean().optional(),
+  status: z.enum(['published', 'coming_soon']).optional().default('published'),
+  expectedAt: z.string().datetime().nullable().optional(),
+  teaser: optionalLocalizedValue(500).optional(),
   releaseAt: z.string().datetime().nullable().optional(),
   earlyAccessUntil: z.string().datetime().nullable().optional()
 });

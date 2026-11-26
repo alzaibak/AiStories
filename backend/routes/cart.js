@@ -73,10 +73,6 @@ async function ownedEntitlements(userId, bookIds) {
   });
 }
 
-async function ownedBookIds(userId, bookIds) {
-  return new Set((await ownedEntitlements(userId, bookIds)).map((entry) => Number(entry.resourceId)));
-}
-
 function pickedLanguage(book, requested) {
   const available = availableBookLanguages(book);
   if (!available.length) throw apiError(409, 'This ebook has no PDF file yet.', 'EBOOK_FILE_MISSING');

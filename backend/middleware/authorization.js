@@ -18,7 +18,11 @@ async function authenticate(req, res, next) {
       !['ADMIN', 'SUPER_ADMIN', 'EDITOR', 'REVIEWER'].includes(user.role))) {
       return res.status(403).json({ message: 'Une session administrateur valide est requise.' });
     }
-    if (claims.aud === 'admin' && !adminRequest && !/\/auth\/me(?:\?|$)/.test(req.originalUrl)) {
+    // Read-only story preview: admins, editors and reviewers may open a part
+    // (and its quiz) from the public reader to check their work.
+    const previewRequest = req.method === 'GET' &&
+      /\/stories\/[^/]+(?:\/parts\/[^/]+(?:\/quiz)?)?(?:\?|$)/.test(req.originalUrl);
+    if (claims.aud === 'admin' && !adminRequest && !previewRequest && !/\/auth\/me(?:\?|$)/.test(req.originalUrl)) {
       return res.status(403).json({ message: 'Cette session est réservée au sous-domaine administrateur.' });
     }
     if (user.mustChangePassword && !/\/(?:auth\/me|superadmin\/change-password)(?:\?|$)/.test(req.originalUrl)) {

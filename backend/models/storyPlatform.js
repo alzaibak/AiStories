@@ -116,6 +116,15 @@ const StoryPart = sequelize.define('StoryPart', {
   estimatedReadingMinutes: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 5 },
   endingHook: { type: DataTypes.TEXT, allowNull: false },
   isFree: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+  // A part is either readable (published) or an upcoming placeholder that holds
+  // only a title, an expected date and a teaser.
+  status: {
+    type: DataTypes.ENUM('published', 'coming_soon'),
+    allowNull: false,
+    defaultValue: 'published'
+  },
+  expectedAt: { type: DataTypes.DATE, allowNull: true },
+  teaser: { type: DataTypes.JSON, allowNull: true },
   releaseAt: { type: DataTypes.DATE, allowNull: true },
   earlyAccessUntil: { type: DataTypes.DATE, allowNull: true }
 }, {
