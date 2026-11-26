@@ -40,6 +40,7 @@ type AdminBook = {
   status?: 'draft' | 'published' | 'archived';
   publishedAt?: string | null;
   fileStorageKey: string | null;
+  bookFiles?: Record<string, { key?: string | null }> | null;
 };
 type AdminOrderSummary = { id: number; status?: string; total: string | number; paidAmount?: string | number | null; currency: string; createdAt: string };
 type AdminReturnsStats = {
@@ -587,12 +588,12 @@ export function AdminBooksPage() {
           <thead className="border-b border-slate-200 text-xs uppercase text-slate-500"><tr><th className="px-3 py-3">{t('العنوان', language)}</th><th className="px-3 py-3">{t('النوع', language)}</th><th className="px-3 py-3">{t('السعر', language)}</th><th className="px-3 py-3">{t('الحالة', language)}</th><th className="px-3 py-3">{t('الإجراءات', language)}</th></tr></thead>
           <tbody className="divide-y divide-slate-100">{visibleBooks.map((book) => <tr key={book.id}>
             <td className="px-3 py-4"><p className="font-bold">{book.title}</p><p dir="ltr" className="mt-1 text-xs text-slate-500">{book.slug}</p></td>
-            <td className="px-3 py-4">{t(book.format === 'ebook' ? 'إلكتروني' : 'ورقي', language)}{book.format === 'ebook' && !book.fileStorageKey && <p className="mt-1 text-xs text-amber-800">{t('ملف PDF غير مرفق', language)}</p>}</td>
+            <td className="px-3 py-4">{t(book.format === 'ebook' ? 'إلكتروني' : 'ورقي', language)}{book.format === 'ebook' && !book.fileStorageKey && !Object.values(book.bookFiles || {}).some((entry) => entry?.key) && <p className="mt-1 text-xs text-amber-800">{t('ملف PDF غير مرفق', language)}</p>}{book.format === 'ebook' && <p className="mt-1 text-xs text-slate-500">{(['ar', 'en', 'fr'] as const).filter((code) => book.bookFiles?.[code]?.key || (code === 'ar' && book.fileStorageKey)).map((code) => ({ ar: 'العربية', en: 'English', fr: 'Français' })[code]).join(' · ')}</p>}</td>
             <td className="px-3 py-4">{new Intl.NumberFormat(language, { style: 'currency', currency: book.currency }).format(Number(book.price))}</td>
             <td className="px-3 py-4"><span className={`rounded-full px-3 py-1 text-xs font-bold ${(book.status || (book.isPublished ? 'published' : 'draft')) === 'published' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-700'}`}>{(book.status || (book.isPublished ? 'published' : 'draft')) === 'archived' ? t('مؤرشفة', language) : (book.status || (book.isPublished ? 'published' : 'draft')) === 'published' ? t('منشورة', language) : t('مسودة', language)}</span></td>
             <td className="px-3 py-4"><div className="flex flex-wrap gap-3">
               <Link to={`/${locale}/admin/shop/books/${book.id}/edit`} className="font-bold text-emerald-800 underline">{t('تعديل', language)}</Link>
-              {['ADMIN', 'SUPER_ADMIN'].includes(user?.role || '') && (book.status || (book.isPublished ? 'published' : 'draft')) !== 'archived' && <button type="button" onClick={() => void togglePublished(book)} disabled={busyId === book.id || book.format === 'ebook' && !book.fileStorageKey} className="font-bold text-slate-700 underline disabled:opacity-40">{t((book.status || (book.isPublished ? 'published' : 'draft')) === 'published' ? 'إلغاء النشر' : 'نشر', language)}</button>}
+              {['ADMIN', 'SUPER_ADMIN'].includes(user?.role || '') && (book.status || (book.isPublished ? 'published' : 'draft')) !== 'archived' && <button type="button" onClick={() => void togglePublished(book)} disabled={busyId === book.id || book.format === 'ebook' && !book.fileStorageKey && !Object.values(book.bookFiles || {}).some((entry) => entry?.key)} className="font-bold text-slate-700 underline disabled:opacity-40">{t((book.status || (book.isPublished ? 'published' : 'draft')) === 'published' ? 'إلغاء النشر' : 'نشر', language)}</button>}
               {['ADMIN', 'SUPER_ADMIN'].includes(user?.role || '') && book.status !== 'archived' && <button type="button" onClick={async () => {
                 if (!window.confirm(t('أرشفة هذا الكتاب نهائيًا؟', language))) return;
                 setBusyId(book.id);

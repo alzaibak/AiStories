@@ -145,3 +145,13 @@ test('manual donations cannot set units or start paid from the client payload', 
   assert.equal(schemas.manualDonationSchema.safeParse({ amount: 10, source: 'manual_cash', status: 'paid' }).success, false);
   assert.equal(schemas.manualDonationSchema.safeParse({ amount: 10, source: 'manual_cash' }).success, true);
 });
+test('unpaid checkout attempts are never visible to the reader', () => {
+  const { isReaderVisibleOrderStatus, READER_VISIBLE_ORDER_STATUSES } = require('../utils/orderState');
+  for (const status of ['pending', 'pending_payment', 'failed', 'expired', 'canceled', 'cancelled']) {
+    assert.equal(isReaderVisibleOrderStatus(status), false, `${status} must stay hidden`);
+  }
+  for (const status of ['paid', 'fulfilled', 'refunded', 'partially_refunded']) {
+    assert.equal(isReaderVisibleOrderStatus(status), true, `${status} must stay listed`);
+  }
+  assert.ok(!READER_VISIBLE_ORDER_STATUSES.includes('pending_payment'));
+});

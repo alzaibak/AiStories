@@ -6,7 +6,9 @@ const { PUBLIC_REFERENCE_FIELDS } = require('../utils/mediaCleanup');
 const PUBLIC_URL_FIELD = /(cover|image|photo|banner|thumbnail|avatar|illustration|hero|social|attachment|url|file)/i;
 const NOT_A_PUBLIC_URL = new Set([
   'coverAlt', 'bannerAlt', 'illustrationAlt', 'imageCredit', 'focalPoint',
-  'coverVariants', 'fileStorageKey', 'previewFileKey', 'fileName'
+  'coverVariants', 'fileStorageKey', 'previewFileKey', 'fileName',
+  // Per-language ebook PDFs: private storage keys, like fileStorageKey.
+  'bookFiles'
 ]);
 
 function publicUrlFields(model) {

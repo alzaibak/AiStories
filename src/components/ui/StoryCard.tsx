@@ -102,8 +102,8 @@ export function StoryCard({
               <AccessBadge isFree={Boolean(story.isFree)} language={language} />
             </div>
             {(isNew || isUpdated) && <div className="pointer-events-none absolute inset-x-0 bottom-0 flex gap-2 p-4">
-              {isNew && <span className="rounded-full bg-brand px-2.5 py-1 text-[0.6875rem] font-bold text-brand-on">{translateText('جديد', language)}</span>}
-              {isUpdated && <span className="rounded-full bg-gold px-2.5 py-1 text-[0.6875rem] font-bold text-gold-on">{translateText('محدّثة', language)}</span>}
+              {isNew && <span className="rounded-full bg-brand px-2.5 py-1 text-[0.6875rem] font-semibold text-brand-on">{translateText('جديد', language)}</span>}
+              {isUpdated && <span className="rounded-full bg-gold px-2.5 py-1 text-[0.6875rem] font-semibold text-gold-on">{translateText('محدّثة', language)}</span>}
             </div>}
           </div>
           <div className="flex flex-col justify-center gap-4 p-6 sm:p-8">
@@ -121,7 +121,7 @@ export function StoryCard({
               ) : null}
               {story.isStoryOfTheWeek && <span className="rounded-full bg-gold-soft px-2 py-1 text-gold-ink">{translateText('حكاية الأسبوع', language)}</span>}
             </div>
-            <h3 className="text-2xl font-bold leading-snug text-ink sm:text-3xl">
+            <h3 className="text-2xl font-semibold leading-snug text-ink sm:text-3xl">
               <Link to={href} className="hover:text-brand-ink">
                 {story.title}
               </Link>
@@ -171,8 +171,8 @@ export function StoryCard({
             <AccessBadge isFree={Boolean(story.isFree)} language={language} />
           </div>
           {(isNew || isUpdated) && <div className="pointer-events-none absolute inset-x-0 bottom-0 flex gap-2 p-3">
-            {isNew && <span className="rounded-full bg-brand px-2 py-1 text-[0.625rem] font-bold text-brand-on">{translateText('جديد', language)}</span>}
-            {isUpdated && <span className="rounded-full bg-gold px-2 py-1 text-[0.625rem] font-bold text-gold-on">{translateText('محدّثة', language)}</span>}
+            {isNew && <span className="rounded-full bg-brand px-2 py-1 text-[0.625rem] font-semibold text-brand-on">{translateText('جديد', language)}</span>}
+            {isUpdated && <span className="rounded-full bg-gold px-2 py-1 text-[0.625rem] font-semibold text-gold-on">{translateText('محدّثة', language)}</span>}
           </div>}
         </div>
         <div className="flex flex-1 flex-col p-4 sm:p-5">
@@ -182,7 +182,7 @@ export function StoryCard({
             {minutes ? <span>{pluralMinutes(minutes, language)}</span> : null}
             {story.isStoryOfTheWeek && <span className="text-gold-ink">{translateText('حكاية الأسبوع', language)}</span>}
           </div>
-          <h3 dir="auto" className="mt-2 text-lg font-bold leading-snug text-ink">
+          <h3 dir="auto" className="mt-2 text-lg font-semibold leading-snug text-ink">
             <Link to={href} className="transition hover:text-brand-ink">
               {story.title}
             </Link>

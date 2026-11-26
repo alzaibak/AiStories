@@ -15,7 +15,7 @@ type PreviewMode = (typeof modes)[number];
 
 const modeLabel: Record<PreviewMode, string> = {
   light: 'فاتح',
-  sepia: 'وضع ورقي',
+  reading: 'وضع القراءة',
   dark: 'داكن'
 };
 
@@ -119,7 +119,7 @@ export default function DesignSystemPage() {
             </h1>
             <p className="mt-4 max-w-2xl text-base leading-8 text-ink-muted sm:text-lg sm:leading-9">
               {translateText('حكايات الأنبياء', language)} · {translateText('قراءة هادئة، مصدر واضح', language)} —{' '}
-              {translateText('ألوان دافئة، طباعة عربية مريحة، وثلاث أضواء للقراءة: نهاري، ورقي، وليلي.', language)}
+              {translateText('ألوان دافئة، طباعة عربية مريحة، وثلاثة أوضاع للقراءة: فاتح، قراءة، وداكن.', language)}
             </p>
             <div className="mt-6 flex flex-wrap gap-2">
               {['1.15rem', '1.5rem', '2rem', '3rem'].map((size) => (
@@ -183,7 +183,7 @@ export default function DesignSystemPage() {
                 <tr className="text-xs text-ink-faint">
                   <th className="px-4 py-2 text-start font-semibold">{translateText('الزوج اللوني', language)}</th>
                   <th className="px-3 py-2 text-start font-semibold">{translateText('الوضع الفاتح', language)}</th>
-                  <th className="px-3 py-2 text-start font-semibold">{translateText('الوضع الورقي', language)}</th>
+                  <th className="px-3 py-2 text-start font-semibold">{translateText('وضع القراءة', language)}</th>
                   <th className="px-3 py-2 text-start font-semibold">{translateText('الوضع الداكن', language)}</th>
                 </tr>
               </thead>
@@ -212,12 +212,12 @@ export default function DesignSystemPage() {
           <SectionTitle
             eyebrow={translateText('الخطوط', language)}
             title={translateText('طباعة تُقرأ بلا جهد', language)}
-            note={translateText('IBM Plex Sans Arabic للواجهة، Noto Naskh Arabic لنص الحكاية، مع Lora للنص اللاتيني. الخطوط مستضافة محليًا.', language)}
+            note={translateText('IBM Plex Sans Arabic للواجهة، Reem Kufi للعناوين، Amiri لنص الحكاية، مع Source Serif 4 للنص اللاتيني. الخطوط مستضافة محليًا.', language)}
           />
           <div className="grid gap-4 lg:grid-cols-2">
             <article className="ds-card p-5 sm:p-7">
               <div className="flex items-center justify-between gap-3">
-                <p className="text-xs font-bold text-ink-faint">{translateText('قراءة', language)} · Noto Naskh Arabic</p>
+                <p className="text-xs font-semibold text-ink-faint">{translateText('قراءة', language)} · Amiri</p>
                 <span className="rounded-full bg-brand-soft px-2.5 py-1 text-[0.625rem] font-bold text-brand-ink">1.0625–1.1875rem / 2.05</span>
               </div>
               <p dir="rtl" className="ds-reading mt-4">
@@ -240,7 +240,7 @@ export default function DesignSystemPage() {
               </p>
               <div className="mt-5 border-t border-line pt-4">
                 <p className="font-reading text-base leading-8 text-ink-muted" dir="ltr" lang="en">
-                  The evening settled over the city, one lamp at a time. <span className="text-ink-faint">— Lora, Latin reading</span>
+                  The evening settled over the city, one lamp at a time. <span className="text-ink-faint">— Source Serif 4, Latin reading</span>
                 </p>
               </div>
             </article>

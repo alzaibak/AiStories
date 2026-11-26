@@ -19,10 +19,42 @@ const TRANSITIONS = {
   amount_mismatch: ['pending_payment', 'paid', 'refunded']
 };
 
+/**
+ * Statuses a reader may see in the account. Checkout attempts that were never
+ * paid (pending, pending_payment, expired, failed, canceled) are never listed,
+ * so no reader surface can show an abandoned order as "pending".
+ */
+const READER_VISIBLE_ORDER_STATUSES = ['paid', 'fulfilled', 'refunded', 'partially_refunded', 'amount_mismatch'];
+
+function isReaderVisibleOrderStatus(status) {
+  return READER_VISIBLE_ORDER_STATUSES.includes(normalizeOrderStatus(status));
+}
+
 function normalizeOrderStatus(status) {
   if (status === 'pending') return 'pending_payment';
   if (status === 'cancelled') return 'canceled';
   return ORDER_STATUSES.includes(status) ? status : 'pending_payment';
+}
+
+/** Human labels for anything that prints an order status (exports, emails). */
+const ORDER_STATUS_LABELS = {
+  pending: { ar: 'بانتظار الدفع', en: 'Awaiting payment', fr: 'En attente de paiement' },
+  pending_payment: { ar: 'بانتظار الدفع', en: 'Awaiting payment', fr: 'En attente de paiement' },
+  paid: { ar: 'قيد التجهيز', en: 'Processing', fr: 'En préparation' },
+  fulfilled: { ar: 'مكتمل', en: 'Completed', fr: 'Terminée' },
+  failed: { ar: 'فشل الدفع', en: 'Payment failed', fr: 'Paiement échoué' },
+  expired: { ar: 'انتهت المهلة', en: 'Expired', fr: 'Expirée' },
+  canceled: { ar: 'ملغى', en: 'Cancelled', fr: 'Annulée' },
+  cancelled: { ar: 'ملغى', en: 'Cancelled', fr: 'Annulée' },
+  refunded: { ar: 'مسترجع', en: 'Refunded', fr: 'Remboursée' },
+  partially_refunded: { ar: 'مسترجع جزئياً', en: 'Partially refunded', fr: 'Partiellement remboursée' },
+  amount_mismatch: { ar: 'قيد المراجعة', en: 'Under review', fr: 'En vérification' }
+};
+
+function orderStatusLabel(status, language = 'ar') {
+  const key = String(status || '');
+  const entry = ORDER_STATUS_LABELS[key] || ORDER_STATUS_LABELS[normalizeOrderStatus(key)];
+  return entry?.[language] || entry?.fr || key;
 }
 
 function canTransition(from, to) {
@@ -88,6 +120,10 @@ function makeOrderNumber(id, now = new Date()) {
 
 module.exports = {
   ORDER_STATUSES,
+  ORDER_STATUS_LABELS,
+  orderStatusLabel,
+  READER_VISIBLE_ORDER_STATUSES,
+  isReaderVisibleOrderStatus,
   TRANSITIONS,
   normalizeOrderStatus,
   canTransition,

@@ -54,6 +54,10 @@ const User = sequelize.define('User', {
         allowNull: false,
         defaultValue: { marketing: true, reminders: true }
     },
+    shippingAddress: {
+        type: DataTypes.JSON,
+        allowNull: true
+    },
     status: {
         type: DataTypes.ENUM('ACTIVE', 'PENDING', 'SUSPENDED'),
         allowNull: false,

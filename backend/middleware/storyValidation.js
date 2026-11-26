@@ -114,10 +114,62 @@ const storySchema = z.object({
   isStoryOfTheWeek: z.boolean().optional()
 });
 
+const blockLocalizedText = (max) => z.object({
+  ar: z.string().trim().max(max).optional().default(''),
+  en: z.string().trim().max(max).optional().default(''),
+  fr: z.string().trim().max(max).optional().default('')
+});
+
+const partBlockImage = z.object({
+  url: httpUrl,
+  thumbUrl: httpUrl.optional().default(''),
+  width: z.number().int().nonnegative().max(20000).optional().default(0),
+  height: z.number().int().nonnegative().max(20000).optional().default(0),
+  placeholder: z.string().max(8000).optional().default('')
+});
+
+const partBlockSchema = z.object({
+  id: z.union([z.number().int().positive(), z.string().max(64)]).optional(),
+  type: z.enum(['text', 'image', 'quote']),
+  text: blockLocalizedText(100000).optional(),
+  image: partBlockImage.optional(),
+  alt: blockLocalizedText(300).optional(),
+  caption: blockLocalizedText(500).optional(),
+  reference: blockLocalizedText(300).optional(),
+  credit: z.string().trim().max(300).optional().default(''),
+  layout: z.enum(['full', 'wide']).optional().default('full'),
+  decorative: z.boolean().optional().default(false)
+}).superRefine((block, ctx) => {
+  if (block.type === 'image') {
+    if (!block.image) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'L’image du bloc est manquante.', path: ['image'] });
+    }
+    if (!block.decorative && !(block.alt?.ar || '').trim() && !(block.alt?.en || '').trim() && !(block.alt?.fr || '').trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Un texte alternatif est requis, ou cochez « image décorative ».',
+        path: ['alt', 'ar']
+      });
+    }
+    return;
+  }
+  if (!(block.text?.ar || '').trim()) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Le texte arabe est requis.', path: ['text', 'ar'] });
+  }
+});
+
+const partBlocksSchema = z.array(partBlockSchema).max(40).superRefine((blocks, ctx) => {
+  const images = blocks.filter((block) => block.type === 'image').length;
+  if (images > 12) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Une partie ne peut pas contenir plus de 12 images.' });
+  }
+});
+
 const partSchema = z.object({
   partNumber: z.number().int().positive(),
   title: z.string().trim().min(1).max(255),
-  content: z.string().trim().min(1).max(1000000),
+  content: z.string().trim().max(1000000).optional().default(''),
+  blocks: partBlocksSchema.optional(),
   illustrationImage: optionalHttpUrl,
   illustrationAlt: optionalLocalizedValue(300).optional(),
   translations: translationsSchema(['title', 'content', 'endingHook']),
@@ -278,6 +330,17 @@ const bookSchema = z.object({
   isPublished: z.boolean().optional()
 });
 
+/** Reader delivery address, saved once in the profile and reused by the cart. */
+const shippingAddressSchema = z.object({
+  name: z.string().trim().min(2).max(120),
+  line1: z.string().trim().min(3).max(200),
+  line2: z.string().trim().max(200).optional().default(''),
+  city: z.string().trim().min(2).max(120),
+  postalCode: z.string().trim().min(2).max(20),
+  country: z.string().trim().regex(/^[A-Za-z]{2}$/).transform((value) => value.toUpperCase()),
+  phone: z.string().trim().min(6).max(30).regex(/^[0-9+().\s-]+$/)
+});
+
 const mediaSchema = z.object({
   storyId: z.number().int().positive().nullable().optional(),
   partId: z.number().int().positive().nullable().optional(),
@@ -301,7 +364,9 @@ const mediaUploadSchema = z.object({
   fileName: z.string().trim().min(1).max(255),
   mimeType: z.enum(['image/jpeg', 'image/png', 'image/webp', 'application/pdf', 'video/mp4', 'video/webm']),
   depictionPolicyConfirmed: z.literal(true),
-  altText: optionalLocalizedValue(1000).optional()
+  altText: optionalLocalizedValue(1000).optional(),
+  // Language of an ebook PDF: one private file per language version.
+  language: z.enum(['ar', 'en', 'fr']).optional()
 
 }).refine((value) =>
   value.mediaType === 'ebook'
@@ -338,7 +403,9 @@ const bookCheckoutSchema = z.object({
   digitalConsent: z.boolean().default(false),
   items: z.array(z.object({
     bookId: z.number().int().positive(),
-    quantity: z.number().int().min(1).max(20)
+    quantity: z.number().int().min(1).max(20),
+    // Ebook PDF version chosen by the reader (only that file is downloadable).
+    language: z.enum(['ar', 'en', 'fr']).optional()
   }).strict()).min(1).max(10).superRefine((items, context) => {
     if (new Set(items.map((item) => item.bookId)).size !== items.length) {
       context.addIssue({ code: 'custom', message: 'Chaque livre ne peut apparaître qu’une seule fois.' });
@@ -626,5 +693,6 @@ module.exports = {
   campaignUpdateSchema,
   manualDonationSchema,
   emailTemplateSchema,
-  policyPageSchema
+  policyPageSchema,
+  shippingAddressSchema
 };

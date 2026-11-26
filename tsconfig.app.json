@@ -22,7 +22,7 @@
     "noImplicitAny": false,
     "noFallthroughCasesInSwitch": false,
 
-    "baseUrl": ".",
+    /* Paths are resolved relative to this file; baseUrl is deprecated in TS 7. */
     "paths": {
       "@/*": ["./src/*"]
     }

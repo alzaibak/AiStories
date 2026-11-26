@@ -124,6 +124,30 @@ const StoryPart = sequelize.define('StoryPart', {
   indexes: [{ unique: true, fields: ['storyId', 'partNumber'] }]
 });
 
+const StoryPartBlock = sequelize.define('StoryPartBlock', {
+  id,
+  partId: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: { model: 'story_parts', key: 'id' },
+    onDelete: 'CASCADE'
+  },
+  position: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 },
+  type: { type: DataTypes.STRING(16), allowNull: false, defaultValue: 'text' },
+  text: { type: DataTypes.JSON, allowNull: true },
+  image: { type: DataTypes.JSON, allowNull: true },
+  alt: { type: DataTypes.JSON, allowNull: true },
+  caption: { type: DataTypes.JSON, allowNull: true },
+  reference: { type: DataTypes.JSON, allowNull: true },
+  credit: { type: DataTypes.STRING(300), allowNull: false, defaultValue: '' },
+  layout: { type: DataTypes.STRING(16), allowNull: false, defaultValue: 'full' },
+  decorative: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false }
+}, {
+  ...timestamps,
+  tableName: 'story_part_blocks',
+  indexes: [{ fields: ['partId', 'position'] }]
+});
+
 const StoryVideo = sequelize.define('StoryVideo', {
   id,
   storyId: {
@@ -300,6 +324,8 @@ const Book = sequelize.define('Book', {
   isReturnable: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
   returnWindowDays: { type: DataTypes.INTEGER, allowNull: true },
   fileStorageKey: { type: DataTypes.STRING(1024), allowNull: true },
+  // One private PDF per language: { ar: { key, name }, en: {...}, fr: {...} }.
+  bookFiles: { type: DataTypes.JSON, allowNull: true },
   previewFileKey: { type: DataTypes.STRING(1024), allowNull: true },
   coverAlt: { type: DataTypes.JSON, allowNull: true },
   weightGrams: { type: DataTypes.INTEGER, allowNull: true },
@@ -375,7 +401,9 @@ const StoreCartItem = sequelize.define('StoreCartItem', {
   id,
   cartId: { type: DataTypes.INTEGER, allowNull: false, references: { model: 'store_carts', key: 'id' }, onDelete: 'CASCADE' },
   bookId: { type: DataTypes.INTEGER, allowNull: false, references: { model: 'books', key: 'id' }, onDelete: 'CASCADE' },
-  quantity: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 }
+  quantity: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 },
+  // Chosen ebook PDF language, fixed when the reader adds it to the cart.
+  language: { type: DataTypes.STRING(5), allowNull: true }
 }, { ...timestamps, tableName: 'store_cart_items', indexes: [{ unique: true, fields: ['cartId', 'bookId'] }] });
 
 const StoreOrder = sequelize.define('StoreOrder', {
@@ -436,6 +464,8 @@ const StoreOrderItem = sequelize.define('StoreOrderItem', {
   unitPrice: { type: DataTypes.DECIMAL(10, 2), allowNull: false },
   lineTotalMinor: { type: DataTypes.INTEGER, allowNull: true },
   formatSnapshot: { type: DataTypes.STRING(16), allowNull: true },
+  // Language of the ebook the reader bought (ar/en/fr); only that PDF is served.
+  language: { type: DataTypes.STRING(5), allowNull: true },
   titleSnapshot: { type: DataTypes.STRING(255), allowNull: false },
   // Snapshot of the return policy at purchase time: editing the policy later
   // never changes what an existing order is entitled to.
@@ -491,6 +521,8 @@ const Entitlement = sequelize.define('Entitlement', {
   revokedAt: { type: DataTypes.DATE, allowNull: true },
   downloadCount: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
   downloadLimit: { type: DataTypes.INTEGER, allowNull: true },
+  // Version of the ebook this right covers; null means "any available version".
+  contentLanguage: { type: DataTypes.STRING(5), allowNull: true },
   // Linked by migration 025 once mystery_box_purchases exists; keeping the model
   // free of a hard reference lets migration 009 create entitlements first.
   mysteryBoxPurchaseId: {
@@ -867,7 +899,7 @@ const CampaignUpdate = sequelize.define('CampaignUpdate', {
 }, { ...timestamps, tableName: 'campaign_updates', indexes: [{ fields: ['campaignId', 'publishedAt'] }] });
 
 const models = {
-  Collection, Story, StoryPart, StoryVideo, Quiz, Question, QuizOption, QuizAttempt, ReadingProgress,
+  Collection, Story, StoryPart, StoryPartBlock, StoryVideo, Quiz, Question, QuizOption, QuizAttempt, ReadingProgress,
   Book, SlugRedirect, AdminPasswordReset, MediaAsset, StyleGuide, StoreCart, StoreCartItem, StoreOrder, StoreOrderItem,
   Plan, Subscription, Entitlement, ProcessedWebhookEvent, ReviewerNote,   BadgeType,
   BadgeAward,
@@ -886,6 +918,8 @@ Story.belongsTo(sequelize.models.User, { foreignKey: 'authorId', as: 'author' })
 sequelize.models.User.hasMany(Story, { foreignKey: 'reviewerId', as: 'reviewedStories' });
 Story.hasMany(StoryPart, { foreignKey: 'storyId', as: 'parts' });
 StoryPart.belongsTo(Story, { foreignKey: 'storyId', as: 'story' });
+StoryPart.hasMany(StoryPartBlock, { foreignKey: 'partId', as: 'blocks' });
+StoryPartBlock.belongsTo(StoryPart, { foreignKey: 'partId', as: 'part' });
 Story.hasMany(StoryVideo, { foreignKey: 'storyId', as: 'videos' });
 StoryVideo.belongsTo(Story, { foreignKey: 'storyId', as: 'story' });
 StoryVideo.belongsTo(MediaAsset, { foreignKey: 'mediaAssetId', as: 'mediaAsset' });

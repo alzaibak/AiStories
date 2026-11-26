@@ -122,14 +122,14 @@ export function ReturnsPolicyPage() {
   const digitalPolicy = digitalPolicyText[language];
 
   return <div className="mx-auto max-w-4xl px-4 py-12 sm:py-16">
-    <p className="text-sm font-bold tracking-widest text-emerald-700">{t('سياسة الإرجاع والاسترداد')}</p>
-    <h1 className="mt-3 text-3xl font-black leading-relaxed text-emerald-950 dark:text-white sm:text-4xl">{t('إرجاع الكتب المطبوعة')}</h1>
-    <p className="mt-4 text-lg leading-9 text-slate-600 dark:text-slate-300">
+    <p className="text-sm font-semibold tracking-widest text-brand-ink">{t('سياسة الإرجاع والاسترداد')}</p>
+    <h1 className="mt-3 text-3xl font-semibold leading-relaxed text-brand-ink dark:text-brand-on sm:text-4xl">{t('إرجاع الكتب المطبوعة')}</h1>
+    <p className="mt-4 text-lg leading-9 text-ink-muted dark:text-ink-muted">
       {policy?.policyText?.[language] || t('نوضح هنا شروط الإرجاع والاسترداد بوضوح قبل الشراء.')}
     </p>
 
-    {loading && <div className="mt-8 h-24 animate-pulse rounded-2xl bg-emerald-50 dark:bg-white/5" />}
-    {error && <p role="alert" className="mt-6 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-900">{error}</p>}
+    {loading && <div className="mt-8 h-24 animate-pulse rounded-2xl bg-brand-soft dark:bg-surface/5" />}
+    {error && <p role="alert" className="mt-6 rounded-2xl border border-danger bg-danger-soft p-4 text-sm text-danger">{error}</p>}
 
     {policy && <div className="mt-9 space-y-5">
       <section className="grid gap-4 sm:grid-cols-3">
@@ -137,79 +137,79 @@ export function ReturnsPolicyPage() {
           { icon: Clock3, title: 'مدة الإرجاع', value: `${policy.defaultReturnWindowDays} ${t('يومًا من التسليم')}` },
           { icon: ShieldCheck, title: 'فترة العدول القانونية', value: `${policy.legalWithdrawalDays} ${t('يومًا')}` },
           { icon: Truck, title: 'شحن الإرجاع', value: policy.returnShippingPayer === 'prepaid_label' ? t('على حسابنا') : t('على حساب العميل، مع تتبع') }
-        ].map(({ icon: Icon, title, value }) => <article key={title} className="rounded-2xl border border-emerald-950/10 bg-white p-5 dark:border-white/10 dark:bg-slate-900">
-          <Icon size={20} className="text-emerald-700 dark:text-emerald-300" />
-          <h2 className="mt-2 text-sm font-black text-slate-950 dark:text-white">{t(title)}</h2>
-          <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{value}</p>
+        ].map(({ icon: Icon, title, value }) => <article key={title} className="rounded-2xl border border-line bg-surface p-5 dark:bg-surface-sunken">
+          <Icon size={20} className="text-brand-ink dark:text-brand-ink" />
+          <h2 className="mt-2 text-sm font-semibold text-ink dark:text-brand-on">{t(title)}</h2>
+          <p className="mt-1 text-sm text-ink-muted dark:text-ink-muted">{value}</p>
         </article>)}
       </section>
 
-      <section className="rounded-2xl border border-emerald-950/10 bg-white p-6 dark:border-white/10 dark:bg-slate-900">
-        <h2 className="text-lg font-extrabold text-slate-950 dark:text-white">{t('كيف تطلب الإرجاع؟')}</h2>
-        <ol className="mt-4 space-y-3 text-sm leading-7 text-slate-600 dark:text-slate-300">
+      <section className="rounded-2xl border border-line bg-surface p-6 dark:bg-surface-sunken">
+        <h2 className="text-lg font-semibold text-ink dark:text-brand-on">{t('كيف تطلب الإرجاع؟')}</h2>
+        <ol className="mt-4 space-y-3 text-sm leading-7 text-ink-muted dark:text-ink-muted">
           {[t('افتح حسابك ← الطلبات، واختر الكتاب المؤهل ثم «إرجاع كتاب».'),
             t('اختر السبب وأضف تعليقًا وصورًا إن طُلب منك ذلك.'),
             t('راجع ملخص المبلغ المسترد قبل التأكيد.'),
             t('بعد الموافقة، أرسل الطرد إلى عنوان الإرجاع وأدخل رقم التتبع.'),
             t('نفحص الكتاب ثم نصدر الاسترداد إلى وسيلة الدفع الأصلية.')
           ].map((step, index) => <li key={step} className="flex gap-3">
-            <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-emerald-50 text-xs font-black text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-200">{index + 1}</span>
+            <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-brand-soft text-xs font-semibold text-brand-ink dark:bg-brand/15 dark:text-brand-on">{index + 1}</span>
             <span>{step}</span>
           </li>)}
         </ol>
       </section>
 
-      <section className="rounded-2xl border border-emerald-950/10 bg-white p-6 dark:border-white/10 dark:bg-slate-900">
-        <h2 className="text-lg font-extrabold text-slate-950 dark:text-white">{t('الشروط')}</h2>
-        <p className="mt-3 leading-8 text-slate-600 dark:text-slate-300">{policy.conditionText?.[language] || t('يجب أن يصل الكتاب بحالته الأصلية وغير مستعمل.')}</p>
-        <ul className="mt-4 space-y-2 text-sm text-slate-600 dark:text-slate-300">
+      <section className="rounded-2xl border border-line bg-surface p-6 dark:bg-surface-sunken">
+        <h2 className="text-lg font-semibold text-ink dark:text-brand-on">{t('الشروط')}</h2>
+        <p className="mt-3 leading-8 text-ink-muted dark:text-ink-muted">{policy.conditionText?.[language] || t('يجب أن يصل الكتاب بحالته الأصلية وغير مستعمل.')}</p>
+        <ul className="mt-4 space-y-2 text-sm text-ink-muted dark:text-ink-muted">
           {[t('الكتب المطبوعة فقط؛ الكتب الإلكترونية والاشتراكات والتبرعات غير قابلة للإرجاع.'),
             t('تُحسب المدة من تاريخ التسليم المسجل في حسابك.'),
             t('يُرد المبلغ المدفوع فعليًا بعد الخصم، لا السعر قبل الخصم.'),
             t('الطلب الواحد يُرجع مرة واحدة لكل نسخة.')
-          ].map((line) => <li key={line} className="flex gap-2"><CheckCircle2 size={16} className="mt-1 shrink-0 text-emerald-700" />{line}</li>)}
+          ].map((line) => <li key={line} className="flex gap-2"><CheckCircle2 size={16} className="mt-1 shrink-0 text-brand-ink" />{line}</li>)}
         </ul>
       </section>
 
-      <section className="rounded-2xl border border-slate-300 bg-slate-50 p-6 dark:border-white/15 dark:bg-white/5">
-        <h2 className="text-lg font-extrabold text-slate-950 dark:text-white">{digitalPolicy.title}</h2>
-        <p className="mt-2 text-sm leading-7 text-slate-600 dark:text-slate-300">{digitalPolicy.body}</p>
-        <ul className="mt-4 space-y-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
-          {digitalPolicy.lines.map((line) => <li key={line} className="flex gap-2"><AlertTriangle size={16} className="mt-1 shrink-0 text-slate-600 dark:text-slate-300" />{line}</li>)}
+      <section className="rounded-2xl border border-line bg-surface-soft p-6 dark:bg-surface/5">
+        <h2 className="text-lg font-semibold text-ink dark:text-brand-on">{digitalPolicy.title}</h2>
+        <p className="mt-2 text-sm leading-7 text-ink-muted dark:text-ink-muted">{digitalPolicy.body}</p>
+        <ul className="mt-4 space-y-2 text-sm font-semibold text-ink">
+          {digitalPolicy.lines.map((line) => <li key={line} className="flex gap-2"><AlertTriangle size={16} className="mt-1 shrink-0 text-ink-muted dark:text-ink-muted" />{line}</li>)}
         </ul>
       </section>
 
-      <section className="rounded-2xl border border-amber-200 bg-amber-50/70 p-6 dark:border-amber-500/30 dark:bg-amber-950/30">
-        <h2 className="flex items-center gap-2 text-lg font-extrabold text-amber-950 dark:text-amber-100"><AlertTriangle size={18} /> {t('مثال محسوب من الإعدادات الحالية')}</h2>
-        <p className="mt-2 text-sm text-amber-900 dark:text-amber-200">{t('كتاب بـ 15.00 EUR ورسوم توصيل 4.90 EUR.')}</p>
-        <ul className="mt-3 space-y-2 text-sm font-semibold text-amber-950 dark:text-amber-100">
+      <section className="rounded-2xl border border-gold bg-gold-soft p-6 dark:border-gold dark:bg-gold-soft">
+        <h2 className="flex items-center gap-2 text-lg font-semibold text-gold-ink dark:text-gold-ink"><AlertTriangle size={18} /> {t('مثال محسوب من الإعدادات الحالية')}</h2>
+        <p className="mt-2 text-sm text-gold-ink dark:text-gold-ink">{t('كتاب بـ 15.00 EUR ورسوم توصيل 4.90 EUR.')}</p>
+        <ul className="mt-3 space-y-2 text-sm font-semibold text-gold-ink dark:text-gold-ink">
           <li>{example.legalLine}</li>
           <li>{example.commercialLine}</li>
         </ul>
-        {!policy.applyLegalWithdrawalRules && <p className="mt-3 rounded-xl bg-white/70 p-3 text-xs leading-6 text-amber-950 dark:bg-black/20 dark:text-amber-100">
+        {!policy.applyLegalWithdrawalRules && <p className="mt-3 rounded-xl bg-surface/70 p-3 text-xs leading-6 text-gold-ink dark:bg-black/20 dark:text-gold-ink">
           {t('تنبيه: القواعد القانونية لفترة العدول معطّلة في الإعدادات الحالية. راجع الإدارة إن كنت تعتقد أن هذا خطأ.')}
         </p>}
       </section>
 
-      <section className="rounded-2xl border border-emerald-950/10 bg-white p-6 dark:border-white/10 dark:bg-slate-900">
-        <h2 className="text-lg font-extrabold text-slate-950 dark:text-white">{t('الأسباب المقبولة')}</h2>
+      <section className="rounded-2xl border border-line bg-surface p-6 dark:bg-surface-sunken">
+        <h2 className="text-lg font-semibold text-ink dark:text-brand-on">{t('الأسباب المقبولة')}</h2>
         <ul className="mt-3 flex flex-wrap gap-2">
-          {policy.reasons.map((reason) => <li key={reason.code} className="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-900 dark:bg-emerald-500/15 dark:text-emerald-100">{reason.label}</li>)}
+          {policy.reasons.map((reason) => <li key={reason.code} className="rounded-full bg-brand-soft px-3 py-1.5 text-xs font-semibold text-brand-ink dark:bg-brand/15 dark:text-brand-on">{reason.label}</li>)}
         </ul>
-        <p className="mt-4 text-sm leading-7 text-slate-600 dark:text-slate-300">{policy.instructions}</p>
+        <p className="mt-4 text-sm leading-7 text-ink-muted dark:text-ink-muted">{policy.instructions}</p>
       </section>
 
-      <section className="rounded-2xl border border-emerald-950/10 bg-white p-6 dark:border-white/10 dark:bg-slate-900">
-        <h2 className="text-lg font-extrabold text-slate-950 dark:text-white">{t('عنوان الإرجاع')}</h2>
-        <pre className="mt-3 whitespace-pre-wrap rounded-xl bg-slate-50 p-4 text-sm leading-6 text-slate-700 dark:bg-white/5 dark:text-slate-200">{policy.returnAddressText || t('يُرسل العنوان بعد الموافقة على الطلب.')}</pre>
+      <section className="rounded-2xl border border-line bg-surface p-6 dark:bg-surface-sunken">
+        <h2 className="text-lg font-semibold text-ink dark:text-brand-on">{t('عنوان الإرجاع')}</h2>
+        <pre className="mt-3 whitespace-pre-wrap rounded-xl bg-surface-soft p-4 text-sm leading-6 text-ink dark:bg-surface/5">{policy.returnAddressText || t('يُرسل العنوان بعد الموافقة على الطلب.')}</pre>
       </section>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-emerald-50 p-5 text-sm text-emerald-950 dark:bg-emerald-950/40 dark:text-emerald-100">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-brand-soft p-5 text-sm text-brand-ink dark:bg-brand/40 dark:text-brand-on">
         <span className="inline-flex items-center gap-2"><BookOpen size={16} /> {t('هل لديك سؤال عن طلب قديم؟')}</span>
-        <Link to={`/${language}/account`} className="rounded-full bg-emerald-900 px-4 py-2 font-bold text-white">{t('طلباتي وإرجاعاتي')}</Link>
+        <Link to={`/${language}/account`} className="rounded-full bg-brand px-4 py-2 font-semibold text-brand-on">{t('طلباتي وإرجاعاتي')}</Link>
       </div>
 
-      <p className="flex items-center justify-center gap-2 text-xs text-slate-500 dark:text-slate-400"><RefreshCw size={12} /> {t('تُحدَّث هذه الصفحة تلقائيًا عند تغيير الإدارة لسياسة الإرجاع.')}</p>
+      <p className="flex items-center justify-center gap-2 text-xs text-ink-muted dark:text-ink-muted"><RefreshCw size={12} /> {t('تُحدَّث هذه الصفحة تلقائيًا عند تغيير الإدارة لسياسة الإرجاع.')}</p>
     </div>}
   </div>;
 }

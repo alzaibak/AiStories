@@ -26,15 +26,18 @@ arches, arabesque rules) is used at low opacity and never over body text.
 
 | Theme | Attribute | Canvas | Mood |
 |---|---|---|---|
-| Paper (default) | `data-site-theme="light"` | `#FBF7EF` | Warm daylight reading |
-| Sepia | `data-site-theme="sepia"` | `#F2E5CD` | Aged paper, long reads |
-| Night | `data-site-theme="dark"` | `#0B1A24` | Deep night blue, never pure black |
+| Paper (default) | `data-theme="light"` | `#FBF8F2` | Warm daylight reading |
+| Sepia (reading) | `data-theme="reading"` | `#F1E4C8` | Aged paper, long reads |
+| Night | `data-theme="dark"` | `#0E1512` | Deep night, never pure black |
 
 The theme attribute is set on `<html>` by `SiteThemeProvider`, persisted in
 `localStorage` under `site-theme`, applied before first paint by an inline script
 in `index.html`, and exposed through `useSiteTheme()` (`theme`, `setTheme`,
 `cycleTheme`). Any subtree can preview a theme by setting `data-site-theme` on a
-wrapper — this is how the style guide shows all three modes side by side.
+wrapper — this is how the style guide shows all three modes side by side. The
+aliases are declared in the same selector list as the palettes (`:root,
+:root[data-theme='light'], [data-site-theme='light'] { … }`), so a preview reads
+exactly the tokens the site uses; there is no second palette to keep in sync.
 
 Users can switch in the header (sun/book/moon menu) and in the footer.
 

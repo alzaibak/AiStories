@@ -22,6 +22,7 @@ const {
   ACTIVE_PURCHASE_STATUSES,
   createMysteryBoxReservation,
   releaseMysteryBoxReservation,
+  releaseUserReservations,
   serializePurchase,
   markMysteryBoxShipped
 } = require('../utils/mysteryBoxService');
@@ -160,10 +161,12 @@ router.get('/mystery-box/active', async (req, res, next) => {
   try {
     const now = new Date();
     const language = requestedLanguage(req.query.lang);
+    // "Starts soon": a scheduled drop is announced up to seven days early.
+    const soon = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
     const boxes = await MysteryBox.findAll({
       where: {
         status: { [Op.in]: ['scheduled', 'active'] },
-        startAt: { [Op.lte]: now },
+        startAt: { [Op.lte]: soon },
         endAt: { [Op.gt]: now }
       },
       include: [
@@ -174,11 +177,12 @@ router.get('/mystery-box/active', async (req, res, next) => {
     });
     let header = null;
     for (const box of boxes) {
-      header = serializeHeader(box, { items: box.items, appearance: box.appearance, language });
+      header = serializeHeader(box, { items: box.items, appearance: box.appearance, language, now });
       if (header) break;
     }
-    res.set('Cache-Control', 'public, max-age=30, stale-while-revalidate=30');
-    res.json({ box: header });
+    // serverTime drives the countdown, so the payload must never be cached.
+    res.set('Cache-Control', 'no-store');
+    res.json({ box: header, serverTime: now.toISOString() });
   } catch (error) {
     next(error);
   }
@@ -278,6 +282,7 @@ router.get('/mystery-box/:slug', optionalAuthenticate, async (req, res, next) =>
       revealed
     });
     let perUserPurchaseCount = 0;
+    let paidPurchaseCount = 0;
     if (req.user) {
       perUserPurchaseCount = await MysteryBoxPurchase.count({
         where: {
@@ -288,6 +293,11 @@ router.get('/mystery-box/:slug', optionalAuthenticate, async (req, res, next) =>
             { status: 'pending', reservationExpiresAt: { [Op.gt]: new Date() } }
           ]
         }
+      });
+      // Paid purchases are the only ones that really use the per-person limit;
+      // a live reservation is just an unpaid attempt the reader can drop.
+      paidPurchaseCount = await MysteryBoxPurchase.count({
+        where: { userId: req.user.id, boxId: box.id, status: { [Op.in]: ACTIVE_PURCHASE_STATUSES } }
       });
     }
     let blockedReason = null;
@@ -300,9 +310,37 @@ router.get('/mystery-box/:slug', optionalAuthenticate, async (req, res, next) =>
       box: payload,
       purchase: purchase ? { id: purchase.id, status: purchase.status } : null,
       perUserPurchaseCount,
+      paidPurchaseCount,
       canPurchase: !blockedReason,
       blockedReason
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Drops the reader's own unpaid attempt after a cancelled or failed payment, so
+ * the buy button works again without waiting for the 30-minute reservation.
+ */
+router.post('/mystery-box/:slug/checkout/cancel', ...readers, async (req, res, next) => {
+  try {
+    const box = await MysteryBox.findOne({ where: { slug: req.params.slug }, attributes: ['id'] });
+    if (!box) return res.status(404).json({ message: 'Mystery box not found.' });
+    const { released, sessionIds } = await releaseUserReservations({ boxId: box.id, userId: req.user.id });
+    if (sessionIds.length) {
+      // Best effort: an old session must not be payable once its purchase is gone.
+      try {
+        const stripe = createStripeClient();
+        await Promise.all(sessionIds.map((id) => stripe.checkout.sessions.expire(id).catch(() => null)));
+      } catch {
+        /* the purchase is already cancelled on our side */
+      }
+    }
+    const paidPurchaseCount = await MysteryBoxPurchase.count({
+      where: { boxId: box.id, userId: req.user.id, status: { [Op.in]: ACTIVE_PURCHASE_STATUSES } }
+    });
+    res.json({ released, paidPurchaseCount });
   } catch (error) {
     next(error);
   }
@@ -373,11 +411,7 @@ router.post('/mystery-box/:slug/checkout', ...readers, validateBody(schemas.chec
     }, { idempotencyKey: `mystery-box-purchase-${reservation.purchase.id}` });
 
     if (!session.url) {
-      try {
-        await stripe.checkout.sessions.expire(session.id);
-      } finally {
-        await releaseMysteryBoxReservation(reservation.purchase.id);
-      }
+      // The catch below expires the session and releases the reservation once.
       throw new Error('Stripe did not return a Checkout URL.');
     }
     await reservation.purchase.update({ stripeCheckoutSessionId: session.id });
@@ -825,6 +859,22 @@ function csvCell(value) {
   return `"${text.replace(/"/g, '""')}"`;
 }
 
+/** French labels for the export: the file never shows raw status codes. */
+const PURCHASE_STATUS_LABELS = {
+  pending: 'En attente de paiement',
+  paid: 'Payée',
+  fulfilled: 'Livrée',
+  partially_fulfilled: 'Partiellement livrée',
+  refunded: 'Remboursée',
+  cancelled: 'Annulée'
+};
+const SHIPPING_STATUS_LABELS = {
+  to_ship: 'À expédier',
+  shipped: 'Expédiée',
+  delivered: 'Livrée',
+  returned: 'Retournée'
+};
+
 router.get('/admin/mystery-boxes/:id/export.csv', ...admins, async (req, res, next) => {
   try {
     const box = await MysteryBox.findByPk(parseId(req.params.id, 'Mystery box'));
@@ -847,7 +897,7 @@ router.get('/admin/mystery-boxes/:id/export.csv', ...admins, async (req, res, ne
       return [
         purchase.id,
         purchase.createdAt?.toISOString?.() || purchase.createdAt,
-        purchase.status,
+        PURCHASE_STATUS_LABELS[purchase.status] || purchase.status,
         purchase.user ? `${purchase.user.firstName} ${purchase.user.lastName}`.trim() : '',
         purchase.user?.email || '',
         address.phone || '',
@@ -858,7 +908,7 @@ router.get('/admin/mystery-boxes/:id/export.csv', ...admins, async (req, res, ne
         purchase.amountTotal,
         purchase.currency,
         purchase.priceTier,
-        purchase.shippingStatus || '',
+        purchase.shippingStatus ? SHIPPING_STATUS_LABELS[purchase.shippingStatus] || purchase.shippingStatus : '',
         purchase.carrier || '',
         purchase.trackingNumber || '',
         items

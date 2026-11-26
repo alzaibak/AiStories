@@ -19,6 +19,7 @@ const PUBLIC_REFERENCE_FIELDS = {
   Collection: ['cover', 'coverImage', 'bannerImage'],
   Story: ['cover', 'coverImage', 'heroImage', 'socialImage', 'coverVariants'],
   StoryPart: ['illustrationImage'],
+  StoryPartBlock: ['image'],
   StoryVideo: ['thumbnail', 'videoUrl'],
   Book: ['cover'],
   MediaAsset: ['externalUrl'],
@@ -86,7 +87,8 @@ function createMediaCleanup({
     MediaAsset,
     MysteryBoxAppearance,
     MysteryBoxItem,
-    StoryPart
+    StoryPart,
+    StoryPartBlock
   } = models;
 
   function report(context, error) {
@@ -114,6 +116,12 @@ function createMediaCleanup({
         attributes: ['id', 'illustrationImage']
       })
       : [];
+    const blocks = StoryPartBlock && parts.length
+      ? await StoryPartBlock.findAll({
+        where: { partId: { [Op.in]: parts.map((part) => part.id) } },
+        attributes: ['id', 'image']
+      })
+      : [];
     const assets = await mediaAssetsFor({ storyId: story.id, partIds: parts.map((part) => part.id) });
     const publicIds = collectPublicAssetIds([
       story.cover,
@@ -121,7 +129,8 @@ function createMediaCleanup({
       story.heroImage,
       story.socialImage,
       parseVariants(story.coverVariants),
-      parts.map((part) => part.illustrationImage)
+      parts.map((part) => part.illustrationImage),
+      blocks.map((block) => block.image)
     ]);
     return {
       label: `story ${story.id}`,

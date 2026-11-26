@@ -26,6 +26,7 @@ import {
   StoryDetailPage,
   StoryRequestPage
 } from '@/pages/stories/StoryPlatform';
+import { MysteryBoxEntryPage, MysteryBoxPage, MysteryBoxSuccessPage } from '@/pages/stories/MysteryBoxPage';
 
 function LocalizedRoutes() {
   const { locale = '' } = useParams();
@@ -58,6 +59,9 @@ export default function App() {
             <Route path="stories/:slug/read/:partNumber" element={<ReaderPage />} />
             <Route path="books" element={<BooksPage />} />
             <Route path="cart" element={<CartPage />} />
+            <Route path="mystery-box/success" element={<MysteryBoxSuccessPage />} />
+            <Route path="mystery-box/:slug" element={<MysteryBoxPage />} />
+            <Route path="mystery-box" element={<MysteryBoxEntryPage />} />
             <Route path="donations" element={<DonationsPage />} />
             <Route path="donate" element={<DonationsPage />} />
             <Route path="donation-campaigns/:slug" element={<DonationCampaignPage />} />

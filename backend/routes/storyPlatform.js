@@ -1,6 +1,7 @@
 const crypto = require('node:crypto');
 const express = require('express');
 const fs = require('fs');
+const path = require('path');
 const multer = require('multer');
 const { rateLimit } = require('express-rate-limit');
 const { Op } = require('sequelize');
@@ -9,6 +10,7 @@ const {
   Collection,
   Story,
   StoryPart,
+  StoryPartBlock,
   StoryVideo,
   Quiz,
   Question,
@@ -65,9 +67,24 @@ const {
 } = require('../utils/documentStorage');
 const { SAMPLE_EBOOK_STORAGE_KEY, SAMPLE_EBOOK_PATH } = require('../utils/sampleEbook');
 const { createDownloadToken, consumeDownloadToken } = require('../utils/downloadTokens');
-const { findActiveEntitlement, downloadQuota, consumeDownload } = require('../utils/bookDownloads');
+const {
+  findActiveEntitlement,
+  findDownloadableEntitlement,
+  downloadQuota,
+  consumeDownload,
+  releaseDownload
+} = require('../utils/bookDownloads');
+const { availableBookLanguages, isBookLanguage, resolveBookFile } = require('../utils/bookFiles');
 const { logSecurityEvent } = require('../utils/securityEvents');
-const { processStoryImage } = require('../utils/publicImages');
+const { processStoryImage, PUBLIC_DIRECTORY } = require('../utils/publicImages');
+const {
+  FILE_PATTERN,
+  textFromBlocks,
+  sanitizeBlocks,
+  localizeBlocks,
+  fallbackBlocks,
+  blockImageUrls
+} = require('../utils/partBlocks');
 const { deleteBookWithMedia, deleteCollectionWithMedia, deleteStoryWithMedia } = require('../utils/mediaCleanup');
 const { recordAudit } = require('../utils/audit');
 const { requestedLanguage, localizeFields } = require('../utils/contentLocalization');
@@ -116,6 +133,76 @@ function uploadLocalMedia(req, res, next) {
     limits: { fileSize: getMaxDocumentBytes(), files: 1 }
   }).single('file');
   fileUpload(req, res, next);
+}
+
+const blockImageRateLimit = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 30,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false
+});
+
+/** Old parts keep their `content`; new ones derive it from their text blocks. */
+function resolvePartContent(payload, fallback = '') {
+  const typed = String(payload?.content || '').trim();
+  if (typed) return typed;
+  const derived = textFromBlocks(payload?.blocks, 'ar').trim();
+  return derived || fallback;
+}
+
+function syncPartTranslations(translations, blocks) {
+  if (!Array.isArray(blocks) || !blocks.length) return translations;
+  const next = { ...(translations || {}) };
+  for (const language of ['en', 'fr']) {
+    const translated = textFromBlocks(blocks, language).trim();
+    if (!translated) continue;
+    next[language] = { ...(next[language] || {}), content: translated };
+  }
+  return next;
+}
+
+async function deleteUnusedBlockFiles(urls, storyId) {
+  if (!urls.length) return;
+  const siblings = await StoryPartBlock.findAll({
+    include: [{ model: StoryPart, as: 'part', where: { storyId }, attributes: ['id'] }]
+  });
+  const stillUsed = new Set(siblings.flatMap((block) => blockImageUrls(block)));
+  for (const url of urls) {
+    if (stillUsed.has(url)) continue;
+    const name = String(url).split('?')[0].split('/').pop();
+    if (!name || !FILE_PATTERN.test(name)) continue;
+    await fs.promises.unlink(path.join(PUBLIC_DIRECTORY, name)).catch(() => {});
+  }
+}
+
+/**
+ * Replaces a part's blocks in order. The legacy columns stay in sync so search,
+ * previews and older clients keep working; removed images are deleted from disk.
+ */
+async function syncPartBlocks(part, blocks) {
+  const cleaned = sanitizeBlocks(blocks);
+  if (cleaned === null) return null;
+  const existing = await StoryPartBlock.findAll({ where: { partId: part.id } });
+  const previousUrls = [...new Set(existing.flatMap((block) => blockImageUrls(block)))];
+  const partStoryId = part.storyId;
+  await sequelize.transaction(async (transaction) => {
+    await StoryPartBlock.destroy({ where: { partId: part.id }, transaction });
+    if (cleaned.length) {
+      await StoryPartBlock.bulkCreate(
+        cleaned.map((block) => ({ ...block, partId: part.id })),
+        { transaction }
+      );
+    }
+  });
+  const kept = new Set(cleaned.flatMap((block) => blockImageUrls(block)));
+  await deleteUnusedBlockFiles(previousUrls.filter((url) => !kept.has(url)), partStoryId);
+  return StoryPartBlock.findAll({ where: { partId: part.id }, order: [['position', 'ASC']] });
+}
+
+async function partWithBlocks(partId) {
+  return StoryPart.findByPk(partId, {
+    include: [{ model: StoryPartBlock, as: 'blocks', order: [['position', 'ASC']] }]
+  });
 }
 
 function partNumberConflict(part) {
@@ -558,7 +645,12 @@ async function canAccessMedia(media, user) {
 async function findPublishedStory(slug) {
   const include = [
     { model: Collection, as: 'collection' },
-    { model: StoryPart, as: 'parts', order: [['partNumber', 'ASC']] },
+    {
+      model: StoryPart,
+      as: 'parts',
+      order: [['partNumber', 'ASC']],
+      include: [{ model: StoryPartBlock, as: 'blocks', separate: true, order: [['position', 'ASC']] }]
+    },
     { model: StoryVideo, as: 'videos', include: [{ model: MediaAsset, as: 'mediaAsset', required: false }] },
     { model: User, as: 'reviewer', attributes: ['firstName', 'lastName'], required: false }
   ];
@@ -860,9 +952,23 @@ router.get('/stories/:slug/parts/:partNumber', optionalAuthenticate, async (req,
     const story = await findPublishedStory(req.params.slug);
     if (!story) return res.status(404).json({ message: 'Histoire introuvable.' });
     const part = await findAccessiblePart(story, partNumber, req.user);
-    const localizedPart = localizeFields(part, language, ['title', 'content', 'endingHook']);
+    const storedBlocks = Array.isArray(part.blocks) ? part.blocks : [];
+    const localizedBlocks = storedBlocks.length ? localizeBlocks(storedBlocks, language) : [];
+    let localizedPart = localizeFields(part, language, ['title', 'content', 'endingHook']);
+    if (!localizedPart && localizedBlocks.length) {
+      // Blocks are the translation source; the legacy content column may stay empty.
+      const shell = localizeFields(part, language, ['title', 'endingHook'], []) || {};
+      localizedPart = { ...part.toJSON(), ...shell, content: textFromBlocks(storedBlocks, language) };
+    }
     if (!localizedPart) return res.status(404).json({ message: 'Cette partie n’est pas encore disponible dans cette langue.' });
+    if (localizedBlocks.length) {
+      const fromBlocks = textFromBlocks(storedBlocks, language).trim();
+      if (fromBlocks) localizedPart.content = fromBlocks;
+    }
     localizedPart.illustrationAlt = part.illustrationAlt?.[language] || part.illustrationAlt?.ar || '';
+    localizedPart.blocks = localizedBlocks.length
+      ? localizedBlocks
+      : fallbackBlocks({ id: part.id, content: localizedPart.content });
     res.json(localizedPart);
   } catch (error) {
     next(error);
@@ -933,7 +1039,7 @@ router.get('/books/:slug', async (req, res, next) => {
   try {
     const language = requestedLanguage(req.query.lang);
     const options = {
-      attributes: ['id', 'collectionId', 'storyId', 'title', 'slug', 'description', 'translations', 'cover', 'coverAlt', 'format', 'price', 'currency', 'stockQuantity', 'isReturnable', 'returnWindowDays']
+      attributes: ['id', 'collectionId', 'storyId', 'title', 'slug', 'description', 'translations', 'cover', 'coverAlt', 'format', 'price', 'currency', 'stockQuantity', 'isReturnable', 'returnWindowDays', 'bookFiles', 'fileStorageKey']
     };
     let book = await Book.findOne({
       where: { slug: req.params.slug, status: { [Op.ne]: 'archived' }, [Op.or]: [{ status: 'published' }, { isPublished: true }] },
@@ -947,9 +1053,12 @@ router.get('/books/:slug', async (req, res, next) => {
       });
     }
     if (!book) return res.status(404).json({ message: 'Livre introuvable.' });
+    // The store only needs the list of available PDFs, never their storage keys.
+    const languages = book.format === 'ebook' ? availableBookLanguages(book) : [];
     const localizedBook = localizeFields(book, language, ['title', 'description'], ['title']);
     if (!localizedBook) return res.status(404).json({ message: 'Livre introuvable dans cette langue.' });
-    res.json(localizedBook);
+    const { bookFiles, fileStorageKey, ...publicBook } = localizedBook;
+    res.json({ ...publicBook, languages });
   } catch (error) {
     next(error);
   }
@@ -966,7 +1075,14 @@ router.get('/books/:slug/access', authenticate, async (req, res, next) => {
       book,
       allowExhausted: true
     });
-    res.json({ canDownload, downloaded });
+    const entitlement = await findDownloadableEntitlement(req.user.id, book.id);
+    res.json({
+      canDownload,
+      downloaded,
+      languages: availableBookLanguages(book),
+      // Which PDF version the current right covers (null = any available one).
+      language: entitlement?.contentLanguage || null
+    });
   } catch (error) {
     next(error);
   }
@@ -1001,8 +1117,10 @@ router.get('/books/:slug/download', authenticate, async (req, res, next) => {
     if (!await canAccessBook({ userId: req.user.id, role: req.user.role, book, allowExhausted: true })) {
       return res.status(403).json({ message: 'Un droit de téléchargement actif est requis.', code: 'CONTENT_LOCKED' });
     }
-    if (!book.fileStorageKey) return res.status(404).json({ message: 'Le fichier du livre n’est pas encore disponible.' });
-    if (book.fileStorageKey === SAMPLE_EBOOK_STORAGE_KEY) {
+    const entitlement = await findDownloadableEntitlement(req.user.id, book.id);
+    const file = resolveBookFile(book, entitlement?.contentLanguage || null);
+    if (!file) return res.status(404).json({ message: 'Le fichier du livre n’est pas encore disponible.' });
+    if (file.key === SAMPLE_EBOOK_STORAGE_KEY) {
       if (!await enforceDownloadQuota(req, res, book, { consume: false })) return;
       await fs.promises.access(SAMPLE_EBOOK_PATH, fs.constants.R_OK);
       return res.json({
@@ -1011,7 +1129,7 @@ router.get('/books/:slug/download', authenticate, async (req, res, next) => {
         expiresInSeconds: 300
       });
     }
-    if (isLocalStorageKey(book.fileStorageKey)) {
+    if (isLocalStorageKey(file.key)) {
       if (!await enforceDownloadQuota(req, res, book, { consume: false })) return;
       return res.json({
         url: `/books/${encodeURIComponent(book.slug)}/local-download`,
@@ -1022,10 +1140,11 @@ router.get('/books/:slug/download', authenticate, async (req, res, next) => {
     if (!await enforceDownloadQuota(req, res, book, { consume: true })) return;
     res.json({
       url: await createDownloadUrl({
-        key: book.fileStorageKey,
-        fileName: `${book.slug}.pdf`,
+        key: file.key,
+        fileName: `${book.slug}-${file.language}.pdf`,
         mimeType: 'application/pdf'
       }),
+      language: file.language,
       expiresInSeconds: 300
     });
   } catch (error) {
@@ -1037,8 +1156,10 @@ router.post('/books/:slug/download-token', authenticate, async (req, res, next) 
   try {
     const book = await Book.findOne({ where: { slug: req.params.slug, status: { [Op.ne]: 'archived' }, [Op.or]: [{ status: 'published' }, { isPublished: true }] } });
     if (!book || book.format !== 'ebook') return res.status(404).json({ message: 'Livre numérique introuvable.' });
-    if (!book.fileStorageKey) return res.status(404).json({ message: 'Le fichier du livre n’est pas encore disponible.' });
-    const entitlement = await findActiveEntitlement(req.user.id, book.id);
+    const entitlement = await findDownloadableEntitlement(req.user.id, book.id);
+    if (entitlement && !resolveBookFile(book, entitlement.contentLanguage || null)) {
+      return res.status(404).json({ message: 'Le fichier du livre n’est pas encore disponible.' });
+    }
     if (!entitlement) {
       await logSecurityEvent(req, {
         type: 'download_without_entitlement',
@@ -1082,7 +1203,8 @@ router.get('/downloads/:token', async (req, res, next) => {
       return res.status(409).json({ message: 'Ce PDF a déjà été téléchargé. Vous pouvez le retrouver dans votre profil.', code: 'DOWNLOAD_LIMIT_REACHED' });
     }
     const book = await Book.findByPk(consumed.bookId);
-    if (!book || !book.fileStorageKey) return res.status(404).json({ message: 'Fichier introuvable.' });
+    const file = book ? resolveBookFile(book, consumed.entitlement?.contentLanguage || null) : null;
+    if (!book || !file) return res.status(404).json({ message: 'Fichier introuvable.' });
     await DownloadLog.create({
       userId: consumed.userId,
       bookId: book.id,
@@ -1090,23 +1212,24 @@ router.get('/downloads/:token', async (req, res, next) => {
       ip: String(req.ip || '').slice(0, 64),
       userAgent: String(req.get('user-agent') || '').slice(0, 512)
     });
-    if (book.fileStorageKey === SAMPLE_EBOOK_STORAGE_KEY) {
-      return res.download(SAMPLE_EBOOK_PATH, `${book.slug}.pdf`, (error) => {
+    if (file.key === SAMPLE_EBOOK_STORAGE_KEY) {
+      return res.download(SAMPLE_EBOOK_PATH, `${book.slug}-${file.language}.pdf`, (error) => {
         if (error) next(error);
       });
     }
-    if (isLocalStorageKey(book.fileStorageKey)) {
-      return res.download(localStoragePath(book.fileStorageKey), `${book.slug}.pdf`, (error) => {
+    if (isLocalStorageKey(file.key)) {
+      return res.download(localStoragePath(file.key), `${book.slug}-${file.language}.pdf`, (error) => {
         if (error) next(error);
       });
     }
     res.set('Cache-Control', 'private, no-store');
     return res.json({
       url: await createDownloadUrl({
-        key: book.fileStorageKey,
-        fileName: `${book.slug}.pdf`,
+        key: file.key,
+        fileName: `${book.slug}-${file.language}.pdf`,
         mimeType: 'application/pdf'
       }),
+      language: file.language,
       expiresInSeconds: 300
     });
   } catch (error) {
@@ -1117,14 +1240,27 @@ router.get('/downloads/:token', async (req, res, next) => {
 router.get('/books/:slug/local-download', authenticate, async (req, res, next) => {
   try {
     const book = await Book.findOne({ where: { slug: req.params.slug, status: 'published' } });
-    if (!book || book.format !== 'ebook' || !isLocalStorageKey(book.fileStorageKey)) {
-      return res.status(404).json({ message: 'Fichier ebook introuvable.' });
-    }
+    if (!book || book.format !== 'ebook') return res.status(404).json({ message: 'Fichier ebook introuvable.' });
     if (!await canAccessBook({ userId: req.user.id, role: req.user.role, book, allowExhausted: true })) {
       return res.status(403).json({ message: 'Un droit de téléchargement actif est requis.', code: 'CONTENT_LOCKED' });
     }
-    if (!await enforceDownloadQuota(req, res, book, { consume: true })) return;
-    res.download(localStoragePath(book.fileStorageKey), `${book.slug}.pdf`, (error) => {
+    const entitlement = await findDownloadableEntitlement(req.user.id, book.id);
+    const file = resolveBookFile(book, entitlement?.contentLanguage || null);
+    if (!file || !isLocalStorageKey(file.key)) {
+      return res.status(404).json({ message: 'Fichier ebook introuvable.' });
+    }
+    const localQuota = await enforceDownloadQuota(req, res, book, { consume: true });
+    if (!localQuota) return;
+    // The quota may have fallen back on another right: serve the language it covers.
+    const servedFile = localQuota.contentLanguage
+      ? resolveBookFile(book, localQuota.contentLanguage) || file
+      : file;
+    if (!isLocalStorageKey(servedFile.key)) return res.status(404).json({ message: 'Fichier ebook introuvable.' });
+    // A transfer that never completed gives the attempt back (second chance).
+    res.on('close', () => {
+      if (!res.writableFinished) void releaseDownload(localQuota.entitlementId);
+    });
+    res.download(localStoragePath(servedFile.key), `${book.slug}-${servedFile.language}.pdf`, (error) => {
       if (error) next(error);
     });
   } catch (error) {
@@ -1141,7 +1277,11 @@ router.get('/books/:slug/sample-download', authenticate, async (req, res, next) 
     if (!await canAccessBook({ userId: req.user.id, role: req.user.role, book, allowExhausted: true })) {
       return res.status(403).json({ message: 'Un droit de téléchargement actif est requis.', code: 'CONTENT_LOCKED' });
     }
-    if (!await enforceDownloadQuota(req, res, book, { consume: true })) return;
+    const sampleQuota = await enforceDownloadQuota(req, res, book, { consume: true });
+    if (!sampleQuota) return;
+    res.on('close', () => {
+      if (!res.writableFinished) void releaseDownload(sampleQuota.entitlementId);
+    });
     res.download(SAMPLE_EBOOK_PATH, `${book.slug}.pdf`, (error) => {
       if (error) next(error);
     });
@@ -2434,7 +2574,11 @@ router.get('/admin/content/stories', ...contentEditors, async (req, res, next) =
       include: [
         { model: Collection, as: 'collection' },
         { model: User, as: 'reviewer', attributes: ['id', 'firstName', 'lastName'], required: false },
-        { model: StoryPart, as: 'parts' }
+        {
+          model: StoryPart,
+          as: 'parts',
+          include: [{ model: StoryPartBlock, as: 'blocks', separate: true, order: [['position', 'ASC']] }]
+        }
       ],
       order: [['updatedAt', 'DESC']]
     }));
@@ -2636,10 +2780,25 @@ router.post('/admin/content/stories/:id/parts', ...contentEditors, validateBody(
       where: { storyId, partNumber: req.body.partNumber }
     });
     if (existing) throw partNumberConflict(existing);
-    const part = await StoryPart.create({ ...req.body, storyId });
+    const content = resolvePartContent(req.body);
+    if (!content) {
+      return res.status(422).json({
+        message: 'Ajoutez au moins un bloc de texte arabe.',
+        code: 'PART_CONTENT_REQUIRED',
+        errors: [{ field: 'content', code: 'required', message: 'Ajoutez au moins un bloc de texte arabe.' }]
+      });
+    }
+    const { blocks, ...rest } = req.body;
+    const part = await StoryPart.create({
+      ...rest,
+      storyId,
+      content,
+      translations: syncPartTranslations(rest.translations, blocks)
+    });
+    if (blocks) await syncPartBlocks(part, blocks);
     await sendPublishedStoryBackToReview(req, story);
     await recordAudit(req, 'CREATE_STORY_PART', 'StoryPart', part.id, { storyId });
-    res.status(201).json(part);
+    res.status(201).json(await partWithBlocks(part.id));
   } catch (error) {
     if (isPartNumberUniqueError(error) && req.body.partNumber !== undefined) {
       const existing = await StoryPart.findOne({
@@ -2661,11 +2820,25 @@ router.patch('/admin/content/parts/:id', ...contentEditors, validateBody(schemas
       });
       if (existing) throw partNumberConflict(existing);
     }
-    await part.update(req.body);
+    const { blocks, ...rest } = req.body;
+    const content = resolvePartContent(rest, part.content);
+    if (!content) {
+      return res.status(422).json({
+        message: 'Ajoutez au moins un bloc de texte arabe.',
+        code: 'PART_CONTENT_REQUIRED',
+        errors: [{ field: 'content', code: 'required', message: 'Ajoutez au moins un bloc de texte arabe.' }]
+      });
+    }
+    await part.update({
+      ...rest,
+      content,
+      translations: blocks ? syncPartTranslations(rest.translations ?? part.translations, blocks) : rest.translations
+    });
+    if (blocks) await syncPartBlocks(part, blocks);
     const story = await Story.findByPk(part.storyId);
     await sendPublishedStoryBackToReview(req, story);
     await recordAudit(req, 'UPDATE_STORY_PART', 'StoryPart', part.id);
-    res.json(part);
+    res.json(await partWithBlocks(part.id));
   } catch (error) {
     if (isPartNumberUniqueError(error) && req.body.partNumber !== undefined) {
       const part = await StoryPart.findByPk(Number(req.params.id));
@@ -3329,7 +3502,7 @@ router.post('/admin/content/books/:id/publish', ...publishers, async (req, res, 
     if (!book) return res.status(404).json({ message: 'Livre introuvable.' });
     const missing = [];
     if (!book.title?.trim()) missing.push('Arabic title');
-    if (book.format === 'ebook' && !book.fileStorageKey) missing.push('PDF file');
+    if (book.format === 'ebook' && !availableBookLanguages(book).length) missing.push('PDF file');
     await assertUniqueSlug(Book, book.slug, book.id).catch((error) => {
       if (error.code === 'SLUG_CONFLICT') missing.push('unique slug');
       else throw error;
@@ -3380,9 +3553,11 @@ router.post('/admin/content/books/:id/archive', ...publishers, async (req, res, 
   }
 });
 
+// Multer only caps the transport; the per-kind limit lives in processStoryImage
+// (5 MB for covers, 8 MB for in-story illustrations).
 const publicImageUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+  limits: { fileSize: 8 * 1024 * 1024, files: 1 },
   fileFilter(_req, file, callback) {
     if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype)) {
       const error = new Error('Formats acceptés : JPG, PNG ou WebP.');
@@ -3394,10 +3569,10 @@ const publicImageUpload = multer({
   }
 });
 
-router.post('/admin/content/images', ...contentEditors, publicImageUpload.single('file'), async (req, res, next) => {
+router.post('/admin/content/images', ...contentEditors, blockImageRateLimit, publicImageUpload.single('file'), async (req, res, next) => {
   try {
     if (!req.file) return res.status(422).json({ message: 'Aucune image reçue.' });
-    const kind = req.body.role === 'hero' ? 'hero' : 'cover';
+    const kind = req.body.role === 'hero' ? 'hero' : req.body.role === 'block' ? 'block' : 'cover';
     const result = await processStoryImage(req.file.buffer, { kind });
     await recordAudit(req, 'UPLOAD_PUBLIC_IMAGE', 'MediaImage', null, {
       kind,
@@ -3465,11 +3640,17 @@ router.post('/admin/content/media/upload-url', ...contentEditors, validateBody(s
     }
     const uploadKey = createMediaUploadKey();
     const storageKey = createMediaKey();
+    const { language: bookLanguage, ...mediaBody } = req.body;
     const media = await MediaAsset.create({
-      ...req.body,
+      ...mediaBody,
       storageKey,
       uploadedBy: req.user.id,
-      metadata: { uploadKey, uploadPending: true, altText: req.body.altText || {} }
+      metadata: {
+        uploadKey,
+        uploadPending: true,
+        altText: req.body.altText || {},
+        ...(req.body.mediaType === 'ebook' && bookLanguage ? { bookLanguage } : {})
+      }
     });
     let upload;
     try {
@@ -3562,11 +3743,20 @@ router.post('/admin/content/media/:id/complete', ...contentEditors, async (req, 
     if (media.bookId && media.mediaType === 'ebook') {
       const book = await Book.findByPk(media.bookId);
       if (!book) return res.status(409).json({ message: 'Le livre associé à ce dépôt n’existe plus.' });
-      const previousStorageKey = book.fileStorageKey;
-      book.fileStorageKey = media.storageKey;
+      const bookLanguage = media.metadata?.bookLanguage
+        || (media.fileName || '').match(/\.(ar|en|fr)\.pdf$/i)?.[1]?.toLowerCase()
+        || 'ar';
+      // Each language keeps its own PDF; the legacy single key stays for Arabic.
+      const bookFiles = { ...(book.bookFiles && typeof book.bookFiles === 'object' ? book.bookFiles : {}) };
+      const previousStorageKey = (bookFiles[bookLanguage] && bookFiles[bookLanguage].key)
+        || (bookLanguage === 'ar' ? book.fileStorageKey : null);
+      bookFiles[bookLanguage] = { key: media.storageKey, name: media.fileName || null };
+      book.bookFiles = bookFiles;
+      if (bookLanguage === 'ar') book.fileStorageKey = media.storageKey;
       await book.save();
       if (previousStorageKey && previousStorageKey !== media.storageKey &&
-        previousStorageKey !== SAMPLE_EBOOK_STORAGE_KEY) {
+        previousStorageKey !== SAMPLE_EBOOK_STORAGE_KEY &&
+        !Object.values(bookFiles).some((entry) => entry?.key === previousStorageKey)) {
         const previousMedia = await MediaAsset.findOne({
           where: { bookId: book.id, storageKey: previousStorageKey }
         });

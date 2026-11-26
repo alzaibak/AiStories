@@ -66,10 +66,18 @@ function getInvoiceSubscriptionId(invoice) {
   return typeof subscription === 'string' ? subscription : subscription?.id || null;
 }
 
+/**
+ * Only a subscription that really exists may block a new checkout. An
+ * unfinished "incomplete" attempt is not a subscription: the reader must be
+ * able to pay again instead of being locked out forever.
+ */
+const BLOCKING_SUBSCRIPTION_STATUSES = Object.freeze(['trialing', 'active', 'past_due']);
+
 module.exports = {
   createStripeClient,
   getClientAppUrl,
   toMinorUnits,
   mapStripeSubscriptionStatus,
-  getInvoiceSubscriptionId
+  getInvoiceSubscriptionId,
+  BLOCKING_SUBSCRIPTION_STATUSES
 };

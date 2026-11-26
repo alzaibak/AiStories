@@ -5,6 +5,7 @@ import { ApiError, api } from '@/lib/api';
 import { FormErrorSummary, LanguageErrorDot } from '@/lib/adminFormErrors';
 import { translateText, translateTree } from '@/lib/localization';
 import { ImageCropper, StoryImagesEditor, emptyStoryImages, type CropRequest, type StoryImageValue } from './StoryImagesEditor';
+import { PartBlocksEditor, blocksForApi, blocksInvalid, plainContent, type PartBlock } from '@/components/content/PartBlocksEditor';
 
 type Language = 'ar' | 'en' | 'fr';
 type LocalizedFields = Record<Language, Record<string, string>>;
@@ -34,6 +35,7 @@ type Part = {
   isFree: boolean;
   illustrationImage?: string | null;
   illustrationAlt?: Partial<LocalizedAlt> | null;
+  blocks?: PartBlock[];
 };
 type Story = {
   id: number;
@@ -78,6 +80,8 @@ type Book = {
   status: 'draft' | 'published' | 'archived';
   publishedAt?: string | null;
   fileStorageKey: string | null;
+  /** Private PDF per language: { ar: { key, name }, en: {...}, fr: {...} }. */
+  bookFiles?: Partial<Record<BookFileLanguage, { key?: string | null; name?: string | null }>> | null;
   previewFileKey?: string | null;
   cover?: string | null;
   coverAlt?: Partial<LocalizedAlt> | null;
@@ -85,6 +89,13 @@ type Book = {
   isbn?: string | null;
   translations: Partial<Record<Language, Record<string, string>>>;
 };
+type BookFileLanguage = 'ar' | 'en' | 'fr';
+const bookFileLanguages: Array<{ code: BookFileLanguage; label: string }> = [
+  { code: 'ar', label: 'العربية' },
+  { code: 'en', label: 'English' },
+  { code: 'fr', label: 'Français' }
+];
+
 type MediaUploadResponse = {
   upload: { driver: 'local' | 's3'; url: string; fields: Record<string, string> };
   completeUrl: string;
@@ -422,6 +433,7 @@ export default function AdminContentPage() {
     representationConfirmed: false
   });
   const [partText, setPartText] = useState(emptyFields(['title', 'content', 'endingHook']));
+  const [partBlocks, setPartBlocks] = useState<PartBlock[]>([]);
   const [partImage, setPartImage] = useState({ illustrationImage: '', illustrationAlt: emptyAlt() });
   const [partForm, setPartForm] = useState({ storyId: '', partNumber: '1', estimatedReadingMinutes: '5', isFree: false });
   const [partLanguage, setPartLanguage] = useState<Language>('ar');
@@ -430,10 +442,12 @@ export default function AdminContentPage() {
   const [bookText, setBookText] = useState(emptyFields(['title', 'description']));
   const [bookForm, setBookForm] = useState({ slug: '', format: 'ebook', price: '', currency: 'EUR', stockQuantity: '', isPublished: false, isReturnable: true, returnWindowDays: '', cover: '', weightGrams: '', isbn: '', previewFileKey: '' });
   const [bookCoverAlt, setBookCoverAlt] = useState<LocalizedAlt>(emptyAlt);
-  const [bookFile, setBookFile] = useState<File | null>(null);
+  // One PDF per language: only the uploaded versions are offered to readers.
+  const [bookFiles, setBookFiles] = useState<Partial<Record<BookFileLanguage, File>>>({});
+  const [bookExistingFiles, setBookExistingFiles] = useState<Record<BookFileLanguage, boolean>>({ ar: false, en: false, fr: false });
   const [pendingBookId, setPendingBookId] = useState<number | null>(null);
-  const [bookHasPdf, setBookHasPdf] = useState(false);
-  const [fileInputKey, setFileInputKey] = useState(0);
+  const [fileInputKeys, setFileInputKeys] = useState<Record<BookFileLanguage, number>>({ ar: 0, en: 0, fr: 0 });
+  const bookHasPdf = bookFileLanguages.some(({ code }) => bookExistingFiles[code] || Boolean(bookFiles[code]));
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [previewVisible, setPreviewVisible] = useState(false);
   const isCollectionForm = location.pathname.endsWith('/content/collections/new') || location.pathname.includes('/content/collections/') && location.pathname.endsWith('/edit');
@@ -523,7 +537,11 @@ export default function AdminContentPage() {
     });
     setBookCoverAlt({ ar: book.coverAlt?.ar || '', en: book.coverAlt?.en || '', fr: book.coverAlt?.fr || '' });
     setPendingBookId(book.id);
-    setBookHasPdf(Boolean(book.fileStorageKey));
+    setBookExistingFiles({
+      ar: Boolean(book.bookFiles?.ar?.key || book.fileStorageKey),
+      en: Boolean(book.bookFiles?.en?.key),
+      fr: Boolean(book.bookFiles?.fr?.key)
+    });
   }, [books, bookId]);
 
   useEffect(() => {
@@ -613,7 +631,7 @@ export default function AdminContentPage() {
     }
   }
 
-  async function uploadBookPdf(bookId: number, file: File) {
+  async function uploadBookPdf(bookId: number, file: File, language: BookFileLanguage) {
     if (file.type !== 'application/pdf') {
       throw new Error(translateText('اختر ملف PDF صالحًا.', locale as Language));
     }
@@ -622,6 +640,7 @@ export default function AdminContentPage() {
       mediaType: 'ebook',
       fileName: file.name,
       mimeType: file.type,
+      language,
       depictionPolicyConfirmed: true
     });
     if (upload.upload.driver === 'local') {
@@ -659,9 +678,12 @@ export default function AdminContentPage() {
           : null
       };
       let targetBookId = bookId ? Number(bookId) : pendingBookId;
+      const selectedFiles = bookFileLanguages
+        .map(({ code }) => ({ code, file: bookFiles[code] }))
+        .filter((entry): entry is { code: BookFileLanguage; file: File } => Boolean(entry.file));
       if (bookForm.format === 'ebook') {
-        if (bookForm.isPublished && !bookFile && !bookHasPdf) {
-          throw new Error(translateText('أضف ملف PDF للكتاب الإلكتروني.', locale as Language));
+        if (bookForm.isPublished && !bookHasPdf) {
+          throw new Error(translateText('أضف ملف PDF للكتاب الإلكتروني (نسخة واحدة على الأقل).', locale as Language));
         }
         if (targetBookId) {
           await api.patch(`/admin/content/books/${targetBookId}`, details);
@@ -670,9 +692,9 @@ export default function AdminContentPage() {
           targetBookId = created.id;
           setPendingBookId(targetBookId);
         }
-        if (bookFile) {
-          await uploadBookPdf(targetBookId, bookFile);
-          setBookHasPdf(true);
+        for (const { code, file } of selectedFiles) {
+          await uploadBookPdf(targetBookId, file, code);
+          setBookExistingFiles((current) => ({ ...current, [code]: true }));
         }
       } else {
         if (targetBookId) await api.patch(`/admin/content/books/${targetBookId}`, details);
@@ -688,20 +710,19 @@ export default function AdminContentPage() {
       } else if (!bookForm.isPublished && currentBook?.status === 'published') {
         await api.post(`/admin/content/books/${targetBookId}/unpublish`, {});
       }
-      if (bookForm.format === 'ebook' && !bookFile && !bookHasPdf && !bookForm.isPublished) return;
+      if (bookForm.format === 'ebook' && !selectedFiles.length && !bookHasPdf && !bookForm.isPublished) return;
       setPendingBookId(null);
-      setBookHasPdf(false);
-      setBookFile(null);
-      setFileInputKey((key) => key + 1);
+      setBookFiles({});
+      setFileInputKeys({ ar: 0, en: 0, fr: 0 });
       setBookText(emptyFields(['title', 'description']));
       setBookForm({ slug: '', format: 'ebook', price: '', currency: 'EUR', stockQuantity: '', isPublished: false, isReturnable: true, returnWindowDays: '', cover: '', weightGrams: '', isbn: '', previewFileKey: '' });
       setBookCoverAlt(emptyAlt());
-    }, bookForm.format === 'ebook' && !bookFile && !bookHasPdf
+    }, bookForm.format === 'ebook' && !bookHasPdf
       ? 'تم حفظ مسودة الكتاب. أعد اختيار ملف PDF لإكمال الرفع.'
       : bookForm.format === 'ebook' && bookForm.isPublished
         ? 'تم رفع ملف الكتاب ونشره للبيع.'
         : 'تم حفظ الكتاب باللغات التي أدخلتها.', 'book');
-    if (saved && (bookId || bookForm.format === 'print' || bookFile)) {
+    if (saved && (bookId || bookForm.format === 'print' || bookHasPdf)) {
       navigate(`/${locale}/admin/shop/books`);
     }
   }
@@ -732,6 +753,15 @@ export default function AdminContentPage() {
         endingHook: localized('fr', 'endingHook')
       }
     });
+    const storedBlocks = Array.isArray(part.blocks) ? part.blocks : [];
+    setPartBlocks(storedBlocks.length ? storedBlocks : part.content?.trim() ? [{
+      type: 'text',
+      text: {
+        ar: localized('ar', 'content'),
+        en: localized('en', 'content'),
+        fr: localized('fr', 'content')
+      }
+    }] : []);
     setPartImage({
       illustrationImage: part.illustrationImage || '',
       illustrationAlt: { ...emptyAlt(), ...part.illustrationAlt }
@@ -1053,7 +1083,8 @@ export default function AdminContentPage() {
               const payload = {
                 partNumber: Number(partForm.partNumber),
                 title: partText.ar.title,
-                content: partText.ar.content,
+                content: plainContent(partBlocks) || partText.ar.content,
+                blocks: blocksForApi(partBlocks),
                 endingHook: partText.ar.endingHook,
                 translations: languageRecord(partText),
                 illustrationImage: partImage.illustrationImage || null,
@@ -1067,6 +1098,7 @@ export default function AdminContentPage() {
                 await api.post(`/admin/content/stories/${targetStoryId}/parts`, payload);
               }
               setPartText(emptyFields(['title', 'content', 'endingHook']));
+              setPartBlocks([]);
               setPartImage({ illustrationImage: '', illustrationAlt: emptyAlt() });
               setEditingPartId(null);
             }, editingPartId ? 'تم تحديث الجزء.' : 'تمت إضافة الجزء بمحتواه اليدوي لكل لغة.', 'part');
@@ -1083,7 +1115,14 @@ export default function AdminContentPage() {
                 setPartForm({ ...partForm, storyId: selectedId, partNumber: String(nextNumber) });
               }} className={selectClass}><option value="">اختر قصة</option>{stories.map((story) => <option key={story.id} value={story.id}>{story.title} — {storyStatusLabels[locale as Language][story.status] || storyStatusLabels.en[story.status] || story.status}</option>)}</select><FieldError errors={errorsFor('part')} field="storyId" /></label>}
             <LanguageFields values={partText} activeLanguage={partLanguage} onActiveLanguageChange={setPartLanguage} onChange={(lang, value) => updateFields(setPartText, 'title', lang, value)} field="title" label="عنوان الجزء" errors={errorsFor('part')} />
-            <LanguageFields values={partText} activeLanguage={partLanguage} onActiveLanguageChange={setPartLanguage} onChange={(lang, value) => updateFields(setPartText, 'content', lang, value)} field="content" label="النص" multiline errors={errorsFor('part')} />
+            <PartBlocksEditor
+              blocks={partBlocks}
+              onChange={(next) => { setPartBlocks(next); setHasUnsavedChanges(true); }}
+              disabled={busy}
+              title={partText.ar.title}
+              readingMinutes={Number(partForm.estimatedReadingMinutes) || 5}
+              endingHook={partText.ar.endingHook}
+            />
             <LanguageFields values={partText} activeLanguage={partLanguage} onActiveLanguageChange={setPartLanguage} onChange={(lang, value) => updateFields(setPartText, 'endingHook', lang, value)} field="endingHook" label="نهاية الجزء" multiline errors={errorsFor('part')} />
             <AdminImageField label="صورة الجزء" hint="اختيارية، تظهر أعلى نص الجزء في القارئ (16:9)." value={partImage.illustrationImage} alt={partImage.illustrationAlt} ratio="16:9" role="hero" onChange={(value) => setPartImage((current) => ({ ...current, illustrationImage: value }))} onAltChange={(illustrationAlt) => setPartImage((current) => ({ ...current, illustrationAlt }))} disabled={busy} />
             <div className="grid gap-4 md:grid-cols-2">
@@ -1096,10 +1135,11 @@ export default function AdminContentPage() {
             </div>
             <label className="inline-flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={partForm.isFree} onChange={(event) => setPartForm({ ...partForm, isFree: event.target.checked })} /> جزء مجاني</label>
             <div className="flex flex-wrap gap-3">
-              <button disabled={busy || !stories.length} className={submitClass}>{editingPartId ? 'حفظ التعديل' : 'إضافة الجزء'}</button>
+              <button disabled={busy || !stories.length || Boolean(blocksInvalid(partBlocks))} className={submitClass}>{editingPartId ? 'حفظ التعديل' : 'إضافة الجزء'}</button>
               {editingPartId && <button type="button" onClick={() => {
                 setEditingPartId(null);
                 setPartText(emptyFields(['title', 'content', 'endingHook']));
+                setPartBlocks([]);
                 setPartImage({ illustrationImage: '', illustrationAlt: emptyAlt() });
                 setFieldErrors({});
                 setConflictingPart(null);
@@ -1172,12 +1212,18 @@ export default function AdminContentPage() {
               <span className="mt-1 block text-xs font-normal text-slate-500">تُحفظ هذه المدة في الطلب عند الشراء ولا تتأثر بتغيير السياسة لاحقًا.</span>
             </label>
           </fieldset>}
-          {bookForm.format === 'ebook' && <label className="block text-sm font-semibold">ملف الكتاب الإلكتروني (PDF)<input key={fileInputKey} type="file" accept="application/pdf,.pdf" onChange={(event) => setBookFile(event.target.files?.[0] || null)} className={`${inputClass} file:mr-3 file:rounded-lg file:border-0 file:bg-emerald-50 file:px-3 file:py-2`} /><span className="mt-1 block text-xs font-normal text-slate-500">{bookHasPdf ? 'يمكنك اختيار ملف جديد لاستبدال PDF الحالي.' : 'يمكن حفظ الكتاب كمسودة وإرفاق PDF لاحقًا.'} يُرفع الملف إلى التخزين الخاص، ولا يُتاح إلا بعد الشراء.</span>
+          {bookForm.format === 'ebook' && <fieldset className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+            <legend className="px-1 text-sm font-bold">ملفات الكتاب الإلكتروني (PDF) حسب اللغة</legend>
+            <p className="text-xs leading-6 text-slate-500">أضف النسخة المتوفرة فقط: يمكنك رفع اللغة العربية وحدها، أو إضافة الإنجليزية والفرنسية. لا تُعرض للقارئ إلا اللغات التي رفعت ملفها، ويُنزّل النسخة التي يشتريها. تُرفع الملفات إلى التخزين الخاص ولا تُتاح إلا بعد الشراء.</p>
+            {bookFileLanguages.map(({ code, label }) => <label key={code} className="block text-sm font-semibold">{label} (PDF)
+              <input key={fileInputKeys[code]} type="file" accept="application/pdf,.pdf" onChange={(event) => setBookFiles((current) => ({ ...current, [code]: event.target.files?.[0] || undefined }))} className={`${inputClass} file:mr-3 file:rounded-lg file:border-0 file:bg-emerald-50 file:px-3 file:py-2`} />
+              <span className="mt-1 block text-xs font-normal text-slate-500">{bookExistingFiles[code] ? 'نسخة مرفوعة — اختر ملفًا جديدًا لاستبدالها.' : 'لا توجد نسخة بهذه اللغة بعد.'}{bookFiles[code] ? ` سيُرفع: ${bookFiles[code]?.name}` : ''}</span>
+            </label>)}
             {(errorsFor('book').file || errorsFor('book').mimeType) && <span className="mt-1 block text-xs text-red-700">{errorsFor('book').file || errorsFor('book').mimeType}</span>}
-          </label>}
+          </fieldset>}
           {pendingBookId && !bookHasPdf && <p role="status" className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">تم حفظ مسودة الكتاب رقم {pendingBookId}. أعد اختيار ملف PDF لإكمال الرفع.</p>}
           <label className="inline-flex items-center gap-2 text-sm font-semibold"><input type="checkbox" disabled={!isPublisher} checked={bookForm.isPublished} onChange={(event) => setBookForm({ ...bookForm, isPublished: event.target.checked })} /> نشر الكتاب الآن<FieldError errors={errorsFor('book')} field="isPublished" /></label>
-          <button disabled={busy || bookForm.format === 'ebook' && bookForm.isPublished && !bookFile && !bookHasPdf} className={submitClass}>{translateText(bookId ? 'حفظ التعديلات' : 'حفظ الكتاب', locale as Language)}</button>
+          <button disabled={busy || bookForm.format === 'ebook' && bookForm.isPublished && !bookHasPdf} className={submitClass}>{translateText(bookId ? 'حفظ التعديلات' : 'حفظ الكتاب', locale as Language)}</button>
         </form>
       </section>}
   </main>;

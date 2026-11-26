@@ -146,7 +146,7 @@ test('un téléchargement de livre exige un entitlement valide', async () => {
   assert.equal(await canAccessBook({ userId: 12, role: 'READER', book, now, entitlementModel: expired }), false);
 });
 
-test('un ebook déjà téléchargé est reverrouillé et peut être racheté', async () => {
+test('un ebook déjà téléchargé est reverrouillé pour toujours', async () => {
   const book = { id: 9 };
   const exhausted = {
     async findAll() {
@@ -173,4 +173,38 @@ test('un ebook déjà téléchargé est reverrouillé et peut être racheté', a
   assert.equal(await canAccessBook({ userId: 12, role: 'READER', book, now, entitlementModel: exhausted }), false);
   assert.equal(await canAccessBook({ userId: 12, role: 'READER', book, now, entitlementModel: exhausted, allowExhausted: true }), true);
   assert.equal(await canAccessBook({ userId: 12, role: 'READER', book, now, entitlementModel: usable }), true);
+});
+
+test('a re-bought ebook reopens with a fresh download right', async () => {
+  const { pickMostRestrictive, pickDownloadable } = require('../utils/bookDownloads');
+  const book = { id: 9 };
+  const now = new Date('2026-11-10T00:00:00.000Z');
+  const oldExhausted = {
+    id: 3,
+    startsAt: new Date('2026-11-01T00:00:00.000Z'),
+    expiresAt: null,
+    revokedAt: null,
+    downloadLimit: 1,
+    downloadCount: 5
+  };
+  const freshDuplicate = {
+    id: 4,
+    startsAt: new Date('2026-11-02T00:00:00.000Z'),
+    expiresAt: null,
+    revokedAt: null,
+    downloadLimit: 1,
+    downloadCount: 0
+  };
+  const duplicated = { async findAll() { return [oldExhausted, freshDuplicate]; } };
+  // Buying the book again adds a new right: the fresh row hands out a download.
+  assert.equal(await canAccessBook({ userId: 12, role: 'READER', book, now, entitlementModel: duplicated }), true);
+  assert.equal(await canAccessBook({ userId: 12, role: 'READER', book, now, entitlementModel: duplicated, allowExhausted: true }), true);
+  // Only the exhausted row is left once the fresh one is spent too.
+  const spentAgain = { async findAll() { return [oldExhausted, { ...freshDuplicate, downloadCount: 1 }]; } };
+  assert.equal(await canAccessBook({ userId: 12, role: 'READER', book, now, entitlementModel: spentAgain }), false);
+  // The download must use the right that still has quota, not the spent one.
+  assert.equal(pickDownloadable([oldExhausted, freshDuplicate]).id, 4);
+  assert.equal(pickDownloadable([oldExhausted, { ...freshDuplicate, downloadCount: 1 }]).id, 3);
+  assert.equal(pickMostRestrictive([freshDuplicate, oldExhausted]).id, 3);
+  assert.equal(pickMostRestrictive([{ ...freshDuplicate, downloadLimit: null }]).downloadLimit, null);
 });

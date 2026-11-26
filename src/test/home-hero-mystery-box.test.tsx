@@ -90,7 +90,12 @@ describe('home active mystery-box hero', () => {
     expect(text).toContain('ساعة');
     expect(text).toContain('دقيقة');
     expect(text).toContain('ثانية');
-    expect(text).toContain('قريبًا');
-    expect(container?.querySelector('a[href*="/mystery-box/"]')).toBeNull();
+    // The card announces the next step of the existing checkout, and the old
+    // hard-coded "Soon" label must never come back while the box is live.
+    const buyButton = Array.from(container?.querySelectorAll('button') || []).find((button) => button.textContent?.includes('متابعة الشراء'));
+    expect(buyButton).toBeTruthy();
+    expect(buyButton?.textContent).not.toContain('قريبًا');
+    expect(text).toContain('متاح الآن');
+    expect(container?.querySelector('a[href*="/mystery-box/ramadan-family-box"]')).not.toBeNull();
   });
 });

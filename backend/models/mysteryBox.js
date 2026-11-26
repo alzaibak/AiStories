@@ -47,6 +47,10 @@ const MysteryBox = sequelize.define('MysteryBox', {
     defaultValue: 'teaser'
   },
   description: { type: DataTypes.TEXT, allowNull: true },
+  // Admin-authored promo blocks (texts and images) rendered on the public box
+  // page: [{ type: 'text' | 'image', title, body, imageUrl, imageAlt }] where
+  // title/body are keyed by language ({ ar, en, fr }).
+  promoBlocks: { type: DataTypes.JSON, allowNull: false, defaultValue: [] },
   digitalConsentText: { type: DataTypes.TEXT, allowNull: true },
   faq: { type: DataTypes.JSON, allowNull: false, defaultValue: [] },
   termsText: { type: DataTypes.TEXT, allowNull: true },

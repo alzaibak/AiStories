@@ -93,7 +93,7 @@ export function QuizQuestionCard({
           </span>
           {typeof timeLeftSeconds === 'number' && (
             <span
-              className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[0.6875rem] font-bold tabular-nums ${
+              className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[0.6875rem] font-semibold tabular-nums ${
                 timeLeftSeconds <= 30 ? 'bg-danger-soft text-danger' : 'bg-surface text-ink-muted'
               }`}
             >
@@ -111,7 +111,7 @@ export function QuizQuestionCard({
       <div className={`${kids ? 'p-5 sm:p-7' : 'p-5 sm:p-6'}`}>
         <h2
           id={questionId}
-          className={`font-bold leading-relaxed text-ink ${kids ? 'text-2xl sm:text-3xl' : 'text-xl sm:text-2xl'}`}
+          className={`font-semibold leading-relaxed text-ink ${kids ? 'text-2xl sm:text-3xl' : 'text-xl sm:text-2xl'}`}
         >
           {questionText}
         </h2>
@@ -138,13 +138,13 @@ export function QuizQuestionCard({
                 className={`flex w-full items-center gap-3 rounded-2xl border p-3 text-start transition duration-150 disabled:cursor-default ${kids ? 'min-h-[4rem] rounded-3xl p-4' : 'min-h-[3.5rem]'} ${stateClass}`}
               >
                 <span
-                  className={`grid shrink-0 place-items-center rounded-full border font-bold ${
+                  className={`grid shrink-0 place-items-center rounded-full border font-semibold ${
                     kids ? 'h-10 w-10 text-base' : 'h-8 w-8 text-xs'
                   } ${
                     isCorrect
-                      ? 'border-success bg-success text-white'
+                      ? 'border-success bg-success text-brand-on'
                       : isWrong
-                        ? 'border-danger bg-danger text-white'
+                        ? 'border-danger bg-danger text-brand-on'
                         : isSelected
                           ? 'border-brand bg-brand text-brand-on'
                           : 'border-line-strong text-ink-muted'
@@ -170,7 +170,7 @@ export function QuizQuestionCard({
                   : 'border-danger/30 bg-danger-soft'
               }`}
             >
-              <p className="flex items-center gap-2 text-sm font-bold text-ink">
+              <p className="flex items-center gap-2 text-sm font-semibold text-ink">
                 {feedback.status === 'correct' ? (
                   <CheckCircle2 size={18} className="text-success" aria-hidden="true" />
                 ) : (

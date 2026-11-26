@@ -7,7 +7,7 @@ const order: SiteTheme[] = ['light', 'reading', 'dark'];
 const themeColor: Record<SiteTheme, string> = {
   light: '#FBF8F2',
   reading: '#F1E4C8',
-  dark: '#111815'
+  dark: '#0E1512'
 };
 
 function normalizeTheme(value: unknown): SiteTheme | null {

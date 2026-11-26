@@ -18,6 +18,22 @@ const { recordAudit } = require('../utils/audit');
 const readers = [authenticate, allowRoles('READER')];
 const admins = [authenticate, allowRoles('ADMIN', 'SUPER_ADMIN')];
 
+/** French labels for the export: no raw status code leaves the admin screens. */
+const RETURN_STATUS_LABELS_FR = {
+  requested: 'Demandée',
+  approved: 'Approuvée',
+  awaiting_shipment: 'En attente d’expédition',
+  shipped_back: 'Expédiée par le client',
+  received: 'Reçue',
+  inspected: 'Inspectée',
+  refund_pending: 'Remboursement en cours',
+  refunded: 'Remboursée',
+  closed: 'Clôturée',
+  cancelled: 'Annulée',
+  rejected: 'Refusée',
+  expired: 'Expirée'
+};
+
 function parseId(value, label = 'Identifiant') {
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed) || parsed < 1) {
@@ -276,7 +292,7 @@ router.get('/admin/returns/export.csv', ...admins, async (req, res, next) => {
         request.user?.email || '',
         (request.items || []).map((item) => `${item.titleSnapshot} ×${item.quantity}`).join(' | '),
         request.reason,
-        request.status,
+        RETURN_STATUS_LABELS_FR[request.status] || request.status,
         request.requestedAt ? new Date(request.requestedAt).toISOString() : '',
         request.shipBackDeadline ? new Date(request.shipBackDeadline).toISOString() : '',
         request.refundAmount || '',

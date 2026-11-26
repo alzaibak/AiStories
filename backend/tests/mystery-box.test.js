@@ -6,6 +6,7 @@ const {
   duplicateBoxFields,
   effectivePrice,
   itemsValue,
+  localizedPromoBlocks,
   physicalCheckoutIssue,
   publicItems,
   remainingStock,
@@ -289,7 +290,9 @@ test('header payload disappears when the box is not active', () => {
   );
   assert.equal(withPhoto.bannerImage, 'https://cdn.example.test/uploads/public/covers/box.webp');
   assert.equal(serializeHeader({ ...baseBox, status: 'draft' }, { items: boxItems, appearance }), null);
-  assert.equal(serializeHeader({ ...baseBox, stockSold: 10 }, { items: boxItems, appearance }), null);
+  // A sold-out drop stays visible with a disabled button (state sold_out).
+  assert.equal(serializeHeader({ ...baseBox, stockSold: 10 }, { items: boxItems, appearance }).state, 'sold_out');
+  assert.equal(serializeHeader({ ...baseBox, endAt: past }, { items: boxItems, appearance }), null);
   assert.equal(savingsPercent('49.00', '100.00'), 51);
 });
 
@@ -334,4 +337,43 @@ test('mystery box models expose the required fields', () => {
   assert.ok(models.MysteryBoxAppearance.rawAttributes.almostSoldOutThreshold);
   assert.ok(models.Entitlement.rawAttributes.mysteryBoxPurchaseId);
   assert.ok(models.Entitlement.rawAttributes.resourceType.values.includes('premium'));
+});
+
+test('promo blocks are localized and empty ones are dropped', () => {
+  const box = {
+    promoBlocks: [
+      { type: 'text', title: { ar: 'لماذا؟', en: '', fr: 'Pourquoi ?' }, body: { ar: 'نص', en: '', fr: '' } },
+      { type: 'image', imageUrl: 'https://cdn.test/a.jpg', imageAlt: 'Aperçu', title: { ar: '', en: '', fr: '' } },
+      { type: 'text', title: { ar: '', en: '', fr: '' }, body: { ar: '', en: '', fr: '' } },
+      { type: 'image', imageUrl: '', title: { ar: 'بلا صورة', en: '', fr: '' } }
+    ]
+  };
+  const french = localizedPromoBlocks(box, 'fr');
+  assert.equal(french.length, 2);
+  assert.deepEqual(french[0], { type: 'text', title: 'Pourquoi ?', body: 'نص', imageUrl: null, imageAlt: null });
+  assert.equal(french[1].type, 'image');
+  assert.equal(french[1].imageUrl, 'https://cdn.test/a.jpg');
+  // A missing translation falls back to the Arabic source.
+  const arabic = localizedPromoBlocks(box, 'ar');
+  assert.equal(arabic[0].title, 'لماذا؟');
+  assert.deepEqual(localizedPromoBlocks({ promoBlocks: null }, 'ar'), []);
+  assert.deepEqual(localizedPromoBlocks({}, 'ar'), []);
+});
+
+test('the admin schema accepts promo blocks and rejects unknown block types', () => {
+  const parsed = boxCreateSchema.parse({
+    title: 'Coffret test',
+    price: 20,
+    promoBlocks: [
+      { type: 'text', title: { ar: 'عنوان' }, body: { ar: 'نص ترويجي' } },
+      { type: 'image', imageUrl: 'https://cdn.test/a.jpg', imageAlt: 'aperçu' }
+    ]
+  });
+  assert.equal(parsed.promoBlocks.length, 2);
+  assert.equal(parsed.promoBlocks[0].title.fr, '');
+  assert.throws(() => boxCreateSchema.parse({
+    title: 'Coffret test',
+    price: 20,
+    promoBlocks: [{ type: 'video' }]
+  }));
 });

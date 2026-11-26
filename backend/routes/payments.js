@@ -29,13 +29,18 @@ const { authenticate, allowRoles } = require('../middleware/authorization');
 const { validateBody } = require('../middleware/validation');
 const schemas = require('../middleware/storyValidation');
 const { subscriptionIsActive } = require('../utils/contentAccess');
+const { availableBookLanguages } = require('../utils/bookFiles');
 const { slugFromLocalized } = require('../utils/slug');
+
+// Shown on the Stripe line item so the invoice states the bought PDF version.
+const LANGUAGE_LABELS = { ar: 'العربية', en: 'English', fr: 'Français' };
 const {
   createStripeClient,
   getClientAppUrl,
   toMinorUnits,
   mapStripeSubscriptionStatus,
-  getInvoiceSubscriptionId
+  getInvoiceSubscriptionId,
+  BLOCKING_SUBSCRIPTION_STATUSES
 } = require('../utils/stripe');
 const { recordAudit } = require('../utils/audit');
 const { requestedLanguage } = require('../utils/contentLocalization');
@@ -54,7 +59,8 @@ const {
   canTransition,
   expectedTotalMinor,
   paymentMatchesOrder,
-  makeOrderNumber
+  makeOrderNumber,
+  READER_VISIBLE_ORDER_STATUSES
 } = require('../utils/orderState');
 const { logSecurityEvent } = require('../utils/securityEvents');
 const { resolveDonationAmount, campaignState } = require('../utils/donations');
@@ -119,7 +125,7 @@ function orderItemsInclude() {
     as: 'items',
     include: [
       { model: Book, as: 'book', attributes: ['id', 'slug', 'title', 'cover', 'format', 'fileStorageKey'] },
-      { model: Entitlement, as: 'entitlement', attributes: ['id', 'downloadLimit', 'downloadCount', 'revokedAt', 'expiresAt', 'startsAt'] }
+      { model: Entitlement, as: 'entitlement', attributes: ['id', 'downloadLimit', 'downloadCount', 'contentLanguage', 'revokedAt', 'expiresAt', 'startsAt'] }
     ]
   }];
 }
@@ -149,6 +155,7 @@ function serializeOrder(order, { admin = false, refundApproval = null } = {}) {
         slug: item.book.slug,
         title: item.titleSnapshot || item.book.title,
         cover: item.book.cover,
+        language: item.language || entitlement?.contentLanguage || null,
         canDownload: Boolean(active),
         revokedAt: entitlement?.revokedAt || null,
         downloadPath: active ? `/books/${encodeURIComponent(item.book.slug)}/download` : null,
@@ -184,6 +191,7 @@ function serializeOrder(order, { admin = false, refundApproval = null } = {}) {
       slug: item.book?.slug || null,
       cover: item.book?.cover || null,
       format: item.formatSnapshot || item.book?.format || null,
+      language: item.language || null,
       quantity: item.quantity,
       unitPrice: item.unitPrice,
       lineTotalMinor: item.lineTotalMinor
@@ -440,41 +448,28 @@ async function createPendingOrder({ userId, items, shippingAddress, customerEmai
     }
 
     const byId = new Map(books.map((book) => [book.id, book]));
-    const ebookIds = books.filter((book) => book.format === 'ebook').map((book) => book.id);
-    if (ebookIds.length) {
-      const owned = await Entitlement.findAll({
-        where: {
-          userId,
-          resourceId: { [Op.in]: ebookIds },
-          resourceType: { [Op.in]: ['book', 'ebook'] },
-          revokedAt: null,
-          startsAt: { [Op.lte]: new Date() },
-          [Op.or]: [{ expiresAt: null }, { expiresAt: { [Op.gt]: new Date() } }]
-        },
-        attributes: ['resourceId', 'downloadLimit', 'downloadCount'],
-        transaction
-      });
-      const stillUsable = owned.some((entitlement) =>
-        entitlement.downloadLimit === null ||
-        entitlement.downloadLimit === undefined ||
-        Number(entitlement.downloadCount || 0) < Number(entitlement.downloadLimit)
-      );
-      if (stillUsable) {
-        throw apiError(409, 'An e-book in this order is already in your library.', 'ALREADY_OWNED');
-      }
-    }
-    const orderItems = items.map(({ bookId, quantity }) => {
+    // A reader may buy an e-book again: another language version, or a fresh
+    // download right once the previous one is spent. Nothing blocks a re-buy.
+    const orderItems = items.map(({ bookId, quantity, language }) => {
       const book = byId.get(bookId);
       if (book.format === 'ebook' && quantity !== 1) {
         throw apiError(400, 'An e-book can only be purchased once per order.');
       }
+      const bookLanguages = book.format === 'ebook' ? availableBookLanguages(book) : [];
+      if (book.format === 'ebook' && !bookLanguages.length) {
+        throw apiError(409, `No PDF file is available for "${book.title}".`, 'EBOOK_FILE_MISSING');
+      }
+      if (language && bookLanguages.length && !bookLanguages.includes(language)) {
+        throw apiError(422, `"${book.title}" is not available in the selected language.`, 'LANGUAGE_UNAVAILABLE');
+      }
+      const contentLanguage = book.format === 'ebook' ? (language || bookLanguages[0]) : null;
       if (book.format === 'print' && book.stockQuantity !== null && book.stockQuantity < quantity) {
         throw apiError(409, `Not enough stock is available for "${book.title}".`, 'OUT_OF_STOCK');
       }
       const currency = String(book.currency).toUpperCase();
       assertTwoDecimalCurrency(currency);
       const unitAmount = toMinorUnits(book.price, currency);
-      return { book, quantity, currency, unitAmount };
+      return { book, quantity, currency, unitAmount, language: contentLanguage };
     });
     const currency = orderItems[0].currency;
     if (orderItems.some((item) => item.currency !== currency)) {
@@ -538,6 +533,7 @@ async function createPendingOrder({ userId, items, shippingAddress, customerEmai
         unitPrice: item.book.price,
         lineTotalMinor: item.unitAmount * item.quantity,
         formatSnapshot: item.book.format,
+        language: item.language,
         titleSnapshot: item.book.title,
         isReturnable: isPrint && item.book.isReturnable !== false,
         returnWindowDays: isPrint ? (item.book.returnWindowDays || returnsSettings.defaultReturnWindowDays) : null,
@@ -705,7 +701,8 @@ async function settleStoreOrder(session, status, transaction, { req = null, sour
         startsAt: new Date(),
         expiresAt: null,
         downloadCount: 0,
-        downloadLimit: 1
+        downloadLimit: 1,
+        contentLanguage: item.language || null
       }, { transaction });
     }
   }
@@ -1554,13 +1551,15 @@ router.post('/payments/books/checkout', ...readers, validateBody(schemas.bookChe
         throw error;
       }
     }
-    const lineItems = reservation.orderItems.map(({ book, quantity, currency }) => ({
+    const lineItems = reservation.orderItems.map(({ book, quantity, currency, language }) => ({
       quantity,
       price_data: {
         currency: currency.toLowerCase(),
         unit_amount: toMinorUnits(book.price, currency),
         product_data: {
-          name: book.title,
+          name: book.format === 'ebook' && language
+            ? `${book.title} — ${LANGUAGE_LABELS[language] || language.toUpperCase()}`
+            : book.title,
           ...(book.description ? { description: book.description.slice(0, 500) } : {})
         }
       }
@@ -1628,15 +1627,29 @@ router.post('/payments/subscriptions/checkout', ...readers, validateBody(schemas
     const existing = await Subscription.findOne({
       where: {
         userId: req.user.id,
-        status: { [Op.in]: ['incomplete', 'trialing', 'active', 'past_due'] }
+        // Only a real, live subscription blocks a new payment. A checkout the
+        // reader never finished stays "incomplete" forever and must not trap
+        // them: it is expired below and they can simply pay again.
+        status: { [Op.in]: BLOCKING_SUBSCRIPTION_STATUSES }
       }
     });
-    if (existing) return res.status(409).json({ message: 'An active or pending subscription already exists.' });
+    if (existing) return res.status(409).json({ message: 'An active subscription already exists.' });
+    const abandonedAttempts = await Subscription.findAll({
+      where: { userId: req.user.id, status: { [Op.in]: ['incomplete'] } },
+      attributes: ['id', 'stripeCheckoutSessionId']
+    });
     const currency = String(plan.currency).toUpperCase();
     assertTwoDecimalCurrency(currency);
     const unitAmount = toMinorUnits(plan.price, currency);
     stripe = createStripeClient();
     const customer = await ensureStripeCustomer(req.user, stripe);
+    // Retire the unpaid attempts first so no old session can be paid twice.
+    for (const attempt of abandonedAttempts) {
+      if (attempt.stripeCheckoutSessionId) {
+        await stripe.checkout.sessions.expire(attempt.stripeCheckoutSessionId).catch(() => {});
+      }
+      await attempt.update({ status: 'expired' }).catch(() => {});
+    }
     subscription = await Subscription.create({
       userId: req.user.id,
       planId: plan.id,
@@ -2061,7 +2074,8 @@ router.get('/orders', ...readers, async (req, res, next) => {
     const page = Math.max(1, Number(req.query.page) || 1);
     const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 20));
     const result = await StoreOrder.findAndCountAll({
-      where: { userId: req.user.id },
+      // Checkout attempts that were never paid stay private to the server.
+      where: { userId: req.user.id, status: { [Op.in]: READER_VISIBLE_ORDER_STATUSES } },
       include: orderItemsInclude(),
       order: [['createdAt', 'DESC']],
       limit,
@@ -2507,7 +2521,13 @@ router.post('/admin/store-orders/:id/entitlements/grant', ...admins, async (req,
     if (item.book?.format !== 'ebook') return res.status(422).json({ message: 'Only e-book lines have entitlements.' });
     const existing = await Entitlement.findOne({ where: { orderItemId: item.id } });
     const entitlement = existing
-      ? await existing.update({ revokedAt: null, startsAt: new Date(), downloadCount: 0, downloadLimit: 1 })
+      ? await existing.update({
+        revokedAt: null,
+        startsAt: new Date(),
+        downloadCount: 0,
+        downloadLimit: 1,
+        contentLanguage: item.language || existing.contentLanguage || null
+      })
       : await Entitlement.create({
         userId: order.userId,
         orderItemId: item.id,
@@ -2517,7 +2537,8 @@ router.post('/admin/store-orders/:id/entitlements/grant', ...admins, async (req,
         startsAt: new Date(),
         expiresAt: null,
         downloadCount: 0,
-        downloadLimit: 1
+        downloadLimit: 1,
+        contentLanguage: item.language || null
       });
     await recordAudit(req, 'GRANT_ENTITLEMENT', 'Entitlement', entitlement.id, { orderId, orderItemId, reason });
     res.json({ id: entitlement.id, orderItemId: item.id, active: true });

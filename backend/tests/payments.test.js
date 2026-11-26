@@ -334,3 +334,16 @@ test('email notification migration adds preference and deduplication columns onc
   assert.equal(calls[0][2].defaultValue, 'reminders');
   assert.equal(calls[1][2].unique, true);
 });
+
+test('an unfinished subscription attempt never blocks a new payment', () => {
+  const { BLOCKING_SUBSCRIPTION_STATUSES } = require('../utils/stripe');
+  const blocking = (status) => BLOCKING_SUBSCRIPTION_STATUSES.includes(status);
+  assert.equal(blocking('active'), true);
+  assert.equal(blocking('trialing'), true);
+  assert.equal(blocking('past_due'), true);
+  // Never paid: the reader must be able to start the checkout again.
+  assert.equal(blocking('incomplete'), false);
+  assert.equal(blocking('expired'), false);
+  assert.equal(blocking('canceled'), false);
+  assert.deepEqual([...BLOCKING_SUBSCRIPTION_STATUSES].sort(), ['active', 'past_due', 'trialing']);
+});

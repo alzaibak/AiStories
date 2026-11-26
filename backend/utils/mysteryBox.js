@@ -182,6 +182,7 @@ function duplicateBoxFields(source, createdBy) {
     perUserLimit: source.perUserLimit,
     revealMode: source.revealMode,
     description: source.description,
+    promoBlocks: source.promoBlocks,
     digitalConsentText: source.digitalConsentText,
     faq: source.faq,
     termsText: source.termsText,
@@ -386,6 +387,30 @@ function serializeShipping(shipping, { language = 'ar', price, currency = 'EUR' 
   };
 }
 
+/** Admin promo blocks, with the text of the requested language. */
+function localizedPromoBlocks(box, language = 'ar') {
+  const blocks = Array.isArray(box?.promoBlocks) ? box.promoBlocks : [];
+  return blocks
+    .map((block) => {
+      const type = block?.type === 'image' ? 'image' : 'text';
+      const pick = (field) => {
+        const value = block?.[field];
+        if (typeof value === 'string') return value.trim();
+        if (!value || typeof value !== 'object') return '';
+        const translated = language !== 'ar' ? value[language] : '';
+        return String(translated || value.ar || '').trim();
+      };
+      return {
+        type,
+        title: pick('title'),
+        body: pick('body'),
+        imageUrl: block?.imageUrl ? String(block.imageUrl) : null,
+        imageAlt: block?.imageAlt ? String(block.imageAlt) : null
+      };
+    })
+    .filter((block) => (block.type === 'image' ? Boolean(block.imageUrl) : Boolean(block.title || block.body)));
+}
+
 function serializePublicBox({ box, items = [], shipping, appearance, language = 'ar', revealed = false }) {
   const now = new Date();
   const state = computeMysteryBoxState(box, now);
@@ -439,6 +464,7 @@ function serializePublicBox({ box, items = [], shipping, appearance, language = 
     revealMode: box.revealMode,
     revealed,
     description: localizedBoxField(box, language, 'description') || null,
+    promo: localizedPromoBlocks(box, language),
     digitalConsentText: localizedBoxField(box, language, 'digitalConsentText') ||
       DEFAULT_DIGITAL_CONSENT[language] || DEFAULT_DIGITAL_CONSENT.ar,
     faq: localizedBoxField(box, language, 'faq') || [],
@@ -451,14 +477,22 @@ function serializePublicBox({ box, items = [], shipping, appearance, language = 
   };
 }
 
-function serializeHeader(box, { items = [], appearance, language = 'ar' } = {}) {
-  const now = new Date();
+function serializeHeader(box, { items = [], appearance, language = 'ar', now = new Date() } = {}) {
   const state = computeMysteryBoxState(box, now);
-  if (state !== 'active') return null;
+  // Bars and cards also exist for a drop that starts soon, and a sold-out drop
+  // stays visible with a disabled button instead of disappearing.
+  if (!['active', 'scheduled', 'sold_out'].includes(state)) return null;
+  let price;
+  try {
+    price = effectivePrice(box, now);
+  } catch {
+    return null;
+  }
   const remaining = remainingStock(box);
-  const threshold = appearance?.almostSoldOutThreshold;
-  const price = effectivePrice(box, now);
+  const configuredThreshold = Number(appearance?.almostSoldOutThreshold);
+  const threshold = Number.isInteger(configuredThreshold) && configuredThreshold > 0 ? configuredThreshold : 5;
   return {
+    state,
     slug: box.slug,
     label: localizedAppearanceField(appearance, language, 'headerLabel') ||
       localizedBoxField(box, language, 'title'),
@@ -474,9 +508,14 @@ function serializeHeader(box, { items = [], appearance, language = 'ar' } = {}) 
     endsAt: box.endAt,
     serverTime: now.toISOString(),
     remaining,
-    almostSoldOut: remaining !== null && Number.isInteger(Number(threshold)) && remaining <= Number(threshold),
-    price: { amount: price.amount, currency: price.currency, tier: price.tier },
-    itemCount: items.length
+    stockTotal: box.stockLimit === null || box.stockLimit === undefined ? null : Number(box.stockLimit),
+    almostSoldOut: state === 'active' && remaining !== null && remaining <= threshold,
+    price: { amount: price.amount, currency: price.currency, tier: price.tier, earlyBirdEndsAt: price.earlyBird?.endsAt || null },
+    itemCount: items.length,
+    perUserLimit: Math.max(1, Number(box.perUserLimit || 1)),
+    requiresShipping: Boolean(box.requiresShipping) || items.some(isPhysicalItem),
+    // Digital items require an explicit consent before checkout.
+    needsDigitalConsent: items.some((item) => !isPhysicalItem(item))
   };
 }
 
@@ -505,6 +544,7 @@ module.exports = {
   localizedItemField,
   localizedAppearanceField,
   localizedShippingField,
+  localizedPromoBlocks,
   publicItem,
   publicItems,
   itemCounts,

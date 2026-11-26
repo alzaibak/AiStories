@@ -164,8 +164,8 @@ export default {
       fontFamily: {
         sans: ['Inter', 'sans-serif'],
         ui: ['IBM Plex Sans Arabic', 'Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
-        reading: ['Lora', 'Noto Naskh Arabic', 'Georgia', 'serif'],
-        display: ['IBM Plex Sans Arabic', 'Lora', 'serif'],
+        reading: ['Source Serif 4', 'Amiri', 'Georgia', 'serif'],
+        display: ['Reem Kufi', 'IBM Plex Sans Arabic', 'serif'],
       },
       boxShadow: {
         soft: 'var(--shadow-soft)',

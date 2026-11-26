@@ -5,9 +5,15 @@ const sharp = require('sharp');
 
 const PUBLIC_DIRECTORY = process.env.PUBLIC_IMAGE_DIRECTORY ||
   path.join(__dirname, '..', 'public_uploads', 'covers');
-const WIDTHS = [320, 640, 960, 1600];
 const ALLOWED_FORMATS = new Set(['jpeg', 'png', 'webp']);
 const MAX_BYTES = 5 * 1024 * 1024;
+const MAX_BLOCK_BYTES = 8 * 1024 * 1024;
+const KINDS = {
+  cover: { widths: [320, 640, 960, 1600], minWidth: 600, minHeight: 600, maxBytes: MAX_BYTES },
+  hero: { widths: [320, 640, 960, 1600], minWidth: 1200, minHeight: 600, maxBytes: MAX_BYTES },
+  // In-story illustrations: one reading size and one high-density size.
+  block: { widths: [600, 1200], minWidth: 480, minHeight: 320, maxBytes: MAX_BLOCK_BYTES }
+};
 
 function publicBaseUrl() {
   return String(process.env.PUBLIC_MEDIA_BASE_URL || '').replace(/\/$/, '');
@@ -27,14 +33,15 @@ async function ensurePublicDirectory() {
  * normalised WebP derivatives are written to the public folder.
  */
 async function processStoryImage(buffer, { kind = 'cover' } = {}) {
+  const preset = KINDS[kind] || KINDS.cover;
   if (!Buffer.isBuffer(buffer) || !buffer.length) {
     const error = new Error('Aucun fichier image reçu.');
     error.status = 422;
     error.code = 'INVALID_IMAGE';
     throw error;
   }
-  if (buffer.length > MAX_BYTES) {
-    const error = new Error('L’image dépasse 5 Mo.');
+  if (buffer.length > preset.maxBytes) {
+    const error = new Error(`L’image dépasse ${Math.round(preset.maxBytes / (1024 * 1024))} Mo.`);
     error.status = 422;
     error.code = 'IMAGE_TOO_LARGE';
     throw error;
@@ -55,8 +62,8 @@ async function processStoryImage(buffer, { kind = 'cover' } = {}) {
     error.code = 'INVALID_IMAGE';
     throw error;
   }
-  const minWidth = kind === 'hero' ? 1200 : 600;
-  const minHeight = kind === 'hero' ? 600 : 600;
+  const minWidth = preset.minWidth;
+  const minHeight = preset.minHeight;
   if ((metadata.width || 0) < minWidth || (metadata.height || 0) < minHeight) {
     const error = new Error(`Dimensions minimales : ${minWidth} × ${minHeight} px.`);
     error.status = 422;
@@ -68,7 +75,7 @@ async function processStoryImage(buffer, { kind = 'cover' } = {}) {
   const id = crypto.randomUUID();
   const pipeline = sharp(buffer).rotate();
   const variants = [];
-  for (const width of WIDTHS) {
+  for (const width of preset.widths) {
     const target = Math.min(width, metadata.width || width);
     const fileName = `${id}-${width}.webp`;
     await pipeline
@@ -108,4 +115,4 @@ async function processStoryImage(buffer, { kind = 'cover' } = {}) {
   };
 }
 
-module.exports = { processStoryImage, PUBLIC_DIRECTORY, MAX_BYTES };
+module.exports = { processStoryImage, PUBLIC_DIRECTORY, MAX_BYTES, MAX_BLOCK_BYTES };

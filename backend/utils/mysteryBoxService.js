@@ -268,6 +268,27 @@ async function releaseMysteryBoxReservation(purchaseId) {
   }
 }
 
+/**
+ * Frees every reservation the reader still holds on a box — an abandoned or
+ * cancelled Stripe attempt. Paid purchases are untouched, so the per-person
+ * limit keeps applying to them.
+ */
+async function releaseUserReservations({ boxId, userId }) {
+  const pending = await MysteryBoxPurchase.findAll({
+    where: { boxId, userId, status: 'pending' },
+    order: [['id', 'ASC']]
+  });
+  const sessionIds = [];
+  let released = 0;
+  for (const purchase of pending) {
+    const freed = await releaseMysteryBoxReservation(purchase.id);
+    if (!freed) continue;
+    released += 1;
+    if (freed.stripeCheckoutSessionId) sessionIds.push(freed.stripeCheckoutSessionId);
+  }
+  return { released, sessionIds };
+}
+
 async function fulfillItem(item, purchase, transaction) {
   const now = new Date();
   switch (item.type) {
@@ -741,6 +762,7 @@ module.exports = {
   PAID_OR_PENDING,
   createMysteryBoxReservation,
   releaseMysteryBoxReservation,
+  releaseUserReservations,
   settleMysteryBoxPurchase,
   refundMysteryBoxPurchase,
   releaseExpiredMysteryBoxReservations,

@@ -1,5 +1,5 @@
 /* Localized labels for the redesigned journey, reader settings and story page. */
-const journeyEnglish: Record<string, string> = {
+export const journeyEnglish: Record<string, string> = {
   'وضع القراءة': 'Reading mode',
   'رحلة القراءة': 'Your journey',
   'اكتمل': 'Completed',
@@ -34,7 +34,7 @@ const journeyEnglish: Record<string, string> = {
   'اقترح قصة': 'Suggest a story'
 };
 
-const journeyFrench: Record<string, string> = {
+export const journeyFrench: Record<string, string> = {
   'وضع القراءة': 'Mode lecture',
   'رحلة القراءة': 'Votre parcours',
   'اكتمل': 'Terminé',

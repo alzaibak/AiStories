@@ -915,12 +915,18 @@ router.get('/auth/me', authenticate, async (req, res, next) => {
     });
     res.json({
       user: publicUser(req.user),
-      subscriptions: subscriptions.map((subscription) => {
-        const value = subscription.toJSON();
-        const canManageRenewal = Boolean(value.stripeSubscriptionId);
-        delete value.stripeSubscriptionId;
-        return { ...value, accessActive: subscriptionIsActive(value), canManageRenewal };
-      })
+      // Never expose an attempt that was never paid: it is not a subscription
+      // the reader can manage, and showing it looked like a stuck "pending".
+      subscriptions: subscriptions
+        .filter((subscription) => subscription.status !== 'incomplete')
+        // An expired row that never started was an abandoned attempt too.
+        .filter((subscription) => !(subscription.status === 'expired' && !subscription.startedAt))
+        .map((subscription) => {
+          const value = subscription.toJSON();
+          const canManageRenewal = Boolean(value.stripeSubscriptionId);
+          delete value.stripeSubscriptionId;
+          return { ...value, accessActive: subscriptionIsActive(value), canManageRenewal };
+        })
     });
   } catch (error) {
     next(error);

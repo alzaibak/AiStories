@@ -80,7 +80,7 @@ export function ProgressRing({
           style={{ transition: 'stroke-dashoffset 700ms cubic-bezier(0.16,1,0.3,1)' }}
         />
       </svg>
-      <span className="absolute text-[0.6875rem] font-bold tabular-nums text-ink">
+      <span className="absolute text-[0.6875rem] font-semibold tabular-nums text-ink">
         {clamped}%
       </span>
     </span>

@@ -252,17 +252,17 @@ export function BadgeCircle({
             : <Icon size={sizing.icon} strokeWidth={1.8} className={dimmed ? 'grayscale' : ''} />}
       </span>
       {state === 'locked' && (
-        <span className="absolute -bottom-0.5 -end-0.5 rounded-full bg-white/95 p-1 text-slate-500 shadow ring-1 ring-slate-200">
+        <span className="absolute -bottom-0.5 -end-0.5 rounded-full bg-surface/95 p-1 text-ink-muted shadow ring-1 ring-line">
           <Lock size={Math.max(10, sizing.icon * 0.42)} strokeWidth={2.4} />
         </span>
       )}
       {state === 'unlocked' && (
         <span
-          className="absolute -top-1 -end-1 rounded-full bg-white/95 shadow ring-1 ring-amber-200"
+          className="absolute -top-1 -end-1 rounded-full bg-surface/95 shadow ring-1 ring-amber-200"
           style={{ padding: Math.max(1, sizing.px / 48) }}
           aria-hidden="true"
         >
-          <Star size={Math.max(8, sizing.icon * 0.34)} className="fill-amber-400 text-amber-500" />
+          <Star size={Math.max(8, sizing.icon * 0.34)} className="fill-amber-400 text-gold-ink" />
         </span>
       )}
       <span className="sr-only">{ariaLabel}</span>
@@ -271,7 +271,7 @@ export function BadgeCircle({
 
   const label = showName && state !== 'secret' && badge.name
     ? (
-      <span className={`mt-2 block max-w-[9rem] truncate text-center font-semibold text-slate-700 dark:text-slate-200 ${sizing.text}`}>
+      <span className={`mt-2 block max-w-[9rem] truncate text-center font-semibold text-ink ${sizing.text}`}>
         {badge.name}
       </span>
     )
@@ -279,7 +279,7 @@ export function BadgeCircle({
 
   const progressLabel = showProgressLabel && state === 'in_progress'
     ? (
-      <span className={`mt-1 block text-center font-bold tabular-nums text-slate-600 dark:text-slate-300 ${sizing.text}`}>
+      <span className={`mt-1 block text-center font-bold tabular-nums text-ink-muted dark:text-ink-muted ${sizing.text}`}>
         {badge.progress?.currentValue ?? 0}/{badge.progress?.targetValue ?? 0}
       </span>
     )
@@ -306,7 +306,7 @@ export function BadgeCircle({
       type="button"
       onClick={() => onOpen?.(badge)}
       aria-label={ariaLabel}
-      className={`group rounded-full outline-none transition focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 ${className}`}
+      className={`group rounded-full outline-none transition focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 ${className}`}
     >
       {body}
     </button>
@@ -367,7 +367,7 @@ export function BadgeDetailModal({ badge, language, onClose, onToggleFeature, ea
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/50 p-4 backdrop-blur-sm sm:items-center"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-surface-sunken/50 p-4 backdrop-blur-sm sm:items-center"
       role="presentation"
       onClick={onClose}
     >
@@ -376,14 +376,14 @@ export function BadgeDetailModal({ badge, language, onClose, onToggleFeature, ea
         aria-modal="true"
         aria-label={secret ? translateText('شارة سرية', language) : badge.name || ''}
         onClick={(event) => event.stopPropagation()}
-        className="w-full max-w-md rounded-3xl border border-emerald-900/10 bg-[#fffdf7] p-6 text-start shadow-2xl dark:border-white/10 dark:bg-slate-900"
+        className="w-full max-w-md rounded-3xl border border-line bg-surface p-6 text-start shadow-2xl dark:bg-surface-sunken"
       >
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-xs font-bold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+            <p className="text-xs font-bold uppercase tracking-wide text-brand-ink dark:text-brand-ink">
               {translateText(BADGE_STATE_LABELS[state], language)}
             </p>
-            <h2 className="mt-1 text-xl font-black text-slate-950 dark:text-white">
+            <h2 className="mt-1 text-xl font-black text-ink dark:text-brand-on">
               {secret ? translateText('شارة سرية', language) : badge.name}
             </h2>
           </div>
@@ -391,7 +391,7 @@ export function BadgeDetailModal({ badge, language, onClose, onToggleFeature, ea
             type="button"
             onClick={onClose}
             aria-label={translateText('إغلاق', language)}
-            className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100 dark:hover:bg-white/10"
+            className="rounded-full p-2 text-ink-muted transition hover:bg-surface-soft dark:hover:bg-surface/10"
           >
             <X size={18} />
           </button>
@@ -400,47 +400,47 @@ export function BadgeDetailModal({ badge, language, onClose, onToggleFeature, ea
           <BadgeCircle badge={badge} size="xl" language={language} interactive={false} />
         </div>
         {secret
-          ? <p className="mt-5 text-center text-sm text-slate-600 dark:text-slate-300">{translateText('تُكشف هذه الشارة بعد الحصول عليها.', language)}</p>
+          ? <p className="mt-5 text-center text-sm text-ink-muted dark:text-ink-muted">{translateText('تُكشف هذه الشارة بعد الحصول عليها.', language)}</p>
           : (
             <>
-              <p className="mt-5 text-sm leading-7 text-slate-700 dark:text-slate-200">{badge.description}</p>
-              <div className="mt-4 rounded-2xl bg-emerald-50 p-4 text-sm text-emerald-950 dark:bg-emerald-950/40 dark:text-emerald-100">
+              <p className="mt-5 text-sm leading-7 text-ink">{badge.description}</p>
+              <div className="mt-4 rounded-2xl bg-brand-soft p-4 text-sm text-brand-ink dark:bg-brand/40 dark:text-brand-on">
                 <p className="font-bold">{translateText('كيف تحصل عليها', language)}</p>
                 <p className="mt-1 leading-7">{badge.howToEarn || '—'}</p>
               </div>
               <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
-                <div className="rounded-xl border border-slate-200 p-3 dark:border-white/10">
-                  <dt className="text-xs text-slate-500 dark:text-slate-400">{translateText('الفئة', language)}</dt>
-                  <dd className="font-bold text-slate-800 dark:text-slate-100">{categoryLabel(badge.category, language)}</dd>
+                <div className="rounded-xl border border-line p-3">
+                  <dt className="text-xs text-ink-muted dark:text-ink-muted">{translateText('الفئة', language)}</dt>
+                  <dd className="font-bold text-ink">{categoryLabel(badge.category, language)}</dd>
                 </div>
-                <div className="rounded-xl border border-slate-200 p-3 dark:border-white/10">
-                  <dt className="text-xs text-slate-500 dark:text-slate-400">{translateText('المستوى', language)}</dt>
-                  <dd className="font-bold text-slate-800 dark:text-slate-100">{tierLabel(badge.tier, language)}</dd>
+                <div className="rounded-xl border border-line p-3">
+                  <dt className="text-xs text-ink-muted dark:text-ink-muted">{translateText('المستوى', language)}</dt>
+                  <dd className="font-bold text-ink">{tierLabel(badge.tier, language)}</dd>
                 </div>
                 {state === 'unlocked'
                   ? (
-                    <div className="col-span-2 rounded-xl border border-slate-200 p-3 dark:border-white/10">
-                      <dt className="text-xs text-slate-500 dark:text-slate-400">{translateText('تاريخ الحصول', language)}</dt>
-                      <dd className="font-bold text-slate-800 dark:text-slate-100">
+                    <div className="col-span-2 rounded-xl border border-line p-3">
+                      <dt className="text-xs text-ink-muted dark:text-ink-muted">{translateText('تاريخ الحصول', language)}</dt>
+                      <dd className="font-bold text-ink">
                         {badge.awardedAt ? new Date(badge.awardedAt).toLocaleDateString(language) : '—'}
                       </dd>
                     </div>
                   )
                   : progress && progress.targetValue > 0
                     ? (
-                      <div className="col-span-2 rounded-xl border border-slate-200 p-3 dark:border-white/10">
-                        <dt className="text-xs text-slate-500 dark:text-slate-400">{translateText('تقدمك', language)}</dt>
-                        <dd className="font-bold text-slate-800 dark:text-slate-100">
+                      <div className="col-span-2 rounded-xl border border-line p-3">
+                        <dt className="text-xs text-ink-muted dark:text-ink-muted">{translateText('تقدمك', language)}</dt>
+                        <dd className="font-bold text-ink">
                           {progress.currentValue}/{progress.targetValue}
                         </dd>
-                        <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-white/10">
-                          <div className="h-full rounded-full bg-emerald-600" style={{ width: `${Math.round(progress.ratio * 100)}%` }} />
+                        <div className="mt-2 h-2 overflow-hidden rounded-full bg-surface-soft dark:bg-surface/10">
+                          <div className="h-full rounded-full bg-brand" style={{ width: `${Math.round(progress.ratio * 100)}%` }} />
                         </div>
                       </div>
                     )
                     : null}
                 {typeof earnedPercent === 'number' && (
-                  <div className="col-span-2 text-xs text-slate-500 dark:text-slate-400">
+                  <div className="col-span-2 text-xs text-ink-muted dark:text-ink-muted">
                     {translateText('حصل عليها', language)} {earnedPercent}% {translateText('من القراء', language)}
                   </div>
                 )}
@@ -453,7 +453,7 @@ export function BadgeDetailModal({ badge, language, onClose, onToggleFeature, ea
               type="button"
               onClick={toggleFeature}
               disabled={busy}
-              className="rounded-full bg-emerald-900 px-4 py-2 text-sm font-bold text-white transition hover:bg-emerald-800 disabled:opacity-60"
+              className="rounded-full bg-brand px-4 py-2 text-sm font-bold text-brand-on transition hover:bg-brand disabled:opacity-60"
             >
               {badge.isFeatured
                 ? translateText('إزالة من الملف', language)
@@ -463,7 +463,7 @@ export function BadgeDetailModal({ badge, language, onClose, onToggleFeature, ea
           <button
             type="button"
             onClick={share}
-            className="inline-flex items-center gap-2 rounded-full border border-slate-300 px-4 py-2 text-sm font-bold text-slate-700 transition hover:bg-slate-100 dark:border-white/15 dark:text-slate-200 dark:hover:bg-white/10"
+            className="inline-flex items-center gap-2 rounded-full border border-line px-4 py-2 text-sm font-bold text-ink transition hover:bg-surface-soft dark:hover:bg-surface/10"
           >
             <Share2 size={15} />
             {shared ? translateText('تم النسخ', language) : translateText('مشاركة', language)}
@@ -493,7 +493,7 @@ export function BadgeCelebration({ badge, language, onClose, durationMs = 6000 }
     <div
       role="status"
       aria-live="polite"
-      className="badge-celebration fixed bottom-6 start-1/2 z-50 w-[min(22rem,calc(100vw-2rem))] -translate-x-1/2 rounded-3xl border border-amber-200 bg-[#fffdf7] p-5 text-center shadow-2xl rtl:translate-x-1/2 dark:border-amber-500/30 dark:bg-slate-900"
+      className="badge-celebration fixed bottom-6 start-1/2 z-50 w-[min(22rem,calc(100vw-2rem))] -translate-x-1/2 rounded-3xl border border-gold bg-surface p-5 text-center shadow-2xl rtl:translate-x-1/2 dark:border-gold dark:bg-surface-sunken"
     >
       <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-3xl" aria-hidden="true">
         {[0, 1, 2, 3, 4, 5].map((index) => (
@@ -508,18 +508,18 @@ export function BadgeCelebration({ badge, language, onClose, durationMs = 6000 }
           />
         ))}
       </div>
-      <p className="text-xs font-black uppercase tracking-widest text-amber-700 dark:text-amber-300">
+      <p className="text-xs font-black uppercase tracking-widest text-gold-ink dark:text-gold-ink">
         {translateText('شارة جديدة', language)}
       </p>
       <div className="mt-3 flex justify-center">
         <BadgeCircle badge={badge} size="lg" language={language} interactive={false} reveal />
       </div>
-      <p className="mt-3 text-lg font-black text-slate-950 dark:text-white">{badge.name}</p>
-      <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{badge.description}</p>
+      <p className="mt-3 text-lg font-black text-ink dark:text-brand-on">{badge.name}</p>
+      <p className="mt-1 text-sm text-ink-muted dark:text-ink-muted">{badge.description}</p>
       <button
         type="button"
         onClick={onClose}
-        className="mt-4 rounded-full bg-emerald-900 px-5 py-2 text-sm font-bold text-white"
+        className="mt-4 rounded-full bg-brand px-5 py-2 text-sm font-bold text-brand-on"
       >
         {translateText('رائع', language)}
       </button>

@@ -121,12 +121,17 @@ async function canAccessBook({
       startsAt: { [Op.lte]: now }
     }
   });
-  return entitlements.some((entitlement) =>
+  const active = entitlements.filter((entitlement) =>
     !entitlement.revokedAt &&
     new Date(entitlement.startsAt) <= now &&
-    (!entitlement.expiresAt || new Date(entitlement.expiresAt) > now) &&
-    (allowExhausted || hasDownloadQuota(entitlement))
+    (!entitlement.expiresAt || new Date(entitlement.expiresAt) > now)
   );
+  if (!active.length) return false;
+  if (allowExhausted) return true;
+  // One usable right is enough: an unlimited right (rental, subscription) keeps
+  // access open, and a re-bought book comes with a fresh entitlement that hands
+  // out a new download while the previous, spent right stays in the library.
+  return active.some((entitlement) => hasDownloadQuota(entitlement));
 }
 
 module.exports = {

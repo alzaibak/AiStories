@@ -31,6 +31,8 @@ import {
 import { api, ApiError } from '@/lib/api';
 import type { SiteLanguage } from '@/lib/localization';
 import { ImageCropper, type CropRequest } from './StoryImagesEditor';
+import { MysteryBoxCard, cardPalette, contrastRatio } from '@/components/mystery-box/MysteryBoxCard';
+import type { ActiveMysteryBox } from '@/hooks/useMysteryBox';
 
 type Language = SiteLanguage;
 type CopyKey = keyof typeof copy.ar;
@@ -213,6 +215,15 @@ const copy = {
     desktop: 'سطح المكتب',
     mobile: 'الهاتف',
     previewCaption: 'معاينة تقريبية من بيانات النموذج؛ الصفحة العامة تُطوَّر في المرحلة التالية.',
+    promoTitle: 'محتوى ترويجي',
+    promoHint: 'مقاطع نصية وصور تظهر أعلى صفحة الصندوق لتشرح قيمته. اكتب النص بالعربية، ثم ترجمه من ألسنة اللغة أعلاه.',
+    addTextBlock: 'إضافة نص',
+    addImageBlock: 'إضافة صورة',
+    blockTitle: 'العنوان',
+    blockBody: 'النص',
+    imageAltLabel: 'وصف الصورة لقارئات الشاشة',
+    removeBlock: 'حذف',
+    promoEmpty: 'لا يوجد محتوى ترويجي بعد.',
     detailsTitle: 'نص التفاصيل',
     description: 'الوصف',
     descriptionHint: 'اشرح ما في الصندوق ومن يناسبه دون كشف عناصر مخفية.',
@@ -498,6 +509,15 @@ const copy = {
     desktop: 'Desktop',
     mobile: 'Mobile',
     previewCaption: 'Approximate preview from the form data; the public page is built in the next phase.',
+    promoTitle: 'Promo content',
+    promoHint: 'Texts and images shown at the top of the box page to sell it. Write the Arabic text, then translate it from the language tabs above.',
+    addTextBlock: 'Add text',
+    addImageBlock: 'Add image',
+    blockTitle: 'Title',
+    blockBody: 'Text',
+    imageAltLabel: 'Image description for screen readers',
+    removeBlock: 'Remove',
+    promoEmpty: 'No promo content yet.',
     detailsTitle: 'Detail copy',
     description: 'Description',
     descriptionHint: 'Explain what is inside and who it is for without revealing hidden items.',
@@ -783,6 +803,15 @@ const copy = {
     desktop: 'Bureau',
     mobile: 'Mobile',
     previewCaption: 'Aperçu approximatif depuis le formulaire ; la page publique sera créée à la prochaine phase.',
+    promoTitle: 'Contenu promotionnel',
+    promoHint: 'Textes et images affichés en haut de la page du coffret pour le vendre. Rédigez l’arabe, puis traduisez depuis les onglets de langue ci-dessus.',
+    addTextBlock: 'Ajouter un texte',
+    addImageBlock: 'Ajouter une image',
+    blockTitle: 'Titre',
+    blockBody: 'Texte',
+    imageAltLabel: 'Description de l’image (alt)',
+    removeBlock: 'Supprimer',
+    promoEmpty: 'Aucun contenu promotionnel pour le moment.',
     detailsTitle: 'Texte des détails',
     description: 'Description',
     descriptionHint: 'Expliquez le contenu et le public sans révéler les éléments masqués.',
@@ -942,6 +971,14 @@ type ShippingDraft = {
   shippingStartDate: string;
   note: Record<Language, string>;
 };
+type PromoDraft = {
+  key: string;
+  type: 'text' | 'image';
+  imageUrl: string;
+  imageAlt: string;
+  title: Record<Language, string>;
+  body: Record<Language, string>;
+};
 type AppearanceDraft = {
   headerLabel: Record<Language, string>;
   icon: string;
@@ -971,6 +1008,7 @@ type BoxForm = {
   requiresShipping: boolean;
   returnPolicy: 'none' | 'standard';
   text: Record<Language, LanguageText>;
+  promo: PromoDraft[];
   items: ItemDraft[];
   shipping: ShippingDraft;
   appearance: AppearanceDraft;
@@ -991,6 +1029,7 @@ type AdminBox = {
   requiresShipping?: boolean; returnPolicy?: 'none' | 'standard'; translations?: Record<string, Partial<LanguageText>>; items?: AdminBoxItem[]; shipping?: Record<string, any> | null;
   appearance?: Record<string, any> | null; digitalConsentText?: string | null; description?: string | null; termsText?: string | null;
   faq?: Array<{ question: string; answer: string }> | null;
+  promoBlocks?: Array<{ type?: string; title?: Record<string, string> | string | null; body?: Record<string, string> | string | null; imageUrl?: string | null; imageAlt?: string | null }> | null;
 };
 type BoxList = { items: AdminBox[]; total: number; page: number; limit: number };
 type Purchase = {
@@ -1033,7 +1072,16 @@ const emptyForm = (): BoxForm => ({
   price: '', earlyBirdPrice: '', earlyBirdEndsAt: '', currency: 'EUR', compareAtValue: '',
   stockLimit: '', perUserLimit: '1', revealMode: 'hidden_until_purchase', requiresShipping: false, returnPolicy: 'none',
   text: { ar: blankText(), en: blankText(), fr: blankText() },
+  promo: [],
   items: [], shipping: emptyShipping(), appearance: emptyAppearance()
+});
+const newPromoBlock = (type: PromoDraft['type']): PromoDraft => ({
+  key: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  type,
+  imageUrl: '',
+  imageAlt: '',
+  title: { ar: '', en: '', fr: '' },
+  body: { ar: '', en: '', fr: '' }
 });
 
 function stageFor(tab: EditorTab): { index: number; label: CopyKey } {
@@ -1562,7 +1610,7 @@ export function AdminMysteryBoxEditorPage() {
         {tab === 'pricing' && <PricingTab form={form} update={update} itemValue={itemValue} savings={savings} hasPhysical={hasPhysical} t={t} />}
         {tab === 'shipping' && <ShippingTab form={form} update={update} hasPhysical={hasPhysical} contentLanguage={contentLanguage} setContentLanguage={setContentLanguage} t={t} />}
         {tab === 'appearance' && <AppearanceTab form={form} update={update} itemValue={itemValue} contentLanguage={contentLanguage} setContentLanguage={setContentLanguage} previewDark={previewDark} setPreviewDark={setPreviewDark} previewMobile={previewMobile} setPreviewMobile={setPreviewMobile} t={t} />}
-        {tab === 'details' && <DetailsTab form={form} updateText={updateText} contentLanguage={contentLanguage} setContentLanguage={setContentLanguage} t={t} />}
+        {tab === 'details' && <DetailsTab form={form} update={update} updateText={updateText} contentLanguage={contentLanguage} setContentLanguage={setContentLanguage} t={t} />}
         {tab === 'publish' && <PublishTab box={box} form={form} checklist={checklist} ready={ready} sales={sales} serverMissing={serverMissing} ackSales={ackSales} setAckSales={setAckSales} busy={busy} onSave={save} language={language} t={t} />}
         <div className="mt-6 flex flex-wrap items-center justify-between gap-2 border-t border-emerald-950/10 pt-4">
           <button type="button" disabled={stepIndex === 0} onClick={() => stepIndex > 0 && goToStep(editorSteps[stepIndex - 1].id)} className={secondaryButton}>{t('previousStep')}</button>
@@ -1879,14 +1927,153 @@ function AppearanceTab({ form, update, itemValue, contentLanguage, setContentLan
             </div>
           </div>
         </div>
+        <div className="mt-4">
+          {(() => {
+            const previewBox: ActiveMysteryBox = {
+              slug: 'preview',
+              state: 'active',
+              label: form.text[contentLanguage].title || 'Mystery box',
+              seasonLabel: form.seasonLabel || '',
+              icon: appearance.icon || '🎁',
+              colorFrom: appearance.colorFrom || '#064e3b',
+              colorTo: appearance.colorTo || '#b45309',
+              accentColor: appearance.accentColor || '#fbbf24',
+              animationStyle: appearance.animationStyle || 'shimmer',
+              showCountdownInHeader: appearance.showCountdownInHeader,
+              bannerImage: appearance.bannerImageUrl || null,
+              startsAt: new Date().toISOString(),
+              endsAt: form.endAt ? new Date(form.endAt).toISOString() : new Date(Date.now() + 604_800_000).toISOString(),
+              serverTime: new Date().toISOString(),
+              remaining: null,
+              stockTotal: null,
+              almostSoldOut: false,
+              price: { amount: String(form.price || 0), currency: form.currency || 'EUR', tier: 'standard' },
+              itemCount: form.items.filter((item) => item.type).length,
+              perUserLimit: Math.max(1, Number(form.perUserLimit) || 1),
+              requiresShipping: form.requiresShipping,
+              needsDigitalConsent: true
+            };
+            const palette = cardPalette(previewBox);
+            const ratio = contrastRatio(palette.accent, palette.ground);
+            return (
+              <div className={`mx-auto ${previewMobile ? 'max-w-[360px]' : 'max-w-[420px]'}`}>
+                <MysteryBoxCard box={previewBox} language={contentLanguage} onBuy={() => {}} />
+                <p className={`mt-2 rounded-xl p-3 text-xs font-bold leading-6 ${ratio >= 4.5 ? 'bg-emerald-50 text-emerald-900' : 'bg-amber-50 text-amber-800'}`}>
+                  {ratio >= 4.5
+                    ? `معاينة البطاقة الفعلية. تباين اللون المميز ${ratio.toFixed(1)}:1 (AA). ألوانك تُستخدم كإضاءة فقط على خلفية خضراء داكنة.`
+                    : `تحذير تباين: اللون المميز ${ratio.toFixed(1)}:1 أقل من 4.5:1، لذا ستظهر النصوص والزر بالذهبي تلقائيًا.`}
+                </p>
+              </div>
+            );
+          })()}
+        </div>
         <p className="mt-2 text-xs leading-5 text-slate-500">{t('previewCaption')}</p>
       </div>
     </div>
   </div>;
 }
 
-function DetailsTab({ form, updateText, contentLanguage, setContentLanguage, t }: {
-  form: BoxForm; updateText: (patch: Partial<LanguageText>) => void; contentLanguage: Language;
+function promoText(value: Record<string, string> | string | null | undefined, language: Language) {
+  if (typeof value === 'string') return language === 'ar' ? value : '';
+  if (!value || typeof value !== 'object') return '';
+  return value[language] || '';
+}
+
+function PromoEditor({ form, update, contentLanguage, t }: {
+  form: BoxForm; update: (patch: Partial<BoxForm>) => void; contentLanguage: Language; t: (key: CopyKey) => string;
+}) {
+  const promo = form.promo;
+  // One file input per image block: a single shared ref made every upload land
+  // in the last block of the list.
+  const inputs = useRef<Record<string, HTMLInputElement | null>>({});
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState('');
+  const patchBlock = (key: string, patch: Partial<PromoDraft>) =>
+    update({ promo: promo.map((block) => block.key === key ? { ...block, ...patch } : block) });
+  const move = (index: number, direction: -1 | 1) => {
+    const target = index + direction;
+    if (target < 0 || target >= promo.length) return;
+    const next = [...promo];
+    [next[index], next[target]] = [next[target], next[index]];
+    update({ promo: next });
+  };
+  async function upload(key: string, file: File | null) {
+    if (!file) return;
+    setUploadError('');
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 5 * 1024 * 1024) {
+      setUploadError(t('photoFormats'));
+      return;
+    }
+    setBusyKey(key);
+    try {
+      const uploaded = await api.uploadFile<{ url: string }>('/admin/content/images', file, { role: 'cover' });
+      if (!uploaded?.url) throw new Error(t('photoFormats'));
+      patchBlock(key, { imageUrl: uploaded.url });
+    } catch (error) {
+      setUploadError(error instanceof Error ? error.message : t('photoFormats'));
+    } finally {
+      setBusyKey(null);
+      const field = inputs.current[key];
+      if (field) field.value = '';
+    }
+  }
+  return <div className="rounded-2xl border p-4">
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <div>
+        <h3 className="text-sm font-black text-emerald-950">{t('promoTitle')}</h3>
+        <p className="mt-1 text-xs leading-6 text-slate-600">{t('promoHint')}</p>
+      </div>
+      <div className="flex gap-2">
+        <button type="button" onClick={() => update({ promo: [...promo, newPromoBlock('text')] })} className={secondaryButton}><FileText size={14} /> {t('addTextBlock')}</button>
+        <button type="button" onClick={() => update({ promo: [...promo, newPromoBlock('image')] })} className={secondaryButton}><ImagePlus size={14} /> {t('addImageBlock')}</button>
+      </div>
+    </div>
+    {uploadError && <p role="alert" className="mt-3 rounded-lg bg-red-50 p-2 text-xs font-bold text-red-700">{uploadError}</p>}
+    {promo.length === 0 && <p className="mt-3 text-xs text-slate-500">{t('promoEmpty')}</p>}
+    <div className="mt-3 space-y-3">
+      {promo.map((block, index) => (
+        <div key={block.key} className="rounded-xl border bg-[#FBF7EF] p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-2 py-1 text-[11px] font-bold text-emerald-900">
+              {block.type === 'image' ? <ImagePlus size={12} /> : <FileText size={12} />}
+              {block.type === 'image' ? t('addImageBlock') : t('addTextBlock')}
+            </span>
+            <div className="flex gap-1">
+              <button type="button" aria-label={t('moveUp')} onClick={() => move(index, -1)} disabled={index === 0} className="rounded-lg border bg-white p-1.5 text-slate-700 disabled:opacity-40"><ArrowUp size={13} /></button>
+              <button type="button" aria-label={t('moveDown')} onClick={() => move(index, 1)} disabled={index === promo.length - 1} className="rounded-lg border bg-white p-1.5 text-slate-700 disabled:opacity-40"><ArrowDown size={13} /></button>
+              <button type="button" aria-label={t('removeBlock')} onClick={() => update({ promo: promo.filter((item) => item.key !== block.key) })} className="rounded-lg border border-red-200 bg-white p-1.5 text-red-700"><Trash2 size={13} /></button>
+            </div>
+          </div>
+          {block.type === 'image' && (
+            <div className="mt-3 space-y-2">
+              {block.imageUrl && <img src={block.imageUrl} alt={block.imageAlt} className="aspect-[16/9] w-full rounded-lg border object-cover" />}
+              <div className="flex flex-wrap items-center gap-2">
+                <input ref={(element) => { inputs.current[block.key] = element; }} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" aria-label={t('uploadPhoto')} onChange={(event) => void upload(block.key, event.target.files?.[0] || null)} />
+                <button type="button" onClick={() => inputs.current[block.key]?.click()} disabled={busyKey === block.key} className={secondaryButton}>
+                  {busyKey === block.key ? <Loader2 size={14} className="animate-spin" /> : <UploadCloud size={14} />} {block.imageUrl ? t('replacePhoto') : t('uploadPhoto')}
+                </button>
+                <input dir="ltr" value={block.imageUrl} onChange={(event) => patchBlock(block.key, { imageUrl: event.target.value })} placeholder={t('imageUrlLabel')} className={`${inputClass} flex-1 text-left`} />
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <input value={block.imageAlt} onChange={(event) => patchBlock(block.key, { imageAlt: event.target.value })} placeholder={t('imageAltLabel')} className={inputClass} />
+                <input dir={contentLanguage === 'ar' ? 'rtl' : 'ltr'} value={block.title[contentLanguage]} onChange={(event) => patchBlock(block.key, { title: { ...block.title, [contentLanguage]: event.target.value } })} placeholder={t('blockTitle')} className={inputClass} />
+              </div>
+            </div>
+          )}
+          <div className="mt-3 grid gap-2">
+            {block.type === 'text' && (
+              <input dir={contentLanguage === 'ar' ? 'rtl' : 'ltr'} value={block.title[contentLanguage]} onChange={(event) => patchBlock(block.key, { title: { ...block.title, [contentLanguage]: event.target.value } })} placeholder={t('blockTitle')} className={inputClass} />
+            )}
+            <textarea rows={block.type === 'image' ? 2 : 4} dir={contentLanguage === 'ar' ? 'rtl' : 'ltr'} value={block.body[contentLanguage]} onChange={(event) => patchBlock(block.key, { body: { ...block.body, [contentLanguage]: event.target.value } })} placeholder={t('blockBody')} className={inputClass} />
+          </div>
+        </div>
+      ))}
+    </div>
+  </div>;
+}
+
+function DetailsTab({ form, update, updateText, contentLanguage, setContentLanguage, t }: {
+  form: BoxForm; update: (patch: Partial<BoxForm>) => void; updateText: (patch: Partial<LanguageText>) => void; contentLanguage: Language;
   setContentLanguage: (language: Language) => void; t: (key: CopyKey) => string;
 }) {
   const text = form.text[contentLanguage];
@@ -1903,6 +2090,7 @@ function DetailsTab({ form, updateText, contentLanguage, setContentLanguage, t }
       </div>)}</div>
     </div>
     <Field label={t('terms')}><textarea rows={4} dir={contentLanguage === 'ar' ? 'rtl' : 'ltr'} value={text.termsText} onChange={(event) => updateText({ termsText: event.target.value })} className={inputClass} /></Field>
+    <PromoEditor form={form} update={update} contentLanguage={contentLanguage} t={t} />
   </div>;
 }
 
@@ -1996,6 +2184,14 @@ function formFromBox(box: AdminBox, language: Language): BoxForm {
     requiresShipping: Boolean(box.requiresShipping) || (box.items || []).some((item) => isPhysical(item.type)),
     returnPolicy: box.returnPolicy === 'standard' ? 'standard' : 'none',
     text: { ar: baseText('ar'), en: baseText('en'), fr: baseText('fr') },
+    promo: (box.promoBlocks || []).map((block, index) => ({
+      key: `promo-${index}`,
+      type: block.type === 'image' ? 'image' as const : 'text' as const,
+      imageUrl: block.imageUrl || '',
+      imageAlt: block.imageAlt || '',
+      title: { ar: promoText(block.title, 'ar'), en: promoText(block.title, 'en'), fr: promoText(block.title, 'fr') },
+      body: { ar: promoText(block.body, 'ar'), en: promoText(block.body, 'en'), fr: promoText(block.body, 'fr') }
+    })),
     items: (box.items || []).map((item) => ({
       key: String(item.id || `${Date.now()}-${Math.random()}`),
       type: (item.type || 'ebook') as ItemType,
@@ -2084,6 +2280,17 @@ function buildPayload(form: BoxForm, acknowledgeSales: boolean) {
     digitalConsentText: form.text.ar.digitalConsentText || null,
     termsText: form.text.ar.termsText || null,
     faq: form.text.ar.faq.filter((entry) => entry.question.trim() && entry.answer.trim()),
+    promoBlocks: form.promo
+      .map((block) => ({
+        type: block.type,
+        imageUrl: block.imageUrl.trim() || null,
+        imageAlt: block.imageAlt.trim() || null,
+        title: { ar: block.title.ar.trim(), en: block.title.en.trim(), fr: block.title.fr.trim() },
+        body: { ar: block.body.ar.trim(), en: block.body.en.trim(), fr: block.body.fr.trim() }
+      }))
+      .filter((block) => block.type === 'image'
+        ? Boolean(block.imageUrl)
+        : Boolean(block.title.ar || block.body.ar || block.title.en || block.title.fr)),
     translations,
     items: form.items.map((item, index) => ({
       type: item.type,

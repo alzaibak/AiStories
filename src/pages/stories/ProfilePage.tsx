@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import {
-  BookOpen, CalendarDays, CheckCircle2, ChevronLeft, Download, ExternalLink, Flame, Gift, Library as LibraryIcon,
-  Loader2, LogOut, Mail, Moon, Package, Palette, RotateCcw, ScrollText, Sparkles, Sun, Trophy, Truck, X
+  BookOpen, CalendarDays, Check, CheckCircle2, ChevronLeft, Download, ExternalLink, Flame, Gem, Gift, LayoutDashboard, Library as LibraryIcon,
+  Loader2, LogOut, Mail, Moon, Package, Palette, RotateCcw, ScrollText, Settings, Sparkles, Sun, Trophy, Truck, X
 } from 'lucide-react';
 import { useStoryAuth } from '@/contexts/StoryAuthContext';
 import { useSiteTheme } from '@/contexts/SiteThemeContext';
@@ -91,6 +91,7 @@ type OrderItemRecord = {
 type OrderRecord = {
   id: number;
   status: string;
+  normalizedStatus?: string;
   fulfillmentStatus: string;
   returnStatus: string;
   currency: string;
@@ -176,7 +177,54 @@ const TAB_LABELS: Record<Tab, string> = {
   settings: 'الإعدادات'
 };
 
+const TAB_ICONS: Record<Tab, typeof LayoutDashboard> = {
+  overview: LayoutDashboard,
+  badges: Sparkles,
+  certificates: ScrollText,
+  library: LibraryIcon,
+  orders: Package,
+  returns: RotateCcw,
+  subscription: Gem,
+  settings: Settings
+};
+
 const CATEGORY_ORDER = ['reading', 'quiz', 'streak', 'collection', 'competition', 'community', 'supporter', 'event'];
+
+/**
+ * Reader-facing order label. `paid` is not ready yet (processing), `fulfilled`
+ * means the order is complete — the two must never be confused.
+ */
+function orderStatusLabel(order: {
+  status: string;
+  normalizedStatus?: string;
+  fulfillmentStatus?: string;
+  items?: Array<{ format?: string | null }>;
+}, t: (text: string) => string) {
+  const status = order.normalizedStatus || order.status;
+  const isPhysical = (order.items || []).some((item) => item.format === 'print');
+  if (status === 'refunded') return t('مسترجع');
+  if (status === 'partially_refunded') return t('مسترجع جزئياً');
+  if (status === 'amount_mismatch') return t('قيد المراجعة');
+  if (status === 'pending' || status === 'pending_payment' || status === 'unpaid' || status === 'incomplete') return t('بانتظار الدفع');
+  if (['canceled', 'cancelled', 'expired', 'failed'].includes(status)) return t('ملغى');
+  if (status === 'fulfilled') {
+    // A digital order is complete as soon as it is delivered; only a printed
+    // order has a delivery step worth showing.
+    if (isPhysical && order.fulfillmentStatus === 'delivered') return t('تم التوصيل');
+    return t('مكتمل');
+  }
+  if (isPhysical && order.fulfillmentStatus === 'shipped') return t('تم الشحن');
+  return t('قيد التجهيز');
+}
+
+const MYSTERY_BOX_STATUS_LABELS: Record<string, string> = {
+  pending: 'قيد التأكيد',
+  paid: 'مدفوع',
+  fulfilled: 'تم التسليم',
+  partially_fulfilled: 'تم التسليم جزئياً',
+  refunded: 'مسترجع',
+  cancelled: 'ملغى'
+};
 
 const RETURN_STATUS_LABELS: Record<string, string> = {
   requested: 'طلب جديد',
@@ -211,14 +259,14 @@ function LevelRing({ summary, language }: { summary: Summary; language: SiteLang
       <svg viewBox="0 0 132 132" className="absolute inset-0 h-full w-full -rotate-90" aria-hidden="true">
         <circle cx="66" cy="66" r={radius} fill="none" stroke="rgba(148,163,184,0.25)" strokeWidth="9" />
         <circle
-          cx="66" cy="66" r={radius} fill="none" stroke="#0f766e" strokeWidth="9" strokeLinecap="round"
+          cx="66" cy="66" r={radius} fill="none" stroke="currentColor" strokeWidth="9" strokeLinecap="round"
           strokeDasharray={`${(percent / 100) * circumference} ${circumference}`}
         />
       </svg>
       <div className="text-center">
-        <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700 dark:text-emerald-300">{translateText('المستوى', language)}</p>
-        <p className="text-3xl font-black text-slate-950 dark:text-white">{summary.level.level}</p>
-        <p className="px-2 text-[10px] font-bold leading-3 text-slate-500 dark:text-slate-400 line-clamp-2">{summary.level.name}</p>
+        <p className="text-[10px] font-semibold uppercase tracking-widest text-brand-ink">{translateText('المستوى', language)}</p>
+        <p className="text-3xl font-semibold text-ink">{summary.level.level}</p>
+        <p className="px-2 text-[10px] font-semibold leading-3 text-ink-muted line-clamp-2">{summary.level.name}</p>
       </div>
     </div>
   );
@@ -586,7 +634,9 @@ export function ProfilePage() {
       });
       window.location.assign(response.checkoutUrl);
     } catch (caught) {
-      setPlanCheckoutError(caught instanceof Error ? caught.message : t('تعذر بدء الاشتراك.'));
+      setPlanCheckoutError(caught instanceof ApiError && caught.status === 409
+        ? t('لديك اشتراك نشط بالفعل. يمكنك إدارته من حسابك.')
+        : caught instanceof Error ? caught.message : t('تعذر بدء الاشتراك.'));
       setPlanCheckoutId(null);
     }
   }
@@ -641,9 +691,9 @@ export function ProfilePage() {
     return (
       <SiteLayout>
         <div className="mx-auto max-w-5xl space-y-4 px-4 py-10">
-          <div className="h-40 animate-pulse rounded-3xl bg-emerald-50 dark:bg-white/5" />
+          <div className="h-40 animate-pulse rounded-3xl bg-brand-soft" />
           <div className="grid gap-4 sm:grid-cols-3">
-            {[0, 1, 2].map((index) => <div key={index} className="h-32 animate-pulse rounded-2xl bg-emerald-50 dark:bg-white/5" />)}
+            {[0, 1, 2].map((index) => <div key={index} className="h-32 animate-pulse rounded-2xl bg-brand-soft" />)}
           </div>
         </div>
       </SiteLayout>
@@ -652,151 +702,180 @@ export function ProfilePage() {
   if (!user) return <Navigate to={`/${language}/login`} replace />;
 
   const subscriptions = user.subscriptions || [];
-  const activeSubscription = subscriptions.find((subscription) => subscription.accessActive) || subscriptions[0];
+  // Only a subscription that actually grants access is manageable; an unpaid
+  // attempt is never shown nor offered as the current plan.
+  const activeSubscription = subscriptions.find((subscription) => subscription.accessActive) || null;
+  // One flag drives every "free or subscribed?" label on the page.
+  const isFreePlan = !summary || summary.plan.status === 'free' || summary.plan.name === 'Free';
+  const planRenewalDate = summary?.plan.expiresAt
+    ? new Date(summary.plan.expiresAt).toLocaleDateString(language)
+    : null;
 
   return (
     <SiteLayout>
       <main className="mx-auto max-w-5xl space-y-6 px-4 pb-16 pt-8">
         {error && (
-          <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900 dark:border-red-500/30 dark:bg-red-950/40 dark:text-red-100">
+          <div role="alert" className="rounded-xl border border-danger bg-danger-soft p-4 text-sm text-danger">
             {error}
           </div>
         )}
         {notice && (
-          <div role="status" className="flex items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-900 dark:border-emerald-500/30 dark:bg-emerald-950/40 dark:text-emerald-100">
+          <div role="status" className="flex items-center justify-between gap-3 rounded-xl border border-line bg-brand-soft p-3 text-sm font-semibold text-brand-ink">
             <span className="inline-flex items-center gap-2"><CheckCircle2 size={16} /> {notice}</span>
             <button type="button" onClick={() => setNotice(null)} className="text-xs underline">{t('إغلاق')}</button>
           </div>
         )}
 
         {loading && !summary
-          ? <div className="h-48 animate-pulse rounded-3xl bg-emerald-50 dark:bg-white/5" />
+          ? <div className="h-48 animate-pulse rounded-3xl bg-brand-soft" />
           : summary && (
             <>
-              <header className="rounded-3xl border border-emerald-900/10 bg-gradient-to-br from-[#fffdf7] via-[#f6faf8] to-[#e6f5ee] p-5 shadow-sm dark:border-white/10 dark:from-slate-900 dark:via-slate-900 dark:to-slate-800 sm:p-7">
-                <div className="flex flex-col gap-6 sm:flex-row sm:items-center">
-                  <div className="flex flex-1 items-center gap-4">
-                    <span className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-emerald-900 text-2xl font-black text-white ring-4 ring-white/70 dark:ring-white/10">
+              <header className="overflow-hidden rounded-3xl border border-line bg-surface shadow-lift">
+                <div className="flex flex-col gap-6 p-5 sm:p-7 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="flex items-start gap-4">
+                    <span className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-brand text-2xl font-semibold text-brand-on ring-4 ring-surface/70">
                       {summary.user.avatarUrl
                         ? <img src={summary.user.avatarUrl} alt="" className="h-full w-full rounded-full object-cover" />
                         : initials(summary.user.firstName, summary.user.lastName)}
                     </span>
-                    <div>
-                      <h1 className="text-2xl font-black text-slate-950 dark:text-white sm:text-3xl">
+                    <div className="min-w-0">
+                      <h1 className="text-2xl font-semibold text-ink sm:text-3xl">
                         {summary.user.firstName} {summary.user.lastName}
                       </h1>
-                      <p className="mt-1 inline-flex items-center gap-1.5 text-sm text-slate-600 dark:text-slate-300">
+                      <p className="mt-1 inline-flex items-center gap-1.5 text-sm text-ink-muted">
                         <CalendarDays size={14} />
                         {t('عضو منذ')} {new Date(summary.user.createdAt).toLocaleDateString(language, { month: 'long', year: 'numeric' })}
                       </p>
-                      <span className={`mt-2 inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-bold ${summary.plan.status === 'free' ? 'bg-slate-100 text-slate-700 dark:bg-white/10 dark:text-slate-200' : 'bg-amber-100 text-amber-900 dark:bg-amber-500/20 dark:text-amber-200'}`}>
-                        {summary.plan.name === 'Free' ? t('مجاني') : summary.plan.name}
-                        {summary.plan.expiresAt && ` · ${new Date(summary.plan.expiresAt).toLocaleDateString(language)}`}
-                      </span>
+                      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1">
+                        <button
+                          type="button"
+                          onClick={() => setTab('subscription')}
+                          className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${isFreePlan ? 'border-line-strong bg-surface-soft text-ink hover:border-brand' : 'border-gold bg-gold-soft text-gold-ink'}`}
+                        >
+                          {isFreePlan ? <Sparkles size={13} /> : <Check size={13} />}
+                          <span>{isFreePlan ? t('الخطة المجانية') : t('اشتراك نشط')}</span>
+                          <span aria-hidden="true" className="opacity-40">·</span>
+                          <span className="underline decoration-dotted underline-offset-2">{isFreePlan ? t('اكتشف الخطط') : t('إدارة الاشتراك')}</span>
+                          <ChevronLeft size={13} className="ltr:rotate-180" />
+                        </button>
+                        {!isFreePlan && planRenewalDate && (
+                          <span className="text-xs text-ink-muted">{t('يتجدد في')} {planRenewalDate}</span>
+                        )}
+                      </div>
                     </div>
                   </div>
                   <div className="flex items-center gap-4">
                     <LevelRing summary={summary} language={language} />
                     <div className="text-sm">
-                      <p className="font-bold text-slate-800 dark:text-slate-100">{summary.level.points} {t('نقطة')}</p>
-                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                      <p className="font-semibold text-ink">{summary.level.points} {t('نقطة')}</p>
+                      <p className="text-xs text-ink-muted">
                         {summary.level.nextLevel
                           ? `${summary.level.pointsToNext} ${t('نقطة للمستوى التالي')}`
                           : t('أعلى مستوى')}
                       </p>
-                      <div className="mt-2 h-2 w-32 overflow-hidden rounded-full bg-white/70 dark:bg-white/10">
-                        <div className="h-full rounded-full bg-emerald-600" style={{ width: `${summary.level.progressPercent}%` }} />
+                      <div className="mt-2 h-2 w-32 overflow-hidden rounded-full bg-surface/70">
+                        <div className="h-full rounded-full bg-brand" style={{ width: `${summary.level.progressPercent}%` }} />
                       </div>
                     </div>
                   </div>
                 </div>
 
-                <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <div className="grid grid-cols-2 gap-px border-t border-line bg-line sm:grid-cols-4">
                   {[
                     { label: 'حكايات مكتملة', value: summary.stats.storiesCompleted, icon: BookOpen },
                     { label: 'نقاط الاختبارات', value: summary.stats.quizPoints, icon: Trophy },
                     { label: 'سلسلة القراءة', value: summary.stats.currentStreak, icon: Flame },
                     { label: 'شارات', value: `${summary.stats.badgesEarned}/${summary.stats.badgesTotal}`, icon: Sparkles }
                   ].map((item) => (
-                    <div key={item.label} className="rounded-2xl border border-white/60 bg-white/80 p-3 shadow-sm dark:border-white/10 dark:bg-white/5">
-                      <item.icon size={16} className="text-emerald-700 dark:text-emerald-300" />
-                      <p className="mt-2 text-xl font-black text-slate-950 dark:text-white">{item.value}</p>
-                      <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">{t(item.label)}</p>
+                    <div key={item.label} className="bg-surface px-4 py-4">
+                      <item.icon size={16} className="text-brand-ink" />
+                      <p className="mt-2 text-xl font-semibold text-ink">{item.value}</p>
+                      <p className="text-[11px] font-semibold text-ink-muted">{t(item.label)}</p>
                     </div>
                   ))}
                 </div>
 
-                <div className="mt-5 flex flex-wrap gap-2">
-                  <button type="button" onClick={() => setTab('settings')} className="rounded-full border border-emerald-900/20 bg-white/70 px-4 py-2 text-sm font-bold text-emerald-950 hover:bg-white dark:border-white/15 dark:bg-white/10 dark:text-white">
+                <div className="flex flex-wrap items-center gap-2 border-t border-line bg-surface px-5 py-4 sm:px-7">
+                  <button type="button" onClick={() => setTab('settings')} className="rounded-full border border-line px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-brand-soft">
                     {t('تعديل الملف')}
                   </button>
                   <Link
                     to={summary.continueReading ? `/${language}/stories/${summary.continueReading.slug}/read/${summary.continueReading.nextPartNumber}` : `/${language}/stories`}
-                    className="rounded-full bg-emerald-900 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-800"
+                    className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-brand-on hover:bg-brand"
                   >
                     {t('تابع القراءة')}
                   </Link>
                 </div>
               </header>
 
-              <nav aria-label={t('أقسام الملف')} className="sticky top-2 z-20 flex gap-1 overflow-x-auto rounded-2xl border border-emerald-900/10 bg-[#fffdf7]/95 p-1 backdrop-blur dark:border-white/10 dark:bg-slate-900/95">
-                {TABS.map((item) => (
-                  <button
-                    key={item}
-                    type="button"
-                    onClick={() => setTab(item)}
-                    aria-current={tab === item ? 'page' : undefined}
-                    className={`whitespace-nowrap rounded-xl px-3 py-2 text-sm font-bold transition ${tab === item ? 'bg-emerald-900 text-white' : 'text-slate-600 hover:bg-emerald-50 dark:text-slate-300 dark:hover:bg-white/10'}`}
-                  >
-                    {t(TAB_LABELS[item])}
-                  </button>
-                ))}
+              <nav
+                aria-label={t('أقسام الملف')}
+                className="sticky top-2 z-20 overflow-x-auto rounded-2xl border border-line bg-surface/95 p-1 shadow-soft backdrop-blur dark:bg-surface/95"
+              >
+                <div className="flex w-max min-w-full items-center gap-1">
+                  {TABS.map((item) => {
+                    const Icon = TAB_ICONS[item];
+                    const active = tab === item;
+                    return (
+                      <button
+                        key={item}
+                        type="button"
+                        onClick={() => setTab(item)}
+                        aria-current={active ? 'page' : undefined}
+                        className={`inline-flex flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-semibold transition ${active ? 'bg-brand text-brand-on shadow-soft' : 'text-ink-muted hover:bg-brand-soft hover:text-brand-ink'}`}
+                      >
+                        <Icon size={15} className="shrink-0" />
+                        {t(TAB_LABELS[item])}
+                      </button>
+                    );
+                  })}
+                </div>
               </nav>
 
               {tab === 'overview' && (
                 <div className="space-y-5">
                   <div className="grid gap-5 md:grid-cols-2">
-                    <section className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-slate-900">
-                      <h2 className="text-sm font-black uppercase tracking-wide text-emerald-800 dark:text-emerald-300">{t('تابع القراءة')}</h2>
+                    <section className="rounded-2xl border border-line bg-surface p-5">
+                      <h2 className="text-sm font-semibold uppercase tracking-wide text-brand-ink">{t('تابع القراءة')}</h2>
                       {summary.continueReading
                         ? (
                           <>
-                            <p className="mt-3 text-lg font-black text-slate-950 dark:text-white">{summary.continueReading.title}</p>
-                            <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-white/10">
-                              <div className="h-full rounded-full bg-emerald-600" style={{ width: `${summary.continueReading.progressPercent}%` }} />
+                            <p className="mt-3 text-lg font-semibold text-ink">{summary.continueReading.title}</p>
+                            <div className="mt-3 h-2 overflow-hidden rounded-full bg-surface-soft">
+                              <div className="h-full rounded-full bg-brand" style={{ width: `${summary.continueReading.progressPercent}%` }} />
                             </div>
-                            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                            <p className="mt-2 text-xs text-ink-muted">
                               {summary.continueReading.completedParts}/{summary.continueReading.totalParts} {t('أجزاء')}
                             </p>
                             <Link
                               to={`/${language}/stories/${summary.continueReading.slug}/read/${summary.continueReading.nextPartNumber}`}
-                              className="mt-4 inline-flex items-center gap-1 rounded-full bg-emerald-900 px-4 py-2 text-sm font-bold text-white"
+                              className="mt-4 inline-flex items-center gap-1 rounded-full bg-brand px-4 py-2 text-sm font-semibold text-brand-on"
                             >
                               {t('الجزء التالي')} <ChevronLeft size={15} className="rtl:rotate-0 ltr:rotate-180" />
                             </Link>
                           </>
                         )
-                        : <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">{t('ابدأ حكايتك الأولى لتظهر هنا.')}</p>}
+                        : <p className="mt-3 text-sm text-ink-muted">{t('ابدأ حكايتك الأولى لتظهر هنا.')}</p>}
                     </section>
 
-                    <section className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-slate-900">
+                    <section className="rounded-2xl border border-line bg-surface p-5">
                       <div className="flex items-center justify-between">
-                        <h2 className="inline-flex items-center gap-2 text-sm font-black uppercase tracking-wide text-emerald-800 dark:text-emerald-300">
+                        <h2 className="inline-flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-brand-ink">
                           <Flame size={16} /> {t('سلسلة القراءة')}
                         </h2>
-                        <p className="text-xs font-bold text-slate-500 dark:text-slate-400">{t('الأفضل')}: {summary.streak.best}</p>
+                        <p className="text-xs font-semibold text-ink-muted">{t('الأفضل')}: {summary.streak.best}</p>
                       </div>
-                      <p className="mt-2 text-3xl font-black text-slate-950 dark:text-white">{summary.streak.current} <span className="text-sm font-bold text-slate-500">{t('يوم')}</span></p>
+                      <p className="mt-2 text-3xl font-semibold text-ink">{summary.streak.current} <span className="text-sm font-semibold text-ink-muted">{t('يوم')}</span></p>
                       <div className="mt-4 flex justify-between gap-1">
                         {summary.streak.week.map((day) => (
                           <div key={day.date} className="flex flex-col items-center gap-1">
                             <span
                               title={new Date(day.date).toLocaleDateString(language)}
-                              className={`flex h-8 w-8 items-center justify-center rounded-full text-[10px] font-bold ${
-                                day.status === 'done' ? 'bg-emerald-600 text-white'
-                                  : day.status === 'today' ? 'bg-amber-400 text-amber-950 ring-2 ring-amber-200'
-                                    : day.status === 'today_pending' ? 'border-2 border-dashed border-amber-400 text-amber-700'
-                                      : 'bg-slate-100 text-slate-400 dark:bg-white/10'
+                              className={`flex h-8 w-8 items-center justify-center rounded-full text-[10px] font-semibold ${
+                                day.status === 'done' ? 'bg-brand text-brand-on'
+                                  : day.status === 'today' ? 'bg-gold-soft text-gold-ink ring-2 ring-amber-200'
+                                    : day.status === 'today_pending' ? 'border-2 border-gold text-gold-ink'
+                                      : 'border border-line bg-surface-soft text-ink-muted'
                               }`}
                             >
                               {new Date(day.date).toLocaleDateString(language, { weekday: 'narrow' })}
@@ -808,17 +887,50 @@ export function ProfilePage() {
                     </section>
                   </div>
 
-                  <section className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-slate-900">
+                  <section className={`rounded-2xl border bg-surface p-5 ${isFreePlan ? 'border-line' : 'border-gold'}`}>
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex items-start gap-3">
+                        <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${isFreePlan ? 'bg-surface-soft text-ink-muted' : 'bg-gold-soft text-gold-ink'}`}>
+                          {isFreePlan ? <Sparkles size={20} /> : <Gem size={20} />}
+                        </span>
+                        <div>
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-muted">{t('خطتك')}</p>
+                          <p className="mt-0.5 text-lg font-semibold text-ink">{isFreePlan ? t('الخطة المجانية') : summary.plan.name}</p>
+                          <p className="mt-1 text-sm text-ink-muted">
+                            {isFreePlan
+                              ? t('اقرأ الحكايات المجانية، وافتح كل المكتبة والشارات مع الاشتراك.')
+                              : planRenewalDate ? `${t('يتجدد في')} ${planRenewalDate}` : t('لا يوجد تاريخ تجديد.')}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-2 sm:justify-end">
+                        <button
+                          type="button"
+                          onClick={() => setTab('subscription')}
+                          className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-brand-on"
+                        >
+                          {isFreePlan ? t('اكتشف الخطط') : t('إدارة الاشتراك')}
+                        </button>
+                        {isFreePlan && (
+                          <Link to={`/${language}/pricing`} className="rounded-full border border-line px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-brand-soft">
+                            {t('مقارنة الخطط')}
+                          </Link>
+                        )}
+                      </div>
+                    </div>
+                  </section>
+
+                  <section className="rounded-2xl border border-line bg-surface p-5">
                     <div className="flex items-center justify-between">
-                      <h2 className="text-sm font-black uppercase tracking-wide text-emerald-800 dark:text-emerald-300">{t('شارات مثبتة')}</h2>
-                      <button type="button" onClick={() => setTab('badges')} className="text-xs font-bold text-emerald-700 underline dark:text-emerald-300">{t('تعديل')}</button>
+                      <h2 className="text-sm font-semibold uppercase tracking-wide text-brand-ink">{t('شارات مثبتة')}</h2>
+                      <button type="button" onClick={() => setTab('badges')} className="text-xs font-semibold text-brand-ink underline">{t('تعديل')}</button>
                     </div>
                     {summary.featuredBadges.length === 0
                       ? (
-                        <div className="mt-4 rounded-xl border border-dashed border-slate-300 p-6 text-center dark:border-white/15">
-                          <Sparkles className="mx-auto text-slate-300" size={28} />
-                          <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{t('ثبّت حتى ثلاث شارات لتظهر في ملفك.')}</p>
-                          <button type="button" onClick={() => setTab('badges')} className="mt-3 rounded-full bg-emerald-900 px-4 py-2 text-xs font-bold text-white">{t('اختر شاراتك')}</button>
+                        <div className="mt-4 rounded-xl border border-line p-6 text-center">
+                          <Sparkles className="mx-auto text-ink-muted" size={28} />
+                          <p className="mt-2 text-sm text-ink-muted">{t('ثبّت حتى ثلاث شارات لتظهر في ملفك.')}</p>
+                          <button type="button" onClick={() => setTab('badges')} className="mt-3 rounded-full bg-brand px-4 py-2 text-xs font-semibold text-brand-on">{t('اختر شاراتك')}</button>
                         </div>
                       )
                       : (
@@ -830,14 +942,14 @@ export function ProfilePage() {
                       )}
                   </section>
 
-                  <section className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-slate-900">
-                    <h2 className="text-sm font-black uppercase tracking-wide text-emerald-800 dark:text-emerald-300">{t('شارات قريبة')}</h2>
+                  <section className="rounded-2xl border border-line bg-surface p-5">
+                    <h2 className="text-sm font-semibold uppercase tracking-wide text-brand-ink">{t('شارات قريبة')}</h2>
                     {summary.nextBadges.length === 0
-                      ? <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">{t('لا توجد شارات قريبة حاليًا.')}</p>
+                      ? <p className="mt-3 text-sm text-ink-muted">{t('لا توجد شارات قريبة حاليًا.')}</p>
                       : (
                         <div className="mt-4 grid gap-4 sm:grid-cols-3">
                           {summary.nextBadges.map((badge) => (
-                            <div key={badge.id} className="flex flex-col items-center rounded-xl border border-slate-200 p-3 text-center dark:border-white/10">
+                            <div key={badge.id} className="flex flex-col items-center rounded-xl border border-line p-3 text-center">
                               <BadgeCircle badge={badge} size="md" language={language} showName showProgressLabel onOpen={(item) => setSelected(item as BadgeItem)} />
                             </div>
                           ))}
@@ -845,22 +957,22 @@ export function ProfilePage() {
                       )}
                   </section>
 
-                  <section className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-slate-900">
-                    <h2 className="text-sm font-black uppercase tracking-wide text-emerald-800 dark:text-emerald-300">{t('أحدث الإنجازات')}</h2>
+                  <section className="rounded-2xl border border-line bg-surface p-5">
+                    <h2 className="text-sm font-semibold uppercase tracking-wide text-brand-ink">{t('أحدث الإنجازات')}</h2>
                     {summary.recentAchievements.length === 0
-                      ? <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">{t('أكمل حكايتك الأولى لتحصل على أول شارة.')}</p>
+                      ? <p className="mt-3 text-sm text-ink-muted">{t('أكمل حكايتك الأولى لتحصل على أول شارة.')}</p>
                       : (
-                        <ol className="mt-4 space-y-3">
+                        <ol className="mt-2 divide-y divide-line">
                           {summary.recentAchievements.map((item) => (
-                            <li key={`${item.badgeId}-${item.at}`} className="flex items-center gap-3 rounded-xl border border-slate-100 p-3 dark:border-white/10">
-                              <span className="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
+                            <li key={`${item.badgeId}-${item.at}`} className="flex items-center gap-3 py-3">
+                              <span className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-soft text-brand-ink">
                                 <Trophy size={16} />
                               </span>
                               <div className="flex-1">
-                                <p className="text-sm font-bold text-slate-900 dark:text-white">{item.title}</p>
-                                <p className="text-xs text-slate-500 dark:text-slate-400">{tierLabel(item.tier, language)}</p>
+                                <p className="text-sm font-semibold text-ink">{item.title}</p>
+                                <p className="text-xs text-ink-muted">{tierLabel(item.tier, language)}</p>
                               </div>
-                              <time className="text-xs text-slate-500 dark:text-slate-400" dateTime={item.at}>
+                              <time className="text-xs text-ink-muted" dateTime={item.at}>
                                 {new Date(item.at).toLocaleDateString(language)}
                               </time>
                             </li>
@@ -873,16 +985,16 @@ export function ProfilePage() {
 
               {tab === 'badges' && (
                 <section className="space-y-5">
-                  <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-slate-900">
+                  <div className="rounded-2xl border border-line bg-surface p-4">
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-sm font-black text-slate-900 dark:text-white">
+                      <p className="text-sm font-semibold text-ink">
                         {summary.stats.badgesEarned} / {summary.stats.badgesTotal} {t('شارة')}
                       </p>
-                      <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">{summary.level.points} {t('نقطة')}</p>
+                      <p className="text-xs font-semibold text-ink-muted">{summary.level.points} {t('نقطة')}</p>
                     </div>
-                    <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-white/10">
+                    <div className="mt-3 h-2 overflow-hidden rounded-full bg-surface-soft">
                       <div
-                        className="h-full rounded-full bg-emerald-600"
+                        className="h-full rounded-full bg-brand"
                         style={{ width: `${Math.round((summary.stats.badgesEarned / Math.max(1, summary.stats.badgesTotal)) * 100)}%` }}
                       />
                     </div>
@@ -892,7 +1004,7 @@ export function ProfilePage() {
                           key={value}
                           type="button"
                           onClick={() => setBadgeFilter(value)}
-                          className={`rounded-full px-3 py-1.5 text-xs font-bold ${badgeFilter === value ? 'bg-emerald-900 text-white' : 'border border-slate-300 text-slate-600 dark:border-white/15 dark:text-slate-300'}`}
+                          className={`rounded-full px-3 py-1.5 text-xs font-semibold ${badgeFilter === value ? 'bg-brand text-brand-on' : 'border border-line text-ink-muted'}`}
                         >
                           {t(label)}
                         </button>
@@ -901,7 +1013,7 @@ export function ProfilePage() {
                         aria-label={t('الفئة')}
                         value={badgeCategory}
                         onChange={(event) => setBadgeCategory(event.target.value)}
-                        className="rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-bold text-slate-600 dark:border-white/15 dark:bg-slate-900 dark:text-slate-300"
+                        className="rounded-full border border-line bg-surface px-3 py-1.5 text-xs font-semibold text-ink-muted"
                       >
                         <option value="all">{t('كل الفئات')}</option>
                         {CATEGORY_ORDER.map((category) => <option key={category} value={category}>{categoryLabel(category, language)}</option>)}
@@ -911,18 +1023,18 @@ export function ProfilePage() {
 
                   {grouped.length === 0
                     ? (
-                      <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center dark:border-white/15 dark:bg-slate-900">
-                        <Sparkles className="mx-auto text-slate-300" size={36} />
-                        <p className="mt-3 font-bold text-slate-700 dark:text-slate-200">{t('لا توجد شارات في هذا التصنيف.')}</p>
-                        <Link to={`/${language}/stories`} className="mt-4 inline-block rounded-full bg-emerald-900 px-4 py-2 text-sm font-bold text-white">{t('اقرأ حكاية الآن')}</Link>
+                      <div className="rounded-2xl border border-line bg-surface p-10 text-center">
+                        <Sparkles className="mx-auto text-ink-muted" size={36} />
+                        <p className="mt-3 font-semibold text-ink">{t('لا توجد شارات في هذا التصنيف.')}</p>
+                        <Link to={`/${language}/stories`} className="mt-4 inline-block rounded-full bg-brand px-4 py-2 text-sm font-semibold text-brand-on">{t('اقرأ حكاية الآن')}</Link>
                       </div>
                     )
                     : grouped.map(([category, items]) => (
                       <div key={category}>
-                        <h2 className="mb-3 text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">{categoryLabel(category, language)}</h2>
+                        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-ink-muted">{categoryLabel(category, language)}</h2>
                         <div className="grid grid-cols-3 gap-4 sm:grid-cols-4 md:grid-cols-5">
                           {items.map((badge) => (
-                            <div key={badge.id} className="flex flex-col items-center rounded-2xl border border-slate-200 bg-white p-3 dark:border-white/10 dark:bg-slate-900">
+                            <div key={badge.id} className="flex flex-col items-center rounded-2xl border border-line bg-surface p-3">
                               <BadgeCircle badge={badge} size="md" language={language} showName reveal onOpen={(item) => setSelected(item as BadgeItem)} />
                             </div>
                           ))}
@@ -934,24 +1046,24 @@ export function ProfilePage() {
 
               {tab === 'certificates' && (
                 <section className="space-y-4">
-                  {certificatesLoading && <div className="h-32 animate-pulse rounded-2xl bg-emerald-50 dark:bg-white/5" />}
+                  {certificatesLoading && <div className="h-32 animate-pulse rounded-2xl bg-brand-soft" />}
                   {!certificatesLoading && certificates.length === 0 && (
-                    <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center dark:border-white/15 dark:bg-slate-900">
-                      <ScrollText className="mx-auto text-slate-300" size={36} />
-                      <p className="mt-3 font-bold text-slate-700 dark:text-slate-200">{t('لا توجد شهادات بعد.')}</p>
-                      <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{t('أكمل حكاية أو مجموعة للحصول على شهادة.')}</p>
+                    <div className="rounded-2xl border border-line bg-surface p-10 text-center">
+                      <ScrollText className="mx-auto text-ink-muted" size={36} />
+                      <p className="mt-3 font-semibold text-ink">{t('لا توجد شهادات بعد.')}</p>
+                      <p className="mt-1 text-sm text-ink-muted">{t('أكمل حكاية أو مجموعة للحصول على شهادة.')}</p>
                     </div>
                   )}
                   <div className="grid gap-4 sm:grid-cols-2">
                     {certificates.map((certificate) => (
-                      <article key={certificate.id} className="rounded-2xl border border-amber-200 bg-[#fffdf7] p-5 dark:border-amber-500/30 dark:bg-slate-900">
-                        <ScrollText className="text-amber-600" size={22} />
-                        <h2 className="mt-2 text-lg font-black text-slate-950 dark:text-white">{certificate.title}</h2>
-                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                      <article key={certificate.id} className="rounded-2xl border border-gold bg-surface p-5">
+                        <ScrollText className="text-gold-ink" size={22} />
+                        <h2 className="mt-2 text-lg font-semibold text-ink">{certificate.title}</h2>
+                        <p className="mt-1 text-xs text-ink-muted">
                           {new Date(certificate.issuedAt).toLocaleDateString(language)} · {certificate.verificationCode}
                         </p>
                         {certificate.downloadUrl && (
-                          <a href={certificate.downloadUrl} className="mt-4 inline-flex items-center gap-2 rounded-full bg-emerald-900 px-4 py-2 text-sm font-bold text-white">
+                          <a href={certificate.downloadUrl} className="mt-4 inline-flex items-center gap-2 rounded-full bg-brand px-4 py-2 text-sm font-semibold text-brand-on">
                             <Download size={15} /> {t('تنزيل PDF')}
                           </a>
                         )}
@@ -965,37 +1077,37 @@ export function ProfilePage() {
                 <section className="space-y-6">
                   {libraryLoading && !library && (
                     <div className="grid gap-4 sm:grid-cols-2">
-                      {[0, 1].map((index) => <div key={index} className="h-32 animate-pulse rounded-2xl bg-emerald-50 dark:bg-white/5" />)}
+                      {[0, 1].map((index) => <div key={index} className="h-32 animate-pulse rounded-2xl bg-brand-soft" />)}
                     </div>
                   )}
                   {library && (
                     <>
                       <div>
-                        <h2 className="mb-3 inline-flex items-center gap-2 text-sm font-black uppercase tracking-wide text-emerald-800 dark:text-emerald-300">
+                        <h2 className="mb-3 inline-flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-brand-ink">
                           <LibraryIcon size={16} /> {t('كتبي الإلكترونية')}
                         </h2>
                         {library.ebooks.length === 0
                           ? (
-                            <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center dark:border-white/15 dark:bg-slate-900">
-                              <BookOpen className="mx-auto text-slate-300" size={32} />
-                              <p className="mt-3 font-bold text-slate-700 dark:text-slate-200">{t('لا توجد كتب بعد.')}</p>
-                              <Link to={`/${language}/books`} className="mt-3 inline-block rounded-full bg-emerald-900 px-4 py-2 text-sm font-bold text-white">{t('تصفح المتجر')}</Link>
+                            <div className="rounded-2xl border border-line bg-surface p-8 text-center">
+                              <BookOpen className="mx-auto text-ink-muted" size={32} />
+                              <p className="mt-3 font-semibold text-ink">{t('لا توجد كتب بعد.')}</p>
+                              <Link to={`/${language}/books`} className="mt-3 inline-block rounded-full bg-brand px-4 py-2 text-sm font-semibold text-brand-on">{t('تصفح المتجر')}</Link>
                             </div>
                           )
                           : (
                             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                               {library.ebooks.map((item) => (
-                                <article key={item.entitlementId} className="flex flex-col rounded-2xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-slate-900">
+                                <article key={item.entitlementId} className="flex flex-col rounded-2xl border border-line bg-surface p-4">
                                   <div className="flex gap-3">
                                     {item.cover
                                       ? <img src={item.cover} alt="" loading="lazy" className="h-16 w-12 rounded object-cover" />
-                                      : <span className="flex h-16 w-12 items-center justify-center rounded bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15"><BookOpen size={20} /></span>}
+                                      : <span className="flex h-16 w-12 items-center justify-center rounded bg-brand-soft text-brand-ink"><BookOpen size={20} /></span>}
                                     <div className="min-w-0">
-                                      <h3 className="line-clamp-2 text-sm font-black text-slate-950 dark:text-white">{item.title}</h3>
-                                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                      <h3 className="line-clamp-2 text-sm font-semibold text-ink">{item.title}</h3>
+                                      <p className="mt-1 text-xs text-ink-muted">
                                         {t('تم الشراء في')} {new Date(item.purchasedAt).toLocaleDateString(language)}
                                       </p>
-                                      <p className="mt-1 text-xs font-semibold text-emerald-800 dark:text-emerald-300">
+                                      <p className="mt-1 text-xs font-semibold text-brand-ink">
                                         {item.downloadsRemaining === null
                                           ? t('تنزيلات غير محدودة')
                                           : `${t('تنزيلات متبقية')}: ${item.downloadsRemaining}`}
@@ -1003,20 +1115,26 @@ export function ProfilePage() {
                                     </div>
                                   </div>
                                   <div className="mt-4 flex flex-wrap gap-2">
-                                    <button
-                                      type="button"
-                                      onClick={() => void downloadBook(item)}
-                                      disabled={downloadBusy === item.bookId || item.downloadsRemaining === 0}
-                                      className="inline-flex items-center gap-2 rounded-full bg-emerald-900 px-3 py-1.5 text-xs font-bold text-white disabled:opacity-60"
-                                    >
-                                      <Download size={14} /> {downloadBusy === item.bookId ? t('جارٍ التنزيل…') : t('تنزيل PDF')}
-                                    </button>
-                                    <Link to={`/${language}/books/${item.slug}`} className="rounded-full border border-slate-300 px-3 py-1.5 text-xs font-bold text-slate-700 dark:border-white/15 dark:text-slate-200">
+                                    {item.downloadsRemaining === null || item.downloadsRemaining > 0 ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => void downloadBook(item)}
+                                        disabled={downloadBusy === item.bookId}
+                                        className="inline-flex items-center gap-2 rounded-full bg-brand px-3 py-1.5 text-xs font-semibold text-brand-on disabled:opacity-60"
+                                      >
+                                        <Download size={14} /> {downloadBusy === item.bookId ? t('جارٍ التنزيل…') : t('تنزيل PDF')}
+                                      </button>
+                                    ) : (
+                                      <span className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-gold-soft px-3 py-1.5 text-[11px] font-semibold text-gold-ink">
+                                        <Check size={13} aria-hidden="true" /> {t('تم التنزيل بالفعل')}
+                                      </span>
+                                    )}
+                                    <Link to={`/${language}/books/${item.slug}`} className="rounded-full border border-line px-3 py-1.5 text-xs font-semibold text-ink">
                                       {t('التفاصيل')}
                                     </Link>
                                   </div>
-                                  {downloadError?.bookId === item.bookId && <p role="alert" className="mt-3 rounded-lg bg-red-50 p-2 text-xs font-semibold text-red-800 dark:bg-red-500/10 dark:text-red-300">{downloadError.message}</p>}
-                                  {item.downloadsRemaining === 0 && downloadError?.bookId !== item.bookId && <p className="mt-2 text-xs font-semibold text-amber-700 dark:text-amber-300">{item.downloadCount > 0 ? t('لقد نزّلت هذا الكتاب بالفعل. لا يُسمح بتنزيله مرة أخرى.') : t('يمكنك تنزيل هذا الكتاب من ملفك الشخصي.')}</p>}
+                                  {downloadError?.bookId === item.bookId && <p role="alert" className="mt-3 rounded-lg bg-danger-soft p-2 text-xs font-semibold text-danger">{downloadError.message}</p>}
+                                  {item.downloadsRemaining === 0 && downloadError?.bookId !== item.bookId && <p className="mt-2 text-xs font-semibold text-gold-ink">{item.downloadCount > 0 ? t('لقد نزّلت هذا الكتاب بالفعل. لا يُسمح بتنزيله مرة أخرى.') : t('يمكنك تنزيل هذا الكتاب من ملفك الشخصي.')}</p>}
                                 </article>
                               ))}
                             </div>
@@ -1024,22 +1142,22 @@ export function ProfilePage() {
                       </div>
 
                       <div>
-                        <h2 className="mb-3 inline-flex items-center gap-2 text-sm font-black uppercase tracking-wide text-emerald-800 dark:text-emerald-300">
+                        <h2 className="mb-3 inline-flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-brand-ink">
                           <ScrollText size={16} /> {t('الإعارات النشطة')}
                         </h2>
                         {library.rentals.length === 0
-                          ? <p className="rounded-2xl border border-dashed border-slate-300 p-5 text-sm text-slate-500 dark:border-white/15 dark:text-slate-400">{t('لا توجد إعارات نشطة.')}</p>
+                          ? <p className="rounded-2xl border border-line p-5 text-sm text-ink-muted">{t('لا توجد إعارات نشطة.')}</p>
                           : (
                             <ul className="space-y-2">
                               {library.rentals.map((item) => (
-                                <li key={item.entitlementId} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3 dark:border-white/10 dark:bg-slate-900">
+                                <li key={item.entitlementId} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-surface p-3">
                                   <div>
-                                    <p className="text-sm font-bold text-slate-900 dark:text-white">{item.title}</p>
-                                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                                    <p className="text-sm font-semibold text-ink">{item.title}</p>
+                                    <p className="text-xs text-ink-muted">
                                       {t('تنتهي في')} {item.expiresAt ? new Date(item.expiresAt).toLocaleDateString(language) : '—'}
                                     </p>
                                   </div>
-                                  <Link to={`/${language}/books/${item.slug}`} className="rounded-full bg-emerald-900 px-3 py-1.5 text-xs font-bold text-white">{t('فتح')}</Link>
+                                  <Link to={`/${language}/books/${item.slug}`} className="rounded-full bg-brand px-3 py-1.5 text-xs font-semibold text-brand-on">{t('فتح')}</Link>
                                 </li>
                               ))}
                             </ul>
@@ -1047,26 +1165,26 @@ export function ProfilePage() {
                       </div>
 
                       <div>
-                        <h2 className="mb-3 inline-flex items-center gap-2 text-sm font-black uppercase tracking-wide text-emerald-800 dark:text-emerald-300">
+                        <h2 className="mb-3 inline-flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-brand-ink">
                           <Package size={16} /> {t('صناديق الغموض')}
                         </h2>
                         {library.mysteryBoxes.length === 0
-                          ? <p className="rounded-2xl border border-dashed border-slate-300 p-5 text-sm text-slate-500 dark:border-white/15 dark:text-slate-400">{t('لا توجد صناديق بعد.')}</p>
+                          ? <p className="rounded-2xl border border-line p-5 text-sm text-ink-muted">{t('لا توجد صناديق بعد.')}</p>
                           : (
                             <ul className="space-y-2">
                               {library.mysteryBoxes.map((box) => (
-                                <li key={box.id} className="rounded-xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-slate-900">
+                                <li key={box.id} className="rounded-xl border border-line bg-surface p-4">
                                   <div className="flex flex-wrap items-center justify-between gap-3">
                                     <div>
-                                      <p className="text-sm font-bold text-slate-900 dark:text-white">{box.title || t('صندوق غموض')}</p>
-                                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                                      <p className="text-sm font-semibold text-ink">{box.title || t('صندوق غموض')}</p>
+                                      <p className="text-xs text-ink-muted">
                                         {new Date(box.purchasedAt).toLocaleDateString(language)} · {Number(box.amountTotal).toFixed(2)} {box.currency}
                                       </p>
                                     </div>
-                                    <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-200">{box.status}</span>
+                                    <span className="rounded-full bg-brand-soft px-3 py-1 text-xs font-semibold text-brand-ink">{t(MYSTERY_BOX_STATUS_LABELS[box.status] || box.status)}</span>
                                   </div>
                                   {box.trackingNumber && (
-                                    <p className="mt-2 inline-flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+                                    <p className="mt-2 inline-flex items-center gap-2 text-xs text-ink-muted">
                                       <Truck size={14} /> {box.carrier || t('شحن')} · <span dir="ltr">{box.trackingNumber}</span>
                                     </p>
                                   )}
@@ -1082,43 +1200,43 @@ export function ProfilePage() {
 
               {tab === 'orders' && (
                 <section className="space-y-4">
-                  {ordersLoading && !orders && <div className="h-40 animate-pulse rounded-2xl bg-emerald-50 dark:bg-white/5" />}
+                  {ordersLoading && !orders && <div className="h-40 animate-pulse rounded-2xl bg-brand-soft" />}
                   {orders && orders.length === 0 && (
-                    <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center dark:border-white/15 dark:bg-slate-900">
-                      <Package className="mx-auto text-slate-300" size={34} />
-                      <p className="mt-3 font-bold text-slate-700 dark:text-slate-200">{t('لا توجد طلبات بعد.')}</p>
-                      <Link to={`/${language}/books`} className="mt-3 inline-block rounded-full bg-emerald-900 px-4 py-2 text-sm font-bold text-white">{t('تصفح المتجر')}</Link>
+                    <div className="rounded-2xl border border-line bg-surface p-10 text-center">
+                      <Package className="mx-auto text-ink-muted" size={34} />
+                      <p className="mt-3 font-semibold text-ink">{t('لا توجد طلبات بعد.')}</p>
+                      <Link to={`/${language}/books`} className="mt-3 inline-block rounded-full bg-brand px-4 py-2 text-sm font-semibold text-brand-on">{t('تصفح المتجر')}</Link>
                     </div>
                   )}
                   {(orders || []).map((order) => (
-                    <article key={order.id} className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-slate-900">
+                    <article key={order.id} className="rounded-2xl border border-line bg-surface p-4">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div>
-                          <p className="text-sm font-black text-slate-950 dark:text-white">#{order.id} · {Number(order.total).toFixed(2)} {order.currency}</p>
-                          <p className="text-xs text-slate-500 dark:text-slate-400">{new Date(order.createdAt).toLocaleDateString(language)}</p>
+                          <p className="text-sm font-semibold text-ink">#{order.id} · {Number(order.total).toFixed(2)} {order.currency}</p>
+                          <p className="text-xs text-ink-muted">{new Date(order.createdAt).toLocaleDateString(language)}</p>
                         </div>
-                        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700 dark:bg-white/10 dark:text-slate-200">
-                          {order.fulfillmentStatus === 'delivered' ? t('تم التوصيل') : order.fulfillmentStatus === 'shipped' ? t('تم الشحن') : order.status === 'paid' ? t('قيد التجهيز') : order.status}
+                        <span className="rounded-full bg-surface-soft px-3 py-1 text-xs font-semibold text-ink">
+                          {orderStatusLabel(order, t)}
                         </span>
                       </div>
-                      <ul className="mt-3 space-y-1 text-sm text-slate-700 dark:text-slate-200">
+                      <ul className="mt-3 space-y-1 text-sm text-ink">
                         {order.items.map((item) => (
                           <li key={item.id} className="flex items-center justify-between gap-2">
                             <span className="min-w-0 truncate">{item.title} × {item.quantity}</span>
-                            <span className="shrink-0 tabular-nums text-xs text-slate-500 dark:text-slate-400">{Number(item.unitPrice).toFixed(2)} {order.currency}</span>
+                            <span className="shrink-0 tabular-nums text-xs text-ink-muted">{Number(item.unitPrice).toFixed(2)} {order.currency}</span>
                           </li>
                         ))}
                       </ul>
                       {order.trackingNumber && (
-                        <p className="mt-2 inline-flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+                        <p className="mt-2 inline-flex items-center gap-2 text-xs text-ink-muted">
                           <Truck size={14} /> <span dir="ltr">{order.trackingNumber}</span>
                         </p>
                       )}
-                      <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3 dark:border-white/10">
+                      <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-line pt-3">
                         {order.return.existingRequest
                           ? (
-                            <p className="text-xs font-semibold text-amber-700 dark:text-amber-300">
-                              {t('طلب إرجاع')} {order.return.existingRequest.rmaNumber} · {order.return.existingRequest.status}
+                            <p className="text-xs font-semibold text-gold-ink">
+                              {t('طلب إرجاع')} {order.return.existingRequest.rmaNumber} · {t(RETURN_STATUS_LABELS[order.return.existingRequest.status] || order.return.existingRequest.status)}
                             </p>
                           )
                           : order.return.eligible
@@ -1126,24 +1244,24 @@ export function ProfilePage() {
                               <button
                                 type="button"
                                 onClick={() => void openReturnModal(order)}
-                                className="inline-flex items-center gap-2 rounded-full border border-emerald-800 px-3 py-1.5 text-xs font-bold text-emerald-900 hover:bg-emerald-50 dark:border-emerald-400 dark:text-emerald-200"
+                                className="inline-flex items-center gap-2 rounded-full border border-line px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-brand-soft"
                               >
                                 <RotateCcw size={14} /> {t('إرجاع كتاب')}
                               </button>
                             )
                             : order.return.isPhysical
-                              ? <p className="text-xs text-slate-500 dark:text-slate-400">{t('الإرجاع غير متاح لهذا الطلب.')}</p>
+                              ? <p className="text-xs text-ink-muted">{t('الإرجاع غير متاح لهذا الطلب.')}</p>
                               : null}
                         {order.return.windowEndsAt && order.return.eligible && (() => {
                           const days = Math.max(0, Math.ceil((new Date(order.return.windowEndsAt).getTime() - Date.now()) / 86400000));
-                          return <span className="text-xs font-semibold text-emerald-800 dark:text-emerald-300">
+                          return <span className="text-xs font-semibold text-brand-ink">
                             {t('يمكنك الإرجاع لمدة')} {days} {t('يومًا إضافيًا')} · {t('حتى')} {new Date(order.return.windowEndsAt).toLocaleDateString(language)}
                           </span>;
                         })()}
                         {order.items.some((item) => item.format && item.format !== 'print') && (
-                          <p className="w-full text-xs leading-6 text-slate-500 dark:text-slate-400">
-                            {t('الكتب الإلكترونية والاشتراكات وعناصر الصناديق الرقمية غير قابلة للإرجاع.')}{' '}
-                            <Link to={`/${language}/policy/returns`} className="font-bold text-emerald-700 underline dark:text-emerald-300">{t('اقرأ سياسة الإرجاع')}</Link>
+                          <p className="w-full text-xs leading-6 text-ink-muted">
+                            {t('الكتب الإلكترونية والاشتراكات وعناصر الصناديق الرقمية غير قابلة للإرجاع.')}{''}
+                            <Link to={`/${language}/policy/returns`} className="font-semibold text-brand-ink underline">{t('اقرأ سياسة الإرجاع')}</Link>
                           </p>
                         )}
                       </div>
@@ -1154,31 +1272,31 @@ export function ProfilePage() {
 
               {tab === 'returns' && (
                 <section className="space-y-4">
-                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-slate-900">
-                    <p className="text-sm font-bold text-slate-700 dark:text-slate-200">{t('تابع إرجاعاتك واسترداداتك من هنا.')}</p>
-                    <Link to={`/${language}/policy/returns`} className="text-xs font-bold text-emerald-700 underline dark:text-emerald-300">{t('سياسة الإرجاع')}</Link>
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-line bg-surface p-4">
+                    <p className="text-sm font-semibold text-ink">{t('تابع إرجاعاتك واسترداداتك من هنا.')}</p>
+                    <Link to={`/${language}/policy/returns`} className="text-xs font-semibold text-brand-ink underline">{t('سياسة الإرجاع')}</Link>
                   </div>
-                  {myReturnsLoading && !myReturns && <div className="h-32 animate-pulse rounded-2xl bg-emerald-50 dark:bg-white/5" />}
-                  {myReturnsError && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-900 dark:border-red-500/30 dark:bg-red-950/40 dark:text-red-100">{myReturnsError}</p>}
+                  {myReturnsLoading && !myReturns && <div className="h-32 animate-pulse rounded-2xl bg-brand-soft" />}
+                  {myReturnsError && <p role="alert" className="rounded-xl border border-danger bg-danger-soft p-3 text-sm text-danger">{myReturnsError}</p>}
                   {myReturns && myReturns.length === 0 && (
-                    <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center dark:border-white/15 dark:bg-slate-900">
-                      <RotateCcw className="mx-auto text-slate-300" size={34} />
-                      <p className="mt-3 font-bold text-slate-700 dark:text-slate-200">{t('لا توجد طلبات إرجاع بعد.')}</p>
-                      <Link to={`/${language}/policy/returns`} className="mt-3 inline-block rounded-full bg-emerald-900 px-4 py-2 text-sm font-bold text-white">{t('كيف يعمل الإرجاع؟')}</Link>
+                    <div className="rounded-2xl border border-line bg-surface p-10 text-center">
+                      <RotateCcw className="mx-auto text-ink-muted" size={34} />
+                      <p className="mt-3 font-semibold text-ink">{t('لا توجد طلبات إرجاع بعد.')}</p>
+                      <Link to={`/${language}/policy/returns`} className="mt-3 inline-block rounded-full bg-brand px-4 py-2 text-sm font-semibold text-brand-on">{t('كيف يعمل الإرجاع؟')}</Link>
                     </div>
                   )}
                   {(myReturns || []).map((entry) => (
-                    <article key={entry.id} className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-slate-900">
+                    <article key={entry.id} className="rounded-2xl border border-line bg-surface p-4">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div>
-                          <p className="text-sm font-black text-slate-950 dark:text-white">{entry.rmaNumber}</p>
-                          <p className="text-xs text-slate-500 dark:text-slate-400">
+                          <p className="text-sm font-semibold text-ink">{entry.rmaNumber}</p>
+                          <p className="text-xs text-ink-muted">
                             {new Date(entry.requestedAt).toLocaleDateString(language)} · {entry.orderId ? `#${entry.orderId}` : `BOX-${entry.mysteryBoxPurchaseId}`}
                           </p>
                         </div>
-                        <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-900 dark:bg-amber-500/20 dark:text-amber-100">{t(RETURN_STATUS_LABELS[entry.status] || entry.status)}</span>
+                        <span className="rounded-full bg-gold-soft px-3 py-1 text-xs font-semibold text-gold-ink">{t(RETURN_STATUS_LABELS[entry.status] || entry.status)}</span>
                       </div>
-                      <ul className="mt-3 space-y-1 text-sm text-slate-700 dark:text-slate-200">
+                      <ul className="mt-3 space-y-1 text-sm text-ink">
                         {entry.items.map((line) => (
                           <li key={line.id} className="flex justify-between gap-2">
                             <span className="truncate">{line.titleSnapshot} × {line.quantity}</span>
@@ -1186,12 +1304,12 @@ export function ProfilePage() {
                           </li>
                         ))}
                       </ul>
-                      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3 text-xs dark:border-white/10">
-                        <span className="text-slate-500 dark:text-slate-400">
-                          {t('مبلغ الاسترداد')}: <strong className="text-emerald-800 dark:text-emerald-300">{Number(entry.refundAmount || lineTotal(entry)).toFixed(2)} {entry.currency}</strong>
+                      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-line pt-3 text-xs">
+                        <span className="text-ink-muted">
+                          {t('مبلغ الاسترداد')}: <strong className="text-brand-ink">{Number(entry.refundAmount || lineTotal(entry)).toFixed(2)} {entry.currency}</strong>
                           {entry.shipBackDeadline ? ` · ${t('أرسل قبل')} ${new Date(entry.shipBackDeadline).toLocaleDateString(language)}` : ''}
                         </span>
-                        <Link to={`/${language}/account/returns/${entry.id}`} className="rounded-full border border-emerald-800 px-3 py-1.5 text-xs font-bold text-emerald-900 dark:border-emerald-400 dark:text-emerald-200">{t('تتبع الإرجاع')}</Link>
+                        <Link to={`/${language}/account/returns/${entry.id}`} className="rounded-full border border-line px-3 py-1.5 text-xs font-semibold text-brand-ink">{t('تتبع الإرجاع')}</Link>
                       </div>
                     </article>
                   ))}
@@ -1200,10 +1318,16 @@ export function ProfilePage() {
 
               {tab === 'subscription' && (
                 <section className="space-y-4">
-                  <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-slate-900">
-                    <h2 className="text-sm font-black uppercase tracking-wide text-emerald-800 dark:text-emerald-300">{t('الخطة الحالية')}</h2>
-                    <p className="mt-2 text-2xl font-black text-slate-950 dark:text-white">{summary.plan.name === 'Free' ? t('مجاني') : summary.plan.name}</p>
-                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                  <div className="rounded-2xl border border-line bg-surface p-5">
+                    <h2 className="text-sm font-semibold uppercase tracking-wide text-brand-ink">{t('الخطة الحالية')}</h2>
+                    <p className="mt-2 flex flex-wrap items-center gap-2">
+                      <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${isFreePlan ? 'bg-surface-soft text-ink' : 'bg-gold-soft text-gold-ink'}`}>
+                        {isFreePlan ? <Sparkles size={12} /> : <Check size={12} />}
+                        {isFreePlan ? t('الخطة المجانية') : t('اشتراك نشط')}
+                      </span>
+                      {!isFreePlan && <span className="text-2xl font-semibold text-ink">{summary.plan.name}</span>}
+                    </p>
+                    <p className="mt-1 text-sm text-ink-muted">
                       {summary.plan.expiresAt
                         ? `${t('يتجدد في')} ${new Date(summary.plan.expiresAt).toLocaleDateString(language)}`
                         : t('لا يوجد تاريخ تجديد.')}
@@ -1212,27 +1336,27 @@ export function ProfilePage() {
                       <div className="mt-4 flex flex-wrap gap-2">
                         {activeSubscription.cancelAtPeriodEnd
                           ? (
-                            <button type="button" onClick={() => void updateSubscription(activeSubscription.id, 'resume')} disabled={subscriptionBusy === activeSubscription.id} className="rounded-full bg-emerald-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-60">
+                            <button type="button" onClick={() => void updateSubscription(activeSubscription.id, 'resume')} disabled={subscriptionBusy === activeSubscription.id} className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-brand-on disabled:opacity-60">
                               {t('استئناف التجديد')}
                             </button>
                           )
                           : (
-                            <button type="button" onClick={() => void updateSubscription(activeSubscription.id, 'cancel')} disabled={subscriptionBusy === activeSubscription.id} className="rounded-full border border-red-300 px-4 py-2 text-sm font-bold text-red-700 disabled:opacity-60">
+                            <button type="button" onClick={() => void updateSubscription(activeSubscription.id, 'cancel')} disabled={subscriptionBusy === activeSubscription.id} className="rounded-full border border-danger px-4 py-2 text-sm font-semibold text-danger disabled:opacity-60">
                               {t('إلغاء التجديد')}
                             </button>
                           )}
                       </div>
                     )}
-                    <Link to={`/${language}/pricing`} className="mt-4 inline-flex items-center gap-1 text-sm font-bold text-emerald-700 underline dark:text-emerald-300">
+                    <Link to={`/${language}/pricing`} className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-brand-ink underline">
                       {t('مقارنة الخطط')} <ChevronLeft size={14} className="ltr:rotate-180" />
                     </Link>
                   </div>
-                  <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-slate-900">
-                    <h2 className="inline-flex items-center gap-2 text-sm font-black uppercase tracking-wide text-emerald-800 dark:text-emerald-300">
+                  <div className="rounded-2xl border border-line bg-surface p-5">
+                    <h2 className="inline-flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-brand-ink">
                       <Gift size={16} /> {t('رمز هدية الاشتراك')}
                     </h2>
                     <form onSubmit={redeemGiftCode} className="mt-3 flex flex-wrap items-end gap-3">
-                      <label className="min-w-[12rem] flex-1 text-sm font-semibold text-slate-700 dark:text-slate-200">
+                      <label className="min-w-[12rem] flex-1 text-sm font-semibold text-ink">
                         {t('استخدم رمز هدية الاشتراك')}
                         <input
                           required
@@ -1240,75 +1364,75 @@ export function ProfilePage() {
                           dir="ltr"
                           value={giftCode}
                           onChange={(event) => setGiftCode(event.target.value.toUpperCase())}
-                          className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm dark:border-white/15 dark:bg-slate-900 dark:text-white"
+                          className="mt-1 w-full rounded-xl border border-line px-3 py-2 text-sm"
                         />
                       </label>
-                      <button type="submit" disabled={giftCodeBusy} className="rounded-full bg-emerald-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-60">
+                      <button type="submit" disabled={giftCodeBusy} className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-brand-on disabled:opacity-60">
                         {giftCodeBusy ? t('جارٍ التفعيل…') : t('تفعيل الهدية')}
                       </button>
                     </form>
-                    {giftCodeError && <p role="alert" className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-900 dark:border-red-500/30 dark:bg-red-950/40 dark:text-red-100">{giftCodeError}</p>}
-                    {giftCodeNotice && <p role="status" className="mt-3 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-100">{giftCodeNotice}</p>}
+                    {giftCodeError && <p role="alert" className="mt-3 rounded-xl border border-danger bg-danger-soft p-3 text-sm text-danger">{giftCodeError}</p>}
+                    {giftCodeNotice && <p role="status" className="mt-3 rounded-xl bg-brand-soft p-3 text-sm text-brand-ink">{giftCodeNotice}</p>}
                   </div>
 
-                  <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-slate-900">
-                    <h2 className="text-sm font-black uppercase tracking-wide text-emerald-800 dark:text-emerald-300">{t('باقات القراءة')}</h2>
-                    <label className="mt-3 block text-sm font-semibold text-slate-700 dark:text-slate-200">
+                  <div className="rounded-2xl border border-line bg-surface p-5">
+                    <h2 className="text-sm font-semibold uppercase tracking-wide text-brand-ink">{t('باقات القراءة')}</h2>
+                    <label className="mt-3 block text-sm font-semibold text-ink">
                       {t('رمز الخصم للاشتراك (اختياري)')}
                       <input
                         dir="ltr"
                         maxLength={64}
                         value={promoCode}
                         onChange={(event) => setPromoCode(event.target.value.toUpperCase())}
-                        className="mt-1 w-full max-w-xs rounded-xl border border-slate-300 px-3 py-2 text-sm dark:border-white/15 dark:bg-slate-900 dark:text-white"
+                        className="mt-1 w-full max-w-xs rounded-xl border border-line px-3 py-2 text-sm"
                       />
                     </label>
-                    {plansLoading && <div className="mt-3 h-24 animate-pulse rounded-xl bg-emerald-50 dark:bg-white/5" />}
+                    {plansLoading && <div className="mt-3 h-24 animate-pulse rounded-xl bg-brand-soft" />}
                     {!plansLoading && plans.length === 0 && (
-                      <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">{t('لا توجد باقات متاحة حاليًا.')}</p>
+                      <p className="mt-3 text-sm text-ink-muted">{t('لا توجد باقات متاحة حاليًا.')}</p>
                     )}
                     <div className="mt-3 grid gap-3 sm:grid-cols-2">
                       {plans.map((plan) => (
-                        <article key={plan.id} className="flex flex-col rounded-2xl border border-slate-200 p-4 dark:border-white/10">
+                        <article key={plan.id} className="flex flex-col rounded-2xl border border-line p-4">
                           <div className="flex items-start justify-between gap-2">
-                            <h3 className="text-base font-black text-slate-950 dark:text-white">{plan.name}</h3>
-                            <span className="shrink-0 rounded-lg bg-emerald-50 px-2 py-1 text-xs font-bold text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-200">
+                            <h3 className="text-base font-semibold text-ink">{plan.name}</h3>
+                            <span className="shrink-0 rounded-lg bg-brand-soft px-2 py-1 text-xs font-semibold text-brand-ink">
                               {Number(plan.price).toFixed(2)} {plan.currency} / {t(plan.interval === 'month' ? 'شهر' : 'سنة')}
                             </span>
                           </div>
-                          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{t(plan.isFamily ? 'باقة عائلية' : 'باقة فردية')}</p>
-                          <ul className="mt-3 flex-1 space-y-1 text-xs leading-6 text-slate-600 dark:text-slate-300">
+                          <p className="mt-1 text-xs text-ink-muted">{t(plan.isFamily ? 'باقة عائلية' : 'باقة فردية')}</p>
+                          <ul className="mt-3 flex-1 space-y-1 text-xs leading-6 text-ink-muted">
                             {(plan.features || []).map((feature) => (
-                              <li key={feature} className="flex gap-2"><CheckCircle2 size={13} className="mt-0.5 shrink-0 text-emerald-700" />{feature}</li>
+                              <li key={feature} className="flex gap-2"><CheckCircle2 size={13} className="mt-0.5 shrink-0 text-brand-ink" />{feature}</li>
                             ))}
                           </ul>
                           <button
                             type="button"
                             onClick={() => void startPlanCheckout(plan.id)}
                             disabled={planCheckoutId !== null || subscriptions.some((item) => item.accessActive)}
-                            className="mt-4 w-full rounded-full bg-emerald-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
+                            className="mt-4 w-full rounded-full bg-brand px-4 py-2 text-sm font-semibold text-brand-on disabled:opacity-50"
                           >
                             {planCheckoutId === plan.id ? t('جارٍ تحويلك للدفع…') : t('الاشتراك الآمن')}
                           </button>
                         </article>
                       ))}
                     </div>
-                    {planCheckoutError && <p role="alert" className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-900 dark:border-red-500/30 dark:bg-red-950/40 dark:text-red-100">{planCheckoutError}</p>}
+                    {planCheckoutError && <p role="alert" className="mt-3 rounded-xl border border-danger bg-danger-soft p-3 text-sm text-danger">{planCheckoutError}</p>}
                   </div>
 
-                  <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-slate-900">
-                    <h2 className="text-sm font-black uppercase tracking-wide text-emerald-800 dark:text-emerald-300">{t('تبرعاتي الشهرية')}</h2>
-                    {recurringLoading && <div className="mt-3 h-16 animate-pulse rounded-xl bg-emerald-50 dark:bg-white/5" />}
-                    {recurringError && <p role="alert" className="mt-3 text-sm text-red-700 dark:text-red-300">{recurringError}</p>}
+                  <div className="rounded-2xl border border-line bg-surface p-5">
+                    <h2 className="text-sm font-semibold uppercase tracking-wide text-brand-ink">{t('تبرعاتي الشهرية')}</h2>
+                    {recurringLoading && <div className="mt-3 h-16 animate-pulse rounded-xl bg-brand-soft" />}
+                    {recurringError && <p role="alert" className="mt-3 text-sm text-danger">{recurringError}</p>}
                     {!recurringLoading && recurringDonations.length === 0 && (
-                      <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">{t('لا توجد تبرعات شهرية.')}</p>
+                      <p className="mt-3 text-sm text-ink-muted">{t('لا توجد تبرعات شهرية.')}</p>
                     )}
                     <ul className="mt-3 space-y-2">
                       {recurringDonations.map((donation) => (
-                        <li key={donation.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-100 p-3 text-sm dark:border-white/10">
+                        <li key={donation.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line p-3 text-sm">
                           <div>
-                            <p className="font-bold text-slate-900 dark:text-white">{donation.campaign} · {Number(donation.amount).toFixed(2)} {donation.currency}</p>
-                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                            <p className="font-semibold text-ink">{donation.campaign} · {Number(donation.amount).toFixed(2)} {donation.currency}</p>
+                            <p className="text-xs text-ink-muted">
                               {donation.status}{donation.cancelAtPeriodEnd ? ` · ${t('سيُلغى بنهاية الفترة')}` : ''}
                             </p>
                           </div>
@@ -1317,7 +1441,7 @@ export function ProfilePage() {
                               type="button"
                               onClick={() => void cancelRecurringDonation(donation.id)}
                               disabled={cancelingDonationId === donation.id}
-                              className="rounded-full border border-red-300 px-3 py-1.5 text-xs font-bold text-red-700 disabled:opacity-60"
+                              className="rounded-full border border-danger px-3 py-1.5 text-xs font-semibold text-danger disabled:opacity-60"
                             >
                               {cancelingDonationId === donation.id ? t('جارٍ الإلغاء…') : t('إلغاء التبرع')}
                             </button>
@@ -1327,39 +1451,39 @@ export function ProfilePage() {
                     </ul>
                   </div>
 
-                  <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-slate-900">
-                    <h2 className="inline-flex items-center gap-2 text-sm font-black uppercase tracking-wide text-emerald-800 dark:text-emerald-300">
+                  <div className="rounded-2xl border border-line bg-surface p-5">
+                    <h2 className="inline-flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-brand-ink">
                       <Gift size={16} /> {t('الدعم والتبرعات')}
                     </h2>
-                    <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{t('ساهم في إبقاء الحكايات متاحة للجميع.')}</p>
-                    <Link to={`/${language}/donations`} className="mt-3 inline-block rounded-full bg-emerald-900 px-4 py-2 text-sm font-bold text-white">{t('ادعمنا')}</Link>
+                    <p className="mt-2 text-sm text-ink-muted">{t('ساهم في إبقاء الحكايات متاحة للجميع.')}</p>
+                    <Link to={`/${language}/donations`} className="mt-3 inline-block rounded-full bg-brand px-4 py-2 text-sm font-semibold text-brand-on">{t('ادعمنا')}</Link>
                   </div>
                 </section>
               )}
 
               {tab === 'settings' && (
                 <section className="space-y-4">
-                  <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-slate-900">
-                    <h2 className="text-sm font-black uppercase tracking-wide text-emerald-800 dark:text-emerald-300">{t('بيانات الحساب')}</h2>
+                  <div className="rounded-2xl border border-line bg-surface p-5">
+                    <h2 className="text-sm font-semibold uppercase tracking-wide text-brand-ink">{t('بيانات الحساب')}</h2>
                     <div className="mt-3 space-y-3">
-                      <label className="block text-sm font-semibold text-slate-700 dark:text-slate-200">
+                      <label className="block text-sm font-semibold text-ink">
                         {t('الاسم')}
-                        <input readOnly value={`${summary.user.firstName} ${summary.user.lastName}`} className="mt-1 w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-sm dark:border-white/15 dark:bg-white/5" />
+                        <input readOnly value={`${summary.user.firstName} ${summary.user.lastName}`} className="mt-1 w-full rounded-xl border border-line bg-surface-soft px-3 py-2 text-sm" />
                       </label>
-                      <label className="block text-sm font-semibold text-slate-700 dark:text-slate-200">
+                      <label className="block text-sm font-semibold text-ink">
                         {t('البريد الإلكتروني')}
-                        <span className="mt-1 flex items-center gap-2 rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-sm dark:border-white/15 dark:bg-white/5">
+                        <span className="mt-1 flex items-center gap-2 rounded-xl border border-line bg-surface-soft px-3 py-2 text-sm">
                           <Mail size={14} /> {summary.user.email}
                         </span>
                       </label>
                       <div>
-                        <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">{t('اللغة')}</p>
+                        <p className="text-sm font-semibold text-ink">{t('اللغة')}</p>
                         <div className="mt-2 flex gap-2">
                           {(['ar', 'en', 'fr'] as const).map((code) => (
                             <Link
                               key={code}
                               to={`/${code}/account`}
-                              className={`rounded-full px-3 py-1.5 text-xs font-bold ${code === language ? 'bg-emerald-900 text-white' : 'border border-slate-300 text-slate-600 dark:border-white/15 dark:text-slate-300'}`}
+                              className={`rounded-full px-3 py-1.5 text-xs font-semibold ${code === language ? 'bg-brand text-brand-on' : 'border border-line text-ink-muted'}`}
                             >
                               {code === 'ar' ? 'العربية' : code === 'en' ? 'English' : 'Français'}
                             </Link>
@@ -1369,8 +1493,10 @@ export function ProfilePage() {
                     </div>
                   </div>
 
-                  <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-slate-900">
-                    <h2 className="inline-flex items-center gap-2 text-sm font-black uppercase tracking-wide text-emerald-800 dark:text-emerald-300">
+                  <DeliveryAddressCard language={language} />
+
+                  <div className="rounded-2xl border border-line bg-surface p-5">
+                    <h2 className="inline-flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-brand-ink">
                       <Palette size={16} /> {t('المظهر')}
                     </h2>
                     <div className="mt-3 flex flex-wrap gap-2">
@@ -1379,7 +1505,7 @@ export function ProfilePage() {
                           key={value}
                           type="button"
                           onClick={() => setTheme(value)}
-                          className={`inline-flex items-center gap-2 rounded-full px-3 py-2 text-xs font-bold ${theme === value ? 'bg-emerald-900 text-white' : 'border border-slate-300 text-slate-600 dark:border-white/15 dark:text-slate-300'}`}
+                          className={`inline-flex items-center gap-2 rounded-full px-3 py-2 text-xs font-semibold ${theme === value ? 'bg-brand text-brand-on' : 'border border-line text-ink-muted'}`}
                         >
                           <Icon size={14} /> {t(label)}
                         </button>
@@ -1387,25 +1513,25 @@ export function ProfilePage() {
                     </div>
                   </div>
 
-                  <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-slate-900">
-                    <h2 className="text-sm font-black uppercase tracking-wide text-emerald-800 dark:text-emerald-300">{t('تذكيرات البريد')}</h2>
-                    <label className="mt-3 flex items-center justify-between gap-3 text-sm font-semibold text-slate-700 dark:text-slate-200">
+                  <div className="rounded-2xl border border-line bg-surface p-5">
+                    <h2 className="text-sm font-semibold uppercase tracking-wide text-brand-ink">{t('تذكيرات البريد')}</h2>
+                    <label className="mt-3 flex items-center justify-between gap-3 text-sm font-semibold text-ink">
                       {t('تذكير بالقراءة اليومية')}
-                      <input type="checkbox" checked={preferences.reminders} onChange={(event) => setPreferences({ ...preferences, reminders: event.target.checked })} className="h-4 w-4 rounded border-slate-300" />
+                      <input type="checkbox" checked={preferences.reminders} onChange={(event) => setPreferences({ ...preferences, reminders: event.target.checked })} className="h-4 w-4 rounded border-line" />
                     </label>
-                    <label className="mt-2 flex items-center justify-between gap-3 text-sm font-semibold text-slate-700 dark:text-slate-200">
+                    <label className="mt-2 flex items-center justify-between gap-3 text-sm font-semibold text-ink">
                       {t('أخبار المشروع والعروض')}
-                      <input type="checkbox" checked={preferences.marketing} onChange={(event) => setPreferences({ ...preferences, marketing: event.target.checked })} className="h-4 w-4 rounded border-slate-300" />
+                      <input type="checkbox" checked={preferences.marketing} onChange={(event) => setPreferences({ ...preferences, marketing: event.target.checked })} className="h-4 w-4 rounded border-line" />
                     </label>
-                    <button type="button" onClick={savePreferences} disabled={savingPreferences} className="mt-4 inline-flex items-center gap-2 rounded-full bg-emerald-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-60">
+                    <button type="button" onClick={savePreferences} disabled={savingPreferences} className="mt-4 inline-flex items-center gap-2 rounded-full bg-brand px-4 py-2 text-sm font-semibold text-brand-on disabled:opacity-60">
                       {savingPreferences && <Loader2 size={14} className="animate-spin" />}
                       {savingPreferences ? t('جارٍ الحفظ…') : t('حفظ التفضيلات')}
                     </button>
                   </div>
 
-                  <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-slate-900">
-                    <h2 className="text-sm font-black uppercase tracking-wide text-emerald-800 dark:text-emerald-300">{t('الجلسة')}</h2>
-                    <button type="button" onClick={() => { void logout(); }} className="mt-3 inline-flex items-center gap-2 rounded-full border border-red-300 px-4 py-2 text-sm font-bold text-red-700">
+                  <div className="rounded-2xl border border-line bg-surface p-5">
+                    <h2 className="text-sm font-semibold uppercase tracking-wide text-brand-ink">{t('الجلسة')}</h2>
+                    <button type="button" onClick={() => { void logout(); }} className="mt-3 inline-flex items-center gap-2 rounded-full border border-danger px-4 py-2 text-sm font-semibold text-danger">
                       <LogOut size={15} /> {t('خروج')}
                     </button>
                   </div>
@@ -1424,64 +1550,64 @@ export function ProfilePage() {
         <BadgeCelebration badge={celebration} language={language} onClose={() => setCelebration(null)} />
 
         {returnOrder && (
-          <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/50 p-4 backdrop-blur-sm sm:items-center" role="presentation" onClick={() => setReturnOrder(null)}>
+          <div className="fixed inset-0 z-50 flex items-end justify-center bg-surface-sunken/50 p-4 backdrop-blur-sm sm:items-center" role="presentation" onClick={() => setReturnOrder(null)}>
             <div
               role="dialog"
               aria-modal="true"
               aria-label={t('إرجاع كتاب')}
               onClick={(event) => event.stopPropagation()}
-              className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-3xl bg-[#fffdf7] p-5 shadow-2xl dark:bg-slate-900"
+              className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-3xl bg-surface p-5 shadow-lift"
             >
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <h2 className="text-lg font-black text-slate-950 dark:text-white">{t('طلب إرجاع')}</h2>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">{t('الطلب')} #{returnOrder.id}</p>
+                  <h2 className="text-lg font-semibold text-ink">{t('طلب إرجاع')}</h2>
+                  <p className="text-xs text-ink-muted">{t('الطلب')} #{returnOrder.id}</p>
                 </div>
-                <button type="button" onClick={() => setReturnOrder(null)} aria-label={t('إغلاق')} className="rounded-full p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-white/10">
+                <button type="button" onClick={() => setReturnOrder(null)} aria-label={t('إغلاق')} className="rounded-full p-2 text-ink-muted hover:bg-surface-soft">
                   <X size={18} />
                 </button>
               </div>
 
-              {returnError && <p role="alert" className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-900 dark:border-red-500/30 dark:bg-red-950/40 dark:text-red-100">{returnError}</p>}
+              {returnError && <p role="alert" className="mt-3 rounded-xl border border-danger bg-danger-soft p-3 text-sm text-danger">{returnError}</p>}
 
               {returnStep === 'summary' && returnSummary
                 ? (
                   <div className="mt-4 space-y-4">
-                    <div className="rounded-xl bg-emerald-50 p-4 dark:bg-emerald-950/40">
-                      <p className="text-xs font-black uppercase tracking-wide text-emerald-800 dark:text-emerald-300">{t('ملخص الاسترداد')}</p>
+                    <div className="rounded-xl bg-brand-soft p-4">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-brand-ink">{t('ملخص الاسترداد')}</p>
                       <ul className="mt-3 space-y-2 text-sm">
                         {returnSummary.items.filter((item) => item.quantity > 0).map((item) => (
-                          <li key={item.orderItemId} className="rounded-lg bg-white/70 p-3 dark:bg-slate-900/60">
-                            <div className="flex justify-between gap-2 font-bold text-slate-900 dark:text-white">
+                          <li key={item.orderItemId} className="rounded-lg bg-surface/70 p-3 dark:bg-surface/60">
+                            <div className="flex justify-between gap-2 font-semibold text-ink">
                               <span>{item.title} × {item.quantity}</span>
                               <span className="tabular-nums">{item.refund?.amount || '0.00'} {returnSummary.currency}</span>
                             </div>
-                            <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
+                            <p className="mt-1 text-xs text-ink-muted">
                               {item.pricePaid ? `${t('السعر المدفوع')}: ${item.pricePaid} ${returnSummary.currency}` : ''}
                               {item.refund?.deductionMinor ? ` · ${t('تُخصم رسوم التوصيل')}: ${item.refund.deduction} ${returnSummary.currency}` : ''}
                             </p>
-                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                            <p className="text-xs text-ink-muted">
                               {item.refund?.legalPeriodApplied ? t('داخل فترة العدول القانونية: تُرد رسوم التوصيل.') : t('خارج فترة العدول: تُخصم رسوم التوصيل.')}
                             </p>
                           </li>
                         ))}
                       </ul>
-                      <div className="mt-3 flex items-center justify-between border-t border-emerald-200 pt-3 text-base font-black text-emerald-950 dark:border-emerald-500/30 dark:text-emerald-100">
+                      <div className="mt-3 flex items-center justify-between border-t border-line pt-3 text-base font-semibold text-brand-ink">
                         <span>{t('المبلغ المسترد')}</span>
                         <span className="tabular-nums">{returnSummary.totals.refundAmount} {returnSummary.currency}</span>
                       </div>
                       {returnSummary.totals.deduction && Number(returnSummary.totals.deduction) > 0 && (
-                        <p className="mt-2 text-xs leading-6 text-slate-600 dark:text-slate-300">{t('يُخصم هذا المبلغ لأن الطلب خارج فترة العدول القانونية.')}</p>
+                        <p className="mt-2 text-xs leading-6 text-ink-muted">{t('يُخصم هذا المبلغ لأن الطلب خارج فترة العدول القانونية.')}</p>
                       )}
                     </div>
-                    <p className="text-xs leading-6 text-slate-500 dark:text-slate-400">{t('بالمتابعة، تُرسل الطلب للإدارة. يُدفع المبلغ بعد استلام الكتاب وفحصه.')}</p>
+                    <p className="text-xs leading-6 text-ink-muted">{t('بالمتابعة، تُرسل الطلب للإدارة. يُدفع المبلغ بعد استلام الكتاب وفحصه.')}</p>
                     <div className="flex justify-between gap-2">
-                      <button type="button" onClick={() => setReturnStep('select')} className="rounded-full border border-slate-300 px-4 py-2 text-sm font-bold text-slate-700 dark:border-white/15 dark:text-slate-200">{t('رجوع')}</button>
+                      <button type="button" onClick={() => setReturnStep('select')} className="rounded-full border border-line px-4 py-2 text-sm font-semibold text-ink">{t('رجوع')}</button>
                       <button
                         type="button"
                         onClick={() => void submitReturn()}
                         disabled={returnBusy}
-                        className="rounded-full bg-emerald-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-60"
+                        className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-brand-on disabled:opacity-60"
                       >
                         {returnBusy ? t('جارٍ الإرسال…') : t('تأكيد الطلب')}
                       </button>
@@ -1489,30 +1615,30 @@ export function ProfilePage() {
                   </div>
                 )
                 : !returnData
-                ? <p className="mt-6 text-center text-sm text-slate-500">{t('جارٍ التحميل…')}</p>
+                ? <p className="mt-6 text-center text-sm text-ink-muted">{t('جارٍ التحميل…')}</p>
                 : (
                   <div className="mt-4 space-y-4">
                     <div>
-                      <p className="text-sm font-bold text-slate-700 dark:text-slate-200">{t('اختر الكتب')}</p>
+                      <p className="text-sm font-semibold text-ink">{t('اختر الكتب')}</p>
                       <ul className="mt-2 space-y-2">
                         {returnData.items.map((item) => (
-                          <li key={item.orderItemId} className="rounded-xl border border-slate-200 p-3 dark:border-white/10">
+                          <li key={item.orderItemId} className="rounded-xl border border-line p-3">
                             <label className="flex items-start gap-3 text-sm">
                               <input
                                 type="checkbox"
-                                className="mt-1 h-4 w-4 rounded border-slate-300"
+                                className="mt-1 h-4 w-4 rounded border-line"
                                 checked={Boolean(returnSelection[item.orderItemId])}
                                 disabled={!item.eligible || item.availableQuantity < 1}
                                 onChange={(event) => setReturnSelection({ ...returnSelection, [item.orderItemId]: event.target.checked })}
                               />
                               <span className="flex-1">
-                                <span className="block font-bold text-slate-900 dark:text-white">{item.title}</span>
-                                <span className="block text-xs text-slate-500 dark:text-slate-400">
+                                <span className="block font-semibold text-ink">{item.title}</span>
+                                <span className="block text-xs text-ink-muted">
                                   {t('الكمية')}: {item.availableQuantity}
                                   {item.refund ? ` · ${t('مبلغ متوقع')}: ${item.refund.amount} ${returnData.currency}` : ''}
                                 </span>
                                 {!item.eligible && (
-                                  <span className="mt-1 block text-xs font-semibold text-red-600 dark:text-red-300">
+                                  <span className="mt-1 block text-xs font-semibold text-danger">
                                     {item.reasons.includes('window_closed') ? t('انتهت مدة الإرجاع.') : t('غير مؤهل للإرجاع.')}
                                   </span>
                                 )}
@@ -1523,53 +1649,53 @@ export function ProfilePage() {
                       </ul>
                     </div>
 
-                    <label className="block text-sm font-semibold text-slate-700 dark:text-slate-200">
+                    <label className="block text-sm font-semibold text-ink">
                       {t('سبب الإرجاع')}
                       <select
                         value={returnReason}
                         onChange={(event) => setReturnReason(event.target.value)}
-                        className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm dark:border-white/15 dark:bg-slate-900 dark:text-white"
+                        className="mt-1 w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm"
                       >
                         {returnReasons.map((reason) => <option key={reason.code} value={reason.code}>{reason.label}</option>)}
                       </select>
                     </label>
 
-                    <label className="block text-sm font-semibold text-slate-700 dark:text-slate-200">
+                    <label className="block text-sm font-semibold text-ink">
                       {t('تفاصيل إضافية')}
                       <textarea
                         rows={3}
                         value={returnDetails}
                         onChange={(event) => setReturnDetails(event.target.value)}
-                        className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm dark:border-white/15 dark:bg-slate-900 dark:text-white"
+                        className="mt-1 w-full rounded-xl border border-line px-3 py-2 text-sm"
                       />
                     </label>
 
                     {returnReasons.find((reason) => reason.code === returnReason)?.requiresPhotos && (
-                      <label className="block text-sm font-semibold text-slate-700 dark:text-slate-200">
+                      <label className="block text-sm font-semibold text-ink">
                         {t('روابط الصور (رابط في كل سطر)')}
                         <textarea
                           rows={2}
                           dir="ltr"
                           value={returnPhotos}
                           onChange={(event) => setReturnPhotos(event.target.value)}
-                          className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm dark:border-white/15 dark:bg-slate-900 dark:text-white"
+                          className="mt-1 w-full rounded-xl border border-line px-3 py-2 text-sm"
                         />
                       </label>
                     )}
 
-                    <div className="flex items-center justify-between rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-950 dark:bg-emerald-950/40 dark:text-emerald-100">
+                    <div className="flex items-center justify-between rounded-xl bg-brand-soft p-3 text-sm font-semibold text-brand-ink">
                       <span>{t('المبلغ المتوقع')}</span>
                       <span className="tabular-nums">{(returnSelectionTotalMinor / 100).toFixed(2)} {returnData.currency}</span>
                     </div>
-                    <p className="text-xs leading-6 text-slate-500 dark:text-slate-400">{t('يُعاد المبلغ بعد استلام الكتاب وفحصه، وقد تُخصم رسوم التوصيل حسب السياسة.')}</p>
+                    <p className="text-xs leading-6 text-ink-muted">{t('يُعاد المبلغ بعد استلام الكتاب وفحصه، وقد تُخصم رسوم التوصيل حسب السياسة.')}</p>
 
                     <div className="flex justify-end gap-2">
-                      <button type="button" onClick={() => setReturnOrder(null)} className="rounded-full border border-slate-300 px-4 py-2 text-sm font-bold text-slate-700 dark:border-white/15 dark:text-slate-200">{t('إلغاء')}</button>
+                      <button type="button" onClick={() => setReturnOrder(null)} className="rounded-full border border-line px-4 py-2 text-sm font-semibold text-ink">{t('إلغاء')}</button>
                       <button
                         type="button"
                         onClick={() => void reviewReturn()}
                         disabled={returnBusy || !returnReason || returnSelectionTotalMinor < 1}
-                        className="rounded-full bg-emerald-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
+                        className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-brand-on disabled:opacity-50"
                       >
                         {returnBusy ? t('جارٍ الحساب…') : t('مراجعة المبلغ')}
                       </button>
@@ -1670,28 +1796,28 @@ export function ReturnTrackingPage() {
   const canCancel = record && ['requested', 'approved', 'awaiting_shipment'].includes(record.status);
 
   return <SiteLayout><main className="mx-auto max-w-4xl px-4 py-10 sm:py-14">
-    <Link to={`/${language}/account`} className="inline-flex items-center gap-1 text-sm font-bold text-emerald-800 dark:text-emerald-300">
+    <Link to={`/${language}/account`} className="inline-flex items-center gap-1 text-sm font-semibold text-brand-ink">
       <ChevronLeft size={15} className="ltr:rotate-180" /> {t('العودة إلى الملف الشخصي')}
     </Link>
-    {loading && !record && <div className="mt-6 h-40 animate-pulse rounded-2xl bg-emerald-50 dark:bg-white/5" />}
-    {error && <p role="alert" className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900">{error}</p>}
-    {notice && <p role="status" className="mt-4 rounded-xl bg-emerald-50 p-4 text-sm text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-100">{notice}</p>}
+    {loading && !record && <div className="mt-6 h-40 animate-pulse rounded-2xl bg-brand-soft" />}
+    {error && <p role="alert" className="mt-4 rounded-xl border border-danger bg-danger-soft p-4 text-sm text-danger">{error}</p>}
+    {notice && <p role="status" className="mt-4 rounded-xl bg-brand-soft p-4 text-sm text-brand-ink">{notice}</p>}
 
     {record && <>
       <header className="mt-4 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-sm font-bold tracking-widest text-emerald-700 dark:text-emerald-300">{t('تتبع الإرجاع')}</p>
-          <h1 className="mt-2 text-2xl font-black text-slate-950 dark:text-white sm:text-3xl">{record.rmaNumber}</h1>
-          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+          <p className="text-sm font-semibold tracking-widest text-brand-ink">{t('تتبع الإرجاع')}</p>
+          <h1 className="mt-2 text-2xl font-semibold text-ink sm:text-3xl">{record.rmaNumber}</h1>
+          <p className="mt-1 text-xs text-ink-muted">
             {t('الطلب')} {record.orderId ? `#${record.orderId}` : `BOX-${record.mysteryBoxPurchaseId}`} · {new Date(record.requestedAt).toLocaleDateString(language)}
           </p>
         </div>
-        <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-900 dark:bg-amber-500/20 dark:text-amber-100">{t(RETURN_STATUS_LABELS[record.status] || record.status)}</span>
+        <span className="rounded-full bg-gold-soft px-3 py-1 text-xs font-semibold text-gold-ink">{t(RETURN_STATUS_LABELS[record.status] || record.status)}</span>
       </header>
 
       <ol className="mt-7 grid gap-2 sm:grid-cols-4 lg:grid-cols-7">
         {TRACKING_STEPS.map((step, index) => (
-          <li key={step} className={`rounded-xl border p-3 text-xs font-bold ${index <= current ? 'border-emerald-700 bg-emerald-50 text-emerald-900 dark:border-emerald-400/50 dark:bg-emerald-950/40 dark:text-emerald-100' : 'border-slate-200 bg-white text-slate-400 dark:border-white/10 dark:bg-slate-900'}`}>
+          <li key={step} className={`rounded-xl border p-3 text-xs font-semibold ${index <= current ? 'border-line bg-brand-soft text-brand-ink' : 'border-line bg-surface text-ink-muted'}`}>
             <span className="block text-[10px] uppercase tracking-wide">{index + 1}</span>
             {t(RETURN_STATUS_LABELS[step] || step)}
           </li>
@@ -1699,56 +1825,198 @@ export function ReturnTrackingPage() {
       </ol>
 
       <div className="mt-6 grid gap-4 sm:grid-cols-2">
-        <section className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-slate-900">
-          <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">{t('عنوان الإرجاع والتعليمات')}</h2>
-          <pre className="mt-3 whitespace-pre-wrap rounded-xl bg-slate-50 p-3 text-sm leading-6 text-slate-700 dark:bg-white/5 dark:text-slate-200">{policy?.returnAddressText || t('يُرسل العنوان بعد الموافقة.')}</pre>
-          <p className="mt-3 text-xs leading-6 text-slate-600 dark:text-slate-300">{policy?.instructions || t('أرسل الطرد مع رقم تتبع.')}</p>
-          {record.shipBackDeadline && <p className="mt-3 rounded-xl bg-amber-50 p-3 text-xs font-bold text-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
+        <section className="rounded-2xl border border-line bg-surface p-5">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-muted">{t('عنوان الإرجاع والتعليمات')}</h2>
+          <pre className="mt-3 whitespace-pre-wrap rounded-xl bg-surface-soft p-3 text-sm leading-6 text-ink">{policy?.returnAddressText || t('يُرسل العنوان بعد الموافقة.')}</pre>
+          <p className="mt-3 text-xs leading-6 text-ink-muted">{policy?.instructions || t('أرسل الطرد مع رقم تتبع.')}</p>
+          {record.shipBackDeadline && <p className="mt-3 rounded-xl bg-gold-soft p-3 text-xs font-semibold text-gold-ink">
             {t('آخر موعد لإرسال الطرد')}: {new Date(record.shipBackDeadline).toLocaleDateString(language)}
           </p>}
         </section>
-        <section className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-slate-900">
-          <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">{t('المبلغ والموعد المتوقع')}</h2>
-          <p className="mt-3 text-2xl font-black text-emerald-900 dark:text-emerald-200">
+        <section className="rounded-2xl border border-line bg-surface p-5">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-muted">{t('المبلغ والموعد المتوقع')}</h2>
+          <p className="mt-3 text-2xl font-semibold text-brand-ink">
             {Number(record.refundAmount || record.items.reduce((sum, line) => sum + Number(line.refundAmount || 0), 0)).toFixed(2)} {record.currency}
           </p>
-          {policy && <p className="mt-2 text-xs leading-6 text-slate-600 dark:text-slate-300">{t('يصل الاسترداد عادة خلال')} {policy.refundDeadlineDays} {t('يومًا بعد قبول الفحص.')}</p>}
-          <ul className="mt-3 space-y-1 text-xs text-slate-600 dark:text-slate-300">
+          {policy && <p className="mt-2 text-xs leading-6 text-ink-muted">{t('يصل الاسترداد عادة خلال')} {policy.refundDeadlineDays} {t('يومًا بعد قبول الفحص.')}</p>}
+          <ul className="mt-3 space-y-1 text-xs text-ink-muted">
             {record.items.map((line) => <li key={line.id} className="flex justify-between gap-2"><span>{line.titleSnapshot} × {line.quantity}</span><span className="tabular-nums">{Number(line.refundAmount).toFixed(2)} {record.currency}</span></li>)}
           </ul>
         </section>
       </div>
 
-      {canShip && <section className="mt-4 rounded-2xl border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-slate-900">
-        <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">{t('رقم تتبع الطرد')}</h2>
+      {canShip && <section className="mt-4 rounded-2xl border border-line bg-surface p-5">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-muted">{t('رقم تتبع الطرد')}</h2>
         <form onSubmit={submitTracking} className="mt-3 grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
-          <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">{t('رقم التتبع')}
-            <input required minLength={4} dir="ltr" value={tracking.trackingNumber} onChange={(event) => setTracking({ ...tracking, trackingNumber: event.target.value })} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm dark:border-white/15 dark:bg-slate-900 dark:text-white" />
+          <label className="text-sm font-semibold text-ink">{t('رقم التتبع')}
+            <input required minLength={4} dir="ltr" value={tracking.trackingNumber} onChange={(event) => setTracking({ ...tracking, trackingNumber: event.target.value })} className="mt-1 w-full rounded-xl border border-line px-3 py-2 text-sm" />
           </label>
-          <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">{t('شركة الشحن')}
-            <input value={tracking.carrier} onChange={(event) => setTracking({ ...tracking, carrier: event.target.value })} className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm dark:border-white/15 dark:bg-slate-900 dark:text-white" />
+          <label className="text-sm font-semibold text-ink">{t('شركة الشحن')}
+            <input value={tracking.carrier} onChange={(event) => setTracking({ ...tracking, carrier: event.target.value })} className="mt-1 w-full rounded-xl border border-line px-3 py-2 text-sm" />
           </label>
-          <button disabled={busy} className="self-end rounded-full bg-emerald-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-60">{busy ? t('جارٍ الحفظ…') : t('حفظ')}</button>
+          <button disabled={busy} className="self-end rounded-full bg-brand px-4 py-2 text-sm font-semibold text-brand-on disabled:opacity-60">{busy ? t('جارٍ الحفظ…') : t('حفظ')}</button>
         </form>
-        {record.trackingNumber && <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">{t('المسجل حاليًا')}: <span dir="ltr">{record.trackingNumber}</span></p>}
+        {record.trackingNumber && <p className="mt-3 text-xs text-ink-muted">{t('المسجل حاليًا')}: <span dir="ltr">{record.trackingNumber}</span></p>}
       </section>}
 
-      <section className="mt-4 rounded-2xl border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-slate-900">
-        <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">{t('سجل الطلب')}</h2>
-        <ol className="mt-3 space-y-2 text-sm text-slate-700 dark:text-slate-200">
-          {record.events.map((event) => <li key={event.id} className="flex flex-wrap justify-between gap-2 border-b border-slate-100 pb-2 last:border-0 dark:border-white/10">
+      <section className="mt-4 rounded-2xl border border-line bg-surface p-5">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-muted">{t('سجل الطلب')}</h2>
+        <ol className="mt-3 space-y-2 text-sm text-ink">
+          {record.events.map((event) => <li key={event.id} className="flex flex-wrap justify-between gap-2 border-b border-line pb-2 last:border-0">
             <span>{t(RETURN_STATUS_LABELS[event.eventType] || event.eventType)}{event.note ? ` · ${event.note}` : ''}</span>
-            <time className="text-xs text-slate-500 dark:text-slate-400">{new Date(event.createdAt).toLocaleDateString(language)}</time>
+            <time className="text-xs text-ink-muted">{new Date(event.createdAt).toLocaleDateString(language)}</time>
           </li>)}
         </ol>
       </section>
 
       <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-        <Link to={`/${language}/account`} className="text-sm font-bold text-emerald-800 underline dark:text-emerald-300">{t('كل إرجاعاتي')}</Link>
-        {canCancel && <button type="button" onClick={() => void cancelReturn()} disabled={busy} className="rounded-full border border-red-300 px-4 py-2 text-sm font-bold text-red-700 disabled:opacity-60">{t('إلغاء الطلب')}</button>}
+        <Link to={`/${language}/account`} className="text-sm font-semibold text-brand-ink underline">{t('كل إرجاعاتي')}</Link>
+        {canCancel && <button type="button" onClick={() => void cancelReturn()} disabled={busy} className="rounded-full border border-danger px-4 py-2 text-sm font-semibold text-danger disabled:opacity-60">{t('إلغاء الطلب')}</button>}
       </div>
     </>}
   </main></SiteLayout>;
 }
 
 export default ProfilePage;
+
+type SavedShippingAddress = {
+  name: string;
+  line1: string;
+  line2: string;
+  city: string;
+  postalCode: string;
+  country: string;
+  phone: string;
+};
+
+const EMPTY_SHIPPING_ADDRESS: SavedShippingAddress = {
+  name: '', line1: '', line2: '', city: '', postalCode: '', country: '', phone: ''
+};
+
+/**
+ * The reader's delivery address, saved once here and read by the cart before
+ * payment. Without a saved address the cart falls back to the last order.
+ */
+function DeliveryAddressCard({ language }: { language: SiteLanguage }) {
+  const t = (text: string) => translateText(text, language);
+  const [address, setAddress] = useState<SavedShippingAddress>(EMPTY_SHIPPING_ADDRESS);
+  // Only a profile address can be deleted; an address borrowed from the last
+  // order is shown as a starting point but is not stored on the account.
+  const [savedSource, setSavedSource] = useState<'profile' | 'order' | null>(null);
+  const hasSaved = savedSource === 'profile';
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    api.get<{ address: Partial<SavedShippingAddress> | null; source?: 'profile' | 'order' | null }>('/me/shipping-address')
+      .then(({ address: found, source }) => {
+        if (!active || !found) return;
+        setAddress({
+          name: String(found.name || ''),
+          line1: String(found.line1 || ''),
+          line2: String(found.line2 || ''),
+          city: String(found.city || ''),
+          postalCode: String(found.postalCode || ''),
+          country: String(found.country || '').toUpperCase(),
+          phone: String(found.phone || '')
+        });
+        setSavedSource(source === 'profile' ? 'profile' : 'order');
+      })
+      .catch(() => { /* no address saved yet */ })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, []);
+
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSaving(true);
+    setMessage(null);
+    setError(null);
+    try {
+      const payload = { ...address, country: address.country.trim().toUpperCase() };
+      await api.put('/me/shipping-address', payload);
+      setAddress(payload);
+      setSavedSource('profile');
+      setMessage(t('تم حفظ العنوان.'));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : t('تعذّر حفظ العنوان.'));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function remove() {
+    setSaving(true);
+    setMessage(null);
+    setError(null);
+    try {
+      await api.delete('/me/shipping-address');
+      setAddress(EMPTY_SHIPPING_ADDRESS);
+      setSavedSource(null);
+      setMessage(t('تم حذف العنوان.'));
+      window.dispatchEvent(new Event('shipping-address:changed'));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : t('تعذّر حذف العنوان.'));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const update = (key: keyof SavedShippingAddress) => (event: { target: { value: string } }) =>
+    setAddress((current) => ({ ...current, [key]: event.target.value }));
+
+  return (
+    <form onSubmit={save} className="rounded-2xl border border-line bg-surface p-5">
+      <h2 className="inline-flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-brand-ink">
+        <Truck size={16} /> {t('عنوان التوصيل')}
+      </h2>
+      {loading
+        ? <div className="mt-3 h-24 animate-pulse rounded-xl bg-brand-soft" />
+        : (
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <label className="block text-sm font-semibold text-ink">
+              {t('الاسم الكامل')}
+              <input required value={address.name} onChange={update('name')} autoComplete="name" className="mt-1 w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm" />
+            </label>
+            <label className="block text-sm font-semibold text-ink">
+              {t('الهاتف')}
+              <input required value={address.phone} onChange={update('phone')} autoComplete="tel" className="mt-1 w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm" />
+            </label>
+            <label className="block text-sm font-semibold text-ink sm:col-span-2">
+              {t('عنوان الشارع')}
+              <input required value={address.line1} onChange={update('line1')} autoComplete="address-line1" className="mt-1 w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm" />
+            </label>
+            <label className="block text-sm font-semibold text-ink sm:col-span-2">
+              {t('تكملة العنوان (اختياري)')}
+              <input value={address.line2} onChange={update('line2')} autoComplete="address-line2" className="mt-1 w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm" />
+            </label>
+            <label className="block text-sm font-semibold text-ink">
+              {t('المدينة')}
+              <input required value={address.city} onChange={update('city')} autoComplete="address-level2" className="mt-1 w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm" />
+            </label>
+            <label className="block text-sm font-semibold text-ink">
+              {t('الرمز البريدي')}
+              <input required value={address.postalCode} onChange={update('postalCode')} autoComplete="postal-code" className="mt-1 w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm" />
+            </label>
+            <label className="block text-sm font-semibold text-ink">
+              {t('رمز الدولة')}
+              <input required value={address.country} onChange={update('country')} maxLength={2} minLength={2} autoComplete="country" className="mt-1 w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm uppercase" />
+            </label>
+          </div>
+        )}
+      {!loading && savedSource === 'order' && !message && <p className="mt-3 text-xs text-ink-muted">{t('استخدمنا العنوان المحفوظ من طلبك السابق — احفظه في ملفك إذا أردت.')}</p>}
+      {!loading && !savedSource && !message && <p className="mt-3 text-xs text-ink-muted">{t('لا يوجد عنوان محفوظ بعد.')}</p>}
+      {message && <p className="mt-3 text-xs font-semibold text-brand-ink">{message}</p>}
+      {error && <p role="alert" className="mt-3 rounded-lg bg-danger-soft p-2 text-xs font-semibold text-danger">{error}</p>}
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <button type="submit" disabled={saving || loading} className="inline-flex items-center gap-2 rounded-full bg-brand px-4 py-2 text-sm font-semibold text-brand-on disabled:opacity-60">
+          {saving ? t('جارٍ الحفظ…') : t('حفظ العنوان')}
+        </button>
+        {hasSaved && <button type="button" onClick={() => void remove()} disabled={saving || loading} className="inline-flex items-center gap-2 rounded-full border border-danger px-4 py-2 text-sm font-semibold text-danger disabled:opacity-60">{t('حذف العنوان')}</button>}
+      </div>
+    </form>
+  );
+}

@@ -38,6 +38,20 @@ const boxTranslations = z.object({
   }).optional()
 }).optional();
 
+const promoText = (max) => z.object({
+  ar: z.string().trim().max(max).optional().default(''),
+  en: z.string().trim().max(max).optional().default(''),
+  fr: z.string().trim().max(max).optional().default('')
+}).optional();
+
+const promoBlockSchema = z.object({
+  type: z.enum(['text', 'image']),
+  title: promoText(200),
+  body: promoText(4000),
+  imageUrl: z.string().trim().max(1000).nullable().optional(),
+  imageAlt: z.string().trim().max(255).nullable().optional()
+});
+
 const itemSchema = z.object({
   type: z.enum([
     'ebook', 'printed_book', 'physical_object', 'story_rental', 'premium_access_days',
@@ -111,6 +125,7 @@ const boxFieldsSchema = z.object({
   perUserLimit: z.number().int().min(1).max(50).optional(),
   revealMode: z.enum(['hidden_until_purchase', 'teaser', 'full']).optional(),
   description: z.string().trim().max(20000).nullable().optional(),
+  promoBlocks: z.array(promoBlockSchema).max(12).optional(),
   digitalConsentText: z.string().trim().max(5000).nullable().optional(),
   faq: faqList.optional(),
   termsText: z.string().trim().max(20000).nullable().optional(),

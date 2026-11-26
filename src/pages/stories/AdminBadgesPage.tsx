@@ -42,6 +42,7 @@ type BadgeRecord = BadgeView & {
   translations?: Translations;
   howToEarnTranslations?: Record<string, string>;
   colorTheme?: { preset?: string; from?: string; to?: string };
+  iconType?: 'library' | 'upload';
   criteria: { type: string; threshold?: number; collectionId?: number | null; eventTag?: string | null };
   points: number;
   isActive: boolean;
