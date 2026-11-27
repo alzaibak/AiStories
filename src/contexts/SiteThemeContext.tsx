@@ -38,6 +38,11 @@ function readStoredTheme(): SiteTheme | null {
   return null;
 }
 
+/** Stored explicit choice, if any. Use this instead of reading the storage key. */
+export function readStoredSiteTheme(): SiteTheme | null {
+  return readStoredTheme();
+}
+
 function applyTheme(theme: SiteTheme) {
   if (typeof document === 'undefined') return;
   const root = document.documentElement;

@@ -182,11 +182,13 @@ test('a validated payment removes purchased books from the cart in the same tran
   const result = await settleStoreOrder(paidSession(), 'paid', transaction, { source: 'webhook' });
 
   assert.equal(result.settled, true);
-  assert.equal(destroyed.length, 1);
-  assert.equal(destroyed[0].transaction, transaction);
-  assert.equal(destroyed[0].where.cartId, 55);
-  assert.deepEqual([...destroyed[0].where.bookId[Op.in]].sort((a, b) => a - b), [101, 102, 103]);
-  assert.equal([...destroyed[0].where.bookId[Op.in]].includes(999), false);
+  // One deletion per purchased line: a book kept in the cart under another
+  // language must survive the payment.
+  assert.equal(destroyed.length, 3);
+  assert.ok(destroyed.every((call) => call.transaction === transaction && call.where.cartId === 55));
+  assert.deepEqual(destroyed.map((call) => call.where.bookId).sort((a, b) => a - b), [101, 102, 103]);
+  assert.deepEqual(destroyed.map((call) => call.where.format), ['ebook', 'print', 'ebook']);
+  assert.equal(destroyed.some((call) => call.where.bookId === 999), false);
   assert.deepEqual(entitlements.map(({ values }) => values.resourceId).sort((a, b) => a - b), [101, 103]);
   assert.ok(entitlements.every(({ options }) => options.transaction === transaction));
 });

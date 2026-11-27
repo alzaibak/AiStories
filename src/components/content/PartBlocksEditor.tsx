@@ -11,7 +11,6 @@ export type PartBlockImage = {
   width?: number;
   height?: number;
   placeholder?: string;
-  policyConfirmed?: boolean;
 };
 
 export type PartBlock = {
@@ -25,7 +24,6 @@ export type PartBlock = {
   credit?: string;
   layout?: 'full' | 'wide';
   decorative?: boolean;
-  policyConfirmed?: boolean;
 };
 
 const LANGUAGES: Array<{ code: BlockLanguage; label: string; dir: 'rtl' | 'ltr' }> = [
@@ -38,7 +36,7 @@ const emptyLocalized = (): LocalizedBlockText => ({ ar: '', en: '', fr: '' });
 
 export function emptyBlock(type: PartBlock['type']): PartBlock {
   if (type === 'image') {
-    return { type: 'image', image: null, alt: emptyLocalized(), caption: emptyLocalized(), credit: '', layout: 'full', decorative: false, policyConfirmed: false };
+    return { type: 'image', image: null, alt: emptyLocalized(), caption: emptyLocalized(), credit: '', layout: 'full', decorative: false };
   }
   if (type === 'quote') {
     return { type: 'quote', text: emptyLocalized(), reference: emptyLocalized() };
@@ -64,13 +62,7 @@ export function plainContent(blocks: PartBlock[]): string {
 }
 
 export function blocksForApi(blocks: PartBlock[]): PartBlock[] {
-  return usableBlocks(blocks).map((block) => {
-    if (block.type !== 'image') return block;
-    return {
-      ...block,
-      image: block.image ? { ...block.image, policyConfirmed: Boolean(block.policyConfirmed) } : null
-    };
-  });
+  return usableBlocks(blocks);
 }
 
 export function blocksInvalid(blocks: PartBlock[]): string | null {
@@ -80,9 +72,6 @@ export function blocksInvalid(blocks: PartBlock[]): string | null {
   for (const block of usable) {
     if (block.type === 'image' && !block.decorative && !block.alt?.ar?.trim() && !block.alt?.en?.trim() && !block.alt?.fr?.trim()) {
       return 'لكل صورة نص بديل، أو علّمها كصورة زخرفية.';
-    }
-    if (block.type === 'image' && !block.policyConfirmed) {
-      return 'أكّد سياسة تصوير الصور قبل الحفظ.';
     }
     if (block.type === 'quote' && !block.reference?.ar?.trim()) {
       return 'حدّد مرجع الآية أو الحديث.';
@@ -192,8 +181,7 @@ function ImageBlockEditor({
       );
       const smallest = uploaded.url;
       onChange({
-        image: { url: smallest, thumbUrl: uploaded.thumbUrl || smallest, width: uploaded.width, height: uploaded.height },
-        policyConfirmed: false
+        image: { url: smallest, thumbUrl: uploaded.thumbUrl || smallest, width: uploaded.width, height: uploaded.height }
       });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'تعذر رفع الصورة.');
@@ -227,7 +215,7 @@ function ImageBlockEditor({
               <p className="mt-1">WebP · 1200 و600 بكسل</p>
               <div className="mt-2 flex flex-wrap gap-2">
                 <button type="button" disabled={busy || disabled} onClick={() => input.current?.click()} className="rounded-lg bg-emerald-900 px-3 py-1.5 font-bold text-white disabled:opacity-50">استبدال</button>
-                <button type="button" disabled={busy || disabled} onClick={() => onChange({ image: null, policyConfirmed: false })} className="rounded-lg border border-red-200 px-3 py-1.5 font-bold text-red-700 disabled:opacity-50">إزالة</button>
+                <button type="button" disabled={busy || disabled} onClick={() => onChange({ image: null })} className="rounded-lg border border-red-200 px-3 py-1.5 font-bold text-red-700 disabled:opacity-50">إزالة</button>
               </div>
             </div>
           </div>
@@ -265,14 +253,10 @@ function ImageBlockEditor({
           </div>
         </fieldset>
       </div>
-      <div className="space-y-2 rounded-xl bg-emerald-50/60 p-3">
+      <div className="rounded-xl bg-emerald-50/60 p-3">
         <label className="flex items-start gap-2 text-xs font-semibold text-emerald-950">
           <input type="checkbox" checked={Boolean(block.decorative)} onChange={(event) => onChange({ decorative: event.target.checked })} className="mt-0.5" />
           صورة زخرفية (لا تحتاج نصًا بديلًا)
-        </label>
-        <label className="flex items-start gap-2 text-xs font-semibold text-emerald-950">
-          <input type="checkbox" checked={Boolean(block.policyConfirmed)} onChange={(event) => onChange({ policyConfirmed: event.target.checked })} className="mt-0.5" />
-          أؤكد أن هذه الصورة تحترم سياسة التمثيل (لا تصوير للأنبياء أو الصحابة).
         </label>
       </div>
     </div>

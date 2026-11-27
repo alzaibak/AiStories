@@ -23,7 +23,7 @@ function progressRow(story, completedParts) {
   };
 }
 
-test('reading progress skips completed and locked parts and returns no next part when complete', async (context) => {
+test('reading progress follows the reading order and returns no next part when complete', async (context) => {
   const previousSecret = process.env.JWT_SECRET_KEY;
   process.env.JWT_SECRET_KEY = 'test-secret-for-reading-progress';
 
@@ -117,7 +117,9 @@ test('reading progress skips completed and locked parts and returns no next part
 
   const bySlug = Object.fromEntries(body.map((row) => [row.story.slug, row]));
   assert.deepEqual(bySlug['completed-part-story'].nextPart, { id: 1012, partNumber: 2 });
-  assert.deepEqual(bySlug['locked-part-story'].nextPart, { id: 2023, partNumber: 3 });
+  // Strict order: part 3 stays out of reach while part 2 is not unlocked and read.
+  assert.equal(bySlug['locked-part-story'].nextPart, null);
   assert.equal(bySlug['finished-story'].nextPart, null);
+  assert.equal(bySlug['finished-story'].finished, true);
   assert.equal('parts' in bySlug['completed-part-story'].story, false);
 });

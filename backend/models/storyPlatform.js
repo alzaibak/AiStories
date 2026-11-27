@@ -126,7 +126,13 @@ const StoryPart = sequelize.define('StoryPart', {
   expectedAt: { type: DataTypes.DATE, allowNull: true },
   teaser: { type: DataTypes.JSON, allowNull: true },
   releaseAt: { type: DataTypes.DATE, allowNull: true },
-  earlyAccessUntil: { type: DataTypes.DATE, allowNull: true }
+  earlyAccessUntil: { type: DataTypes.DATE, allowNull: true },
+  // Set once the "new part" email has been queued: publishing the story after an
+  // edit must never send the same notification twice, and never before the part
+  // is actually reachable by readers.
+  // Defaults to "already notified": only the conversion of a coming-soon part
+  // into a readable one arms it (by setting NULL) for the next story publication.
+  publishNotifiedAt: { type: DataTypes.DATE, allowNull: true, defaultValue: DataTypes.NOW }
 }, {
   ...timestamps,
   tableName: 'story_parts',
@@ -326,8 +332,21 @@ const Book = sequelize.define('Book', {
   description: { type: DataTypes.TEXT, allowNull: true },
   cover: { type: DataTypes.STRING(1000), allowNull: true },
   translations: { type: DataTypes.JSON, allowNull: false, defaultValue: {} },
+  // What the admin sells: printed + e-book, e-book only, or printed only.
+  availabilityMode: {
+    type: DataTypes.ENUM('both', 'digital_only', 'print_only'),
+    allowNull: false,
+    defaultValue: 'both'
+  },
+  // Base format, derived from the availability mode (kept for older code paths).
   format: { type: DataTypes.ENUM('print', 'ebook'), allowNull: false },
   price: { type: DataTypes.DECIMAL(10, 2), allowNull: false },
+  // Printed shipping: countries we deliver to and the fee charged to each.
+  shippingCountries: { type: DataTypes.JSON, allowNull: false, defaultValue: [] },
+  shippingFees: { type: DataTypes.JSON, allowNull: false, defaultValue: {} },
+  shippingFreeOver: { type: DataTypes.DECIMAL(10, 2), allowNull: true },
+  // Optional e-book price; when empty the book price is used.
+  digitalPrice: { type: DataTypes.DECIMAL(10, 2), allowNull: true },
   currency: { type: DataTypes.STRING(3), allowNull: false, defaultValue: 'EUR' },
   stockQuantity: { type: DataTypes.INTEGER, allowNull: true },
   isReturnable: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
@@ -409,8 +428,12 @@ const StoreCart = sequelize.define('StoreCart', {
 const StoreCartItem = sequelize.define('StoreCartItem', {
   id,
   cartId: { type: DataTypes.INTEGER, allowNull: false, references: { model: 'store_carts', key: 'id' }, onDelete: 'CASCADE' },
-  bookId: { type: DataTypes.INTEGER, allowNull: false, references: { model: 'books', key: 'id' }, onDelete: 'CASCADE' },
+  // A line holds either a book or a mystery box, never both.
+  bookId: { type: DataTypes.INTEGER, allowNull: true, references: { model: 'books', key: 'id' }, onDelete: 'CASCADE' },
+  mysteryBoxId: { type: DataTypes.INTEGER, allowNull: true, references: { model: 'mystery_boxes', key: 'id' }, onDelete: 'CASCADE' },
   quantity: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 },
+  // Purchase format picked by the reader (printed copy or e-book).
+  format: { type: DataTypes.ENUM('print', 'ebook'), allowNull: true },
   // Chosen ebook PDF language, fixed when the reader adds it to the cart.
   language: { type: DataTypes.STRING(5), allowNull: true }
 }, { ...timestamps, tableName: 'store_cart_items', indexes: [{ unique: true, fields: ['cartId', 'bookId'] }] });
@@ -973,6 +996,7 @@ StoreCart.hasMany(StoreCartItem, { foreignKey: 'cartId', as: 'items' });
 StoreCartItem.belongsTo(StoreCart, { foreignKey: 'cartId', as: 'cart' });
 Book.hasMany(StoreCartItem, { foreignKey: 'bookId', as: 'cartItems' });
 StoreCartItem.belongsTo(Book, { foreignKey: 'bookId', as: 'book' });
+StoreCartItem.belongsTo(require('./mysteryBox').MysteryBox, { foreignKey: 'mysteryBoxId', as: 'mysteryBox' });
 sequelize.models.User.hasMany(StoreOrder, { foreignKey: 'userId', as: 'storeOrders' });
 StoreOrder.belongsTo(sequelize.models.User, { foreignKey: 'userId', as: 'user' });
 StoreOrder.hasMany(StoreOrderItem, { foreignKey: 'orderId', as: 'items' });

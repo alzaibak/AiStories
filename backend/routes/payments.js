@@ -30,6 +30,8 @@ const { validateBody } = require('../middleware/validation');
 const schemas = require('../middleware/storyValidation');
 const { subscriptionIsActive } = require('../utils/contentAccess');
 const { availableBookLanguages } = require('../utils/bookFiles');
+const { priceForFormat, resolvePurchaseFormat } = require('../utils/bookAvailability');
+const { shippingForBooks } = require('../utils/bookShipping');
 const { slugFromLocalized } = require('../utils/slug');
 
 // Shown on the Stripe line item so the invoice states the bought PDF version.
@@ -141,7 +143,7 @@ async function loadOrderForUser(orderId, userId) {
 function serializeOrder(order, { admin = false, refundApproval = null } = {}) {
   const items = order.items || [];
   const downloads = items
-    .filter((item) => item.book?.format === 'ebook')
+    .filter((item) => (item.formatSnapshot || item.book?.format) === 'ebook')
     .map((item) => {
       const entitlement = item.entitlement;
       const active = entitlement && !entitlement.revokedAt &&
@@ -433,7 +435,9 @@ async function failPendingOrder(orderId, finalStatus = 'failed') {
 async function createPendingOrder({ userId, items, shippingAddress, customerEmail, digitalConsent = false, idempotencyKey = null, req = null }) {
   const transaction = await sequelize.transaction();
   try {
-    const requestedIds = items.map((item) => item.bookId);
+    // One order line per version (book + format + language): the same book may
+    // appear twice for two PDF languages.
+    const requestedIds = [...new Set(items.map((item) => item.bookId))];
     const books = await Book.findAll({
       where: {
         id: { [Op.in]: requestedIds },
@@ -443,56 +447,76 @@ async function createPendingOrder({ userId, items, shippingAddress, customerEmai
       transaction,
       lock: transaction.LOCK.UPDATE
     });
-    if (books.length !== items.length) {
+    if (books.length !== requestedIds.length) {
       throw apiError(404, 'One or more books are no longer available.');
     }
 
     const byId = new Map(books.map((book) => [book.id, book]));
     // A reader may buy an e-book again: another language version, or a fresh
     // download right once the previous one is spent. Nothing blocks a re-buy.
-    const orderItems = items.map(({ bookId, quantity, language }) => {
+    const orderItems = items.map(({ bookId, quantity, language, format }) => {
       const book = byId.get(bookId);
-      if (book.format === 'ebook' && quantity !== 1) {
+      let purchaseFormat;
+      try {
+        purchaseFormat = resolvePurchaseFormat(book, format);
+      } catch (error) {
+        throw apiError(error.status || 409, `"${book.title}": ${error.message}`, error.code);
+      }
+      if (purchaseFormat === 'ebook' && quantity !== 1) {
         throw apiError(400, 'An e-book can only be purchased once per order.');
       }
-      const bookLanguages = book.format === 'ebook' ? availableBookLanguages(book) : [];
-      if (book.format === 'ebook' && !bookLanguages.length) {
+      const bookLanguages = purchaseFormat === 'ebook' ? availableBookLanguages(book) : [];
+      if (purchaseFormat === 'ebook' && !bookLanguages.length) {
         throw apiError(409, `No PDF file is available for "${book.title}".`, 'EBOOK_FILE_MISSING');
       }
       if (language && bookLanguages.length && !bookLanguages.includes(language)) {
         throw apiError(422, `"${book.title}" is not available in the selected language.`, 'LANGUAGE_UNAVAILABLE');
       }
-      const contentLanguage = book.format === 'ebook' ? (language || bookLanguages[0]) : null;
-      if (book.format === 'print' && book.stockQuantity !== null && book.stockQuantity < quantity) {
+      const contentLanguage = purchaseFormat === 'ebook' ? (language || bookLanguages[0]) : null;
+      if (purchaseFormat === 'print' && book.stockQuantity !== null && book.stockQuantity < quantity) {
         throw apiError(409, `Not enough stock is available for "${book.title}".`, 'OUT_OF_STOCK');
       }
       const currency = String(book.currency).toUpperCase();
       assertTwoDecimalCurrency(currency);
-      const unitAmount = toMinorUnits(book.price, currency);
-      return { book, quantity, currency, unitAmount, language: contentLanguage };
+      const unitAmount = toMinorUnits(priceForFormat(book, purchaseFormat), currency);
+      return { book, quantity, currency, unitAmount, language: contentLanguage, format: purchaseFormat };
     });
     const currency = orderItems[0].currency;
     if (orderItems.some((item) => item.currency !== currency)) {
       throw apiError(400, 'All books in an order must use the same currency.');
     }
 
-    const containsPrint = orderItems.some((item) => item.book.format === 'print');
+    const containsPrint = orderItems.some((item) => item.format === 'print');
   if (containsPrint && !shippingAddress) {
       throw apiError(400, 'A shipping address is required for printed books.');
     }
     if (!containsPrint && shippingAddress) {
       throw apiError(400, 'A shipping address is not required for digital books.');
     }
-  if (orderItems.some((item) => item.book.format === 'ebook') && !digitalConsent) {
+  if (orderItems.some((item) => item.format === 'ebook') && !digitalConsent) {
     throw apiError(422, 'Digital content consent is required before checkout.', 'DIGITAL_CONSENT_REQUIRED');
   }
     const subtotalMinor = orderItems.reduce((sum, item) => sum + item.unitAmount * item.quantity, 0);
-    const shippingMinor = containsPrint ? configuredShippingFee(currency) : 0;
+    // The free-shipping threshold only counts printed books, never the PDFs.
+    const printSubtotalMinor = orderItems
+      .filter((item) => item.format === 'print')
+      .reduce((sum, item) => sum + item.unitAmount * item.quantity, 0);
+    // Each printed book carries its destination countries and fees; legacy
+    // books without them still use the global BOOK_SHIPPING_FEE.
+    const shippingMinor = containsPrint
+      ? shippingForBooks({
+        items: orderItems,
+        country: shippingAddress?.country,
+        currency,
+        subtotalMinor: printSubtotalMinor,
+        fallbackMinor: () => configuredShippingFee(currency)
+      })
+      : 0;
     const totalMinor = subtotalMinor + shippingMinor;
     if (!Number.isSafeInteger(totalMinor)) throw apiError(400, 'The order total is too large.');
 
     for (const item of orderItems) {
-      if (item.book.format === 'print' && item.book.stockQuantity !== null) {
+      if (item.format === 'print' && item.book.stockQuantity !== null) {
         item.book.stockQuantity -= item.quantity;
         await item.book.save({ transaction });
       }
@@ -524,15 +548,15 @@ async function createPendingOrder({ userId, items, shippingAddress, customerEmai
     }, transaction);
     const returnsSettings = await getReturnPolicy();
     await StoreOrderItem.bulkCreate(orderItems.map((item) => {
-      const isPrint = item.book.format === 'print';
+      const isPrint = item.format === 'print';
       const grossMinor = item.unitAmount * item.quantity;
       return {
         orderId: order.id,
         bookId: item.book.id,
         quantity: item.quantity,
-        unitPrice: item.book.price,
+        unitPrice: decimalFromMinor(item.unitAmount),
         lineTotalMinor: item.unitAmount * item.quantity,
-        formatSnapshot: item.book.format,
+        formatSnapshot: item.format,
         language: item.language,
         titleSnapshot: item.book.title,
         isReturnable: isPrint && item.book.isReturnable !== false,
@@ -570,22 +594,28 @@ async function restoreOrderInventory(orderId, transaction) {
       transaction,
       lock: transaction.LOCK.UPDATE
     });
-    if (book?.format === 'print' && book.stockQuantity !== null) {
+    if ((item.formatSnapshot || book?.format) === 'print' && book && book.stockQuantity !== null) {
       book.stockQuantity += item.quantity;
       await book.save({ transaction });
     }
   }
 }
 
-async function clearPurchasedCartItems(userId, bookIds, transaction) {
-  const ids = [...new Set(bookIds.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0))];
-  if (!ids.length) return;
+/**
+ * Removes exactly the lines that were paid for. A book can sit in the cart in
+ * several languages, so deleting every line of that book would drop versions the
+ * reader did not buy.
+ */
+async function clearPurchasedCartItems(userId, orderItems, transaction) {
   const cart = await StoreCart.findOne({ where: { userId }, transaction });
   if (!cart) return;
-  await StoreCartItem.destroy({
-    where: { cartId: cart.id, bookId: { [Op.in]: ids } },
-    transaction
-  });
+  for (const item of orderItems) {
+    const format = item.formatSnapshot || item.book?.format || null;
+    const where = { cartId: cart.id, bookId: item.bookId };
+    if (format) where.format = format;
+    if (format === 'ebook' && item.language) where.language = item.language;
+    await StoreCartItem.destroy({ where, transaction });
+  }
 }
 
 async function settleStoreOrder(session, status, transaction, { req = null, source = 'stripe' } = {}) {
@@ -684,9 +714,10 @@ async function settleStoreOrder(session, status, transaction, { req = null, sour
     include: [{ model: Book, as: 'book', attributes: ['id', 'format'] }],
     transaction
   });
-  const hasPrint = items.some((item) => item.book?.format === 'print');
+  const itemFormat = (item) => item.formatSnapshot || item.book?.format;
+  const hasPrint = items.some((item) => itemFormat(item) === 'print');
   for (const item of items) {
-    if (item.book?.format !== 'ebook') continue;
+    if (itemFormat(item) !== 'ebook') continue;
     const entitlement = await Entitlement.findOne({
       where: { orderItemId: item.id },
       transaction
@@ -706,7 +737,7 @@ async function settleStoreOrder(session, status, transaction, { req = null, sour
       }, { transaction });
     }
   }
-  await clearPurchasedCartItems(order.userId, items.map((item) => item.bookId), transaction);
+  await clearPurchasedCartItems(order.userId, items, transaction);
   if (!hasPrint) {
     await order.update({ fulfillmentStatus: 'delivered', status: 'fulfilled' }, { transaction });
     await recordOrderEvent(order, 'fulfilled', {
@@ -1551,13 +1582,13 @@ router.post('/payments/books/checkout', ...readers, validateBody(schemas.bookChe
         throw error;
       }
     }
-    const lineItems = reservation.orderItems.map(({ book, quantity, currency, language }) => ({
+    const lineItems = reservation.orderItems.map(({ book, quantity, currency, language, unitAmount, format }) => ({
       quantity,
       price_data: {
         currency: currency.toLowerCase(),
-        unit_amount: toMinorUnits(book.price, currency),
+        unit_amount: unitAmount,
         product_data: {
-          name: book.format === 'ebook' && language
+          name: format === 'ebook' && language
             ? `${book.title} — ${LANGUAGE_LABELS[language] || language.toUpperCase()}`
             : book.title,
           ...(book.description ? { description: book.description.slice(0, 500) } : {})
@@ -2518,7 +2549,7 @@ router.post('/admin/store-orders/:id/entitlements/grant', ...admins, async (req,
       include: [{ model: Book, as: 'book', attributes: ['id', 'format'] }]
     });
     if (!item) return res.status(404).json({ message: 'Order item not found.' });
-    if (item.book?.format !== 'ebook') return res.status(422).json({ message: 'Only e-book lines have entitlements.' });
+    if ((item.formatSnapshot || item.book?.format) !== 'ebook') return res.status(422).json({ message: 'Only e-book lines have entitlements.' });
     const existing = await Entitlement.findOne({ where: { orderItemId: item.id } });
     const entitlement = existing
       ? await existing.update({
@@ -2613,7 +2644,7 @@ router.patch('/admin/store-orders/:id/fulfillment', ...admins, validateBody(sche
     });
     if (!order) return res.status(404).json({ message: 'Store order not found.' });
     if (!['paid', 'fulfilled'].includes(order.status)) return res.status(409).json({ message: 'Only paid orders can be fulfilled.' });
-    if (!order.items.some((item) => item.book?.format === 'print')) {
+    if (!order.items.some((item) => (item.formatSnapshot || item.book?.format) === 'print')) {
       return res.status(409).json({ message: 'This order does not contain printed books.' });
     }
 

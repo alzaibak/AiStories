@@ -22,23 +22,41 @@ vi.mock('@/lib/api', async (importOriginal) => ({
 
 import { StoryDetailPage } from '@/pages/stories/StoryPlatform';
 
-const story = {
-  id: 7,
-  collectionId: 2,
-  title: 'حكاية اختبار',
-  slug: 'sample-story',
-  summary: 'ملخص الحكاية',
-  cover: null,
-  type: 'history',
-  sourceBadge: 'historical_source',
-  isFree: true,
-  parts: [
-    { id: 11, partNumber: 1, title: 'الجزء الأول', estimatedReadingMinutes: 3, accessible: true },
-    { id: 12, partNumber: 2, title: 'الجزء الثاني', estimatedReadingMinutes: 4, accessible: false },
-    { id: 13, partNumber: 3, title: 'الجزء الثالث', estimatedReadingMinutes: 5, accessible: true },
-    { id: 14, partNumber: 4, title: 'الجزء الرابع', estimatedReadingMinutes: 6, accessible: true }
-  ]
-};
+/** The server sends the reading-order status of every part; the page only renders it. */
+function storyWithStatuses(
+  statuses: Array<'completed' | 'current' | 'available' | 'locked_sequence' | 'locked_subscription' | 'login_required' | 'coming_soon'>,
+  progress: { completedCount: number; currentPartNumber: number | null; finished: boolean; newPartAvailable?: boolean },
+  partsOverride?: Array<{ partNumber: number; title: string }>
+) {
+  return {
+    id: 7,
+    collectionId: 2,
+    title: 'حكاية اختبار',
+    slug: 'sample-story',
+    summary: 'ملخص الحكاية',
+    cover: null,
+    type: 'history',
+    sourceBadge: 'historical_source',
+    isFree: true,
+    parts: statuses.map((status, index) => ({
+      id: 11 + index,
+      partNumber: index + 1,
+      title: partsOverride?.[index]?.title || ['الجزء الأول', 'الجزء الثاني', 'الجزء الثالث', 'الجزء الرابع'][index],
+      estimatedReadingMinutes: 3 + index,
+      status
+    })),
+    progress: {
+      completedParts: [],
+      totalParts: statuses.filter((status) => status !== 'coming_soon').length,
+      ...progress
+    }
+  };
+}
+
+const story = storyWithStatuses(
+  ['current', 'locked_sequence', 'locked_sequence', 'locked_sequence'],
+  { completedCount: 0, currentPartNumber: 1, finished: false }
+);
 
 let root: Root | undefined;
 let container: HTMLDivElement | undefined;
@@ -78,10 +96,15 @@ describe('story detail journey action', () => {
   it('continues with the next readable part when earlier parts are completed', async () => {
     mocks.auth.user = { id: 5, email: 'reader@example.com' };
     mocks.get.mockImplementation((path: string) => {
-      if (path === '/stories/sample-story') return Promise.resolve(story);
+      if (path === '/stories/sample-story') {
+        return Promise.resolve(storyWithStatuses(
+          ['completed', 'current', 'locked_sequence', 'locked_sequence'],
+          { completedCount: 1, currentPartNumber: 2, finished: false }
+        ));
+      }
       if (path === '/reading-progress') {
         return Promise.resolve([
-          { storyId: 7, completedParts: [11], lastPartId: 11 }
+          { id: 1, storyId: 7, completedParts: [11], lastPartId: 11 }
         ]);
       }
       return Promise.reject(new Error(`Unexpected API path: ${path}`));
@@ -89,17 +112,25 @@ describe('story detail journey action', () => {
 
     await renderStoryDetail();
 
-    expect(actionLink('تابع القراءة', '/ar/stories/sample-story/read/3')).toBeTruthy();
+    expect(actionLink('تابع القراءة', '/ar/stories/sample-story/read/2')).toBeTruthy();
     expect(actionLink('تابع القراءة', '/ar/stories/sample-story/read/1')).toBeFalsy();
     expect(container?.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('25');
+    // Locked by order: a disabled action naming the part to finish first.
+    const lockedButton = Array.from(container?.querySelectorAll('button') || []).find((button) => button.textContent?.includes('أكمل الجزء'));
+    expect(lockedButton?.disabled).toBe(true);
   });
 
   it('shows a completed state and next steps instead of a next-step card at 100%', async () => {
     mocks.auth.user = { id: 5, email: 'reader@example.com' };
     mocks.get.mockImplementation((path: string) => {
-      if (path === '/stories/sample-story') return Promise.resolve(story);
+      if (path === '/stories/sample-story') {
+        return Promise.resolve(storyWithStatuses(
+          ['completed', 'completed', 'completed', 'completed'],
+          { completedCount: 4, currentPartNumber: null, finished: true }
+        ));
+      }
       if (path === '/reading-progress') {
-        return Promise.resolve([{ storyId: 7, completedParts: [11, 12, 13, 14], lastPartId: 14 }]);
+        return Promise.resolve([{ id: 1, storyId: 7, completedParts: [11, 12, 13, 14], lastPartId: 14, finished: true }]);
       }
       return Promise.reject(new Error(`Unexpected API path: ${path}`));
     });
@@ -107,6 +138,7 @@ describe('story detail journey action', () => {
     await renderStoryDetail();
 
     expect(actionLink('تابع القراءة', '/ar/stories/sample-story/read/1')).toBeFalsy();
+    expect(actionLink('أعد القراءة', '/ar/stories/sample-story/read/4#quiz')).toBeTruthy();
     expect(actionLink('اختبر فهمك', '/ar/stories/sample-story/read/4#quiz')).toBeTruthy();
     expect(container?.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('100');
     expect(container?.textContent).toContain('مكتملة');
@@ -124,5 +156,30 @@ describe('story detail journey action', () => {
     expect(actionLink('ابدأ القراءة', '/ar/stories/sample-story/read/3')).toBeFalsy();
     expect(mocks.get).not.toHaveBeenCalledWith('/reading-progress');
     expect(container?.querySelector('[role="progressbar"]')).toBeNull();
+  });
+
+  it('shows the coming-soon episode instead of "finished" when a placeholder remains', async () => {
+    mocks.auth.user = { id: 5, email: 'reader@example.com' };
+    const withUpcoming = {
+      ...storyWithStatuses(
+        ['completed', 'coming_soon'],
+        { completedCount: 1, currentPartNumber: null, finished: true }
+      ),
+      upcomingPart: { id: 99, partNumber: 2, title: 'الحلقة القادمة', expectedAt: '2027-01-15T00:00:00.000Z', teaser: 'قريبًا جدًا' }
+    };
+    mocks.get.mockImplementation((path: string) => {
+      if (path === '/stories/sample-story') return Promise.resolve(withUpcoming);
+      if (path === '/reading-progress') {
+        return Promise.resolve([{ id: 1, storyId: 7, completedParts: [11], lastPartId: 11, finished: true }]);
+      }
+      return Promise.reject(new Error(`Unexpected API path: ${path}`));
+    });
+
+    await renderStoryDetail();
+
+    expect(container?.textContent).toContain('الحلقة القادمة قريبًا');
+    expect(container?.textContent).toContain('2027');
+    expect(actionLink('أعد القراءة', '/ar/stories/sample-story/read/1#quiz')).toBeFalsy();
+    expect(container?.textContent).not.toContain('مكتملة');
   });
 });

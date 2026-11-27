@@ -88,6 +88,13 @@ const {
   releaseDownload
 } = require('../utils/bookDownloads');
 const { availableBookLanguages, isBookLanguage, resolveBookFile } = require('../utils/bookFiles');
+const {
+  availabilitySummary,
+  availabilityModeOf,
+  baseFormatFor,
+  hasDigitalFormat
+} = require('../utils/bookAvailability');
+const { shippingCountriesWithoutFee } = require('../utils/bookShipping');
 const { logSecurityEvent } = require('../utils/securityEvents');
 const { processStoryImage, PUBLIC_DIRECTORY } = require('../utils/publicImages');
 const {
@@ -330,7 +337,8 @@ async function maybeIssueCertificate({ userId, badgeTypeId, title, storyId = nul
   const user = await User.findByPk(userId, { attributes: ['id', 'firstName', 'lastName', 'email'] });
   if (!user) return null;
   const existing = await Certificate.findOne({ where: { userId, ...(storyId ? { storyId } : {}), ...(quizId ? { quizId } : {}) } });
-  if (existing) return existing;
+  // Callers expect the { certificate, pdf } shape; a replay reuses the document.
+  if (existing) return { certificate: existing, pdf: null };
   const code = generateVerificationCode();
   const certificate = await Certificate.create({
     userId,
@@ -852,7 +860,7 @@ router.get('/stories', async (req, res, next) => {
       limit: Math.min(Math.max(Number(req.query.limit) || 50, 1), 100)
     });
     res.json(stories.map((story) => {
-      const localizedStory = localizeFields(story, language, ['title', 'summary', 'hook']);
+      const localizedStory = localizeFields(story, language, ['title', 'summary', 'hook'], ['title']);
       if (!localizedStory) return null;
       localizedStory.cover = story.coverImage || story.cover || null;
       localizedStory.coverAltText = story.coverAlt?.[language] || story.coverAlt?.ar || story.title;
@@ -874,7 +882,7 @@ router.get('/stories/:slug', optionalAuthenticate, async (req, res, next) => {
     const language = requestedLanguage(req.query.lang);
     const story = await findPublishedStory(req.params.slug);
     if (!story) return res.status(404).json({ message: 'Histoire introuvable.' });
-    const localizedStory = localizeFields(story, language, ['title', 'summary', 'hook']);
+    const localizedStory = localizeFields(story, language, ['title', 'summary', 'hook'], ['title']);
     if (!localizedStory) return res.status(404).json({ message: 'Histoire introuvable dans cette langue.' });
     const reviewerName = story.reviewerName ||
       (story.reviewer ? `${story.reviewer.firstName} ${story.reviewer.lastName}` : null);
@@ -1168,12 +1176,16 @@ router.get('/books', async (req, res, next) => {
     const language = requestedLanguage(req.query.lang);
     const books = await Book.findAll({
       where: { status: { [Op.ne]: 'archived' }, [Op.or]: [{ status: 'published' }, { isPublished: true }] },
-      attributes: ['id', 'collectionId', 'storyId', 'title', 'slug', 'description', 'translations', 'cover', 'coverAlt', 'format', 'price', 'currency', 'stockQuantity', 'isReturnable', 'returnWindowDays'],
+      attributes: ['id', 'collectionId', 'storyId', 'title', 'slug', 'description', 'translations', 'cover', 'coverAlt', 'format', 'availabilityMode', 'price', 'digitalPrice', 'currency', 'stockQuantity', 'isReturnable', 'returnWindowDays', 'shippingCountries', 'shippingFees', 'shippingFreeOver', 'bookFiles', 'fileStorageKey'],
       order: [['createdAt', 'DESC']],
       limit: Math.min(Math.max(Number(req.query.limit) || 50, 1), 100)
     });
-    res.json(books.map((book) => localizeFields(book, language, ['title', 'description'], ['title']))
-      .filter(Boolean));
+    res.json(books.map((book) => {
+      const localized = localizeFields(book, language, ['title', 'description'], ['title']);
+      if (!localized) return null;
+      const { bookFiles, fileStorageKey, ...publicBook } = localized;
+      return { ...publicBook, ...availabilitySummary(book) };
+    }).filter(Boolean));
   } catch (error) {
     next(error);
   }
@@ -1183,7 +1195,7 @@ router.get('/books/:slug', async (req, res, next) => {
   try {
     const language = requestedLanguage(req.query.lang);
     const options = {
-      attributes: ['id', 'collectionId', 'storyId', 'title', 'slug', 'description', 'translations', 'cover', 'coverAlt', 'format', 'price', 'currency', 'stockQuantity', 'isReturnable', 'returnWindowDays', 'bookFiles', 'fileStorageKey']
+      attributes: ['id', 'collectionId', 'storyId', 'title', 'slug', 'description', 'translations', 'cover', 'coverAlt', 'format', 'availabilityMode', 'price', 'digitalPrice', 'currency', 'stockQuantity', 'isReturnable', 'returnWindowDays', 'shippingCountries', 'shippingFees', 'shippingFreeOver', 'bookFiles', 'fileStorageKey']
     };
     let book = await Book.findOne({
       where: { slug: req.params.slug, status: { [Op.ne]: 'archived' }, [Op.or]: [{ status: 'published' }, { isPublished: true }] },
@@ -1198,11 +1210,11 @@ router.get('/books/:slug', async (req, res, next) => {
     }
     if (!book) return res.status(404).json({ message: 'Livre introuvable.' });
     // The store only needs the list of available PDFs, never their storage keys.
-    const languages = book.format === 'ebook' ? availableBookLanguages(book) : [];
+    const languages = hasDigitalFormat(book) ? availableBookLanguages(book) : [];
     const localizedBook = localizeFields(book, language, ['title', 'description'], ['title']);
     if (!localizedBook) return res.status(404).json({ message: 'Livre introuvable dans cette langue.' });
     const { bookFiles, fileStorageKey, ...publicBook } = localizedBook;
-    res.json({ ...publicBook, languages });
+    res.json({ ...publicBook, languages, ...availabilitySummary(book) });
   } catch (error) {
     next(error);
   }
@@ -1211,7 +1223,7 @@ router.get('/books/:slug', async (req, res, next) => {
 router.get('/books/:slug/access', authenticate, async (req, res, next) => {
   try {
     const book = await Book.findOne({ where: { slug: req.params.slug, status: { [Op.ne]: 'archived' }, [Op.or]: [{ status: 'published' }, { isPublished: true }] } });
-    if (!book || book.format !== 'ebook') return res.status(404).json({ message: 'Livre numérique introuvable.' });
+    if (!book || !hasDigitalFormat(book)) return res.status(404).json({ message: 'Livre numérique introuvable.' });
     const canDownload = await canAccessBook({ userId: req.user.id, role: req.user.role, book });
     const downloaded = !canDownload && await canAccessBook({
       userId: req.user.id,
@@ -1257,7 +1269,7 @@ async function enforceDownloadQuota(req, res, book, { consume }) {
 router.get('/books/:slug/download', authenticate, async (req, res, next) => {
   try {
     const book = await Book.findOne({ where: { slug: req.params.slug, status: { [Op.ne]: 'archived' }, [Op.or]: [{ status: 'published' }, { isPublished: true }] } });
-    if (!book || book.format !== 'ebook') return res.status(404).json({ message: 'Livre numérique introuvable.' });
+    if (!book || !hasDigitalFormat(book)) return res.status(404).json({ message: 'Livre numérique introuvable.' });
     if (!await canAccessBook({ userId: req.user.id, role: req.user.role, book, allowExhausted: true })) {
       return res.status(403).json({ message: 'Un droit de téléchargement actif est requis.', code: 'CONTENT_LOCKED' });
     }
@@ -1299,7 +1311,7 @@ router.get('/books/:slug/download', authenticate, async (req, res, next) => {
 router.post('/books/:slug/download-token', authenticate, async (req, res, next) => {
   try {
     const book = await Book.findOne({ where: { slug: req.params.slug, status: { [Op.ne]: 'archived' }, [Op.or]: [{ status: 'published' }, { isPublished: true }] } });
-    if (!book || book.format !== 'ebook') return res.status(404).json({ message: 'Livre numérique introuvable.' });
+    if (!book || !hasDigitalFormat(book)) return res.status(404).json({ message: 'Livre numérique introuvable.' });
     const entitlement = await findDownloadableEntitlement(req.user.id, book.id);
     if (entitlement && !resolveBookFile(book, entitlement.contentLanguage || null)) {
       return res.status(404).json({ message: 'Le fichier du livre n’est pas encore disponible.' });
@@ -1384,7 +1396,7 @@ router.get('/downloads/:token', async (req, res, next) => {
 router.get('/books/:slug/local-download', authenticate, async (req, res, next) => {
   try {
     const book = await Book.findOne({ where: { slug: req.params.slug, status: 'published' } });
-    if (!book || book.format !== 'ebook') return res.status(404).json({ message: 'Fichier ebook introuvable.' });
+    if (!book || !hasDigitalFormat(book)) return res.status(404).json({ message: 'Fichier ebook introuvable.' });
     if (!await canAccessBook({ userId: req.user.id, role: req.user.role, book, allowExhausted: true })) {
       return res.status(403).json({ message: 'Un droit de téléchargement actif est requis.', code: 'CONTENT_LOCKED' });
     }
@@ -1415,7 +1427,7 @@ router.get('/books/:slug/local-download', authenticate, async (req, res, next) =
 router.get('/books/:slug/sample-download', authenticate, async (req, res, next) => {
   try {
     const book = await Book.findOne({ where: { slug: req.params.slug, status: 'published' } });
-    if (!book || book.format !== 'ebook' || book.fileStorageKey !== SAMPLE_EBOOK_STORAGE_KEY) {
+    if (!book || !hasDigitalFormat(book) || book.fileStorageKey !== SAMPLE_EBOOK_STORAGE_KEY) {
       return res.status(404).json({ message: 'Fichier de démonstration introuvable.' });
     }
     if (!await canAccessBook({ userId: req.user.id, role: req.user.role, book, allowExhausted: true })) {
@@ -2649,15 +2661,20 @@ async function awardPartProgress({ user, story, completedPartIds, pointsTriggere
   const isComplete = readable.length > 0 && readable.every((part) => completedPartIds.includes(part.id));
   let completion = null;
   if (isComplete) {
-    const awarded = await ensureBadgeAward(user.id, 'story-complete', 'story', story.id, { storyId: story.id, completedParts: completedPartIds });
-    const certificate = await maybeIssueCertificate({
-      userId: user.id,
-      badgeTypeId: awarded.badgeTypeId,
-      title: `Certificate: ${story.title}`,
-      storyId: story.id
-    });
-    if (certificate) {
-      await ensureBadgeAward(user.id, 'story-certificate', 'story', story.id, { certificateId: certificate.certificate.id, storyId: story.id });
+    // Badges and certificates are a bonus: they must never fail the progress save.
+    try {
+      const awarded = await ensureBadgeAward(user.id, 'story-complete', 'story', story.id, { storyId: story.id, completedParts: completedPartIds });
+      const certificate = await maybeIssueCertificate({
+        userId: user.id,
+        badgeTypeId: awarded.badgeTypeId,
+        title: `Certificate: ${story.title}`,
+        storyId: story.id
+      });
+      if (certificate) {
+        await ensureBadgeAward(user.id, 'story-certificate', 'story', story.id, { certificateId: certificate.certificate.id, storyId: story.id });
+      }
+    } catch (error) {
+      console.warn(`Certificat de fin d'histoire indisponible pour ${user.id} :`, error?.message || error);
     }
     try {
       const profile = await badgeEngine.profileSummary(user.id, {
@@ -2939,6 +2956,9 @@ router.post('/admin/content/stories/:id/publish', ...publishers, async (req, res
     if (!story) return res.status(404).json({ message: 'Histoire introuvable.' });
     await publishStory(req, story);
     await story.save();
+    // The story is readable again: announce the parts published since the last
+    // announcement, now that their page really exists.
+    await notifyPendingPartPublications(story);
     await recordAudit(req, 'PUBLISH_STORY', 'Story', story.id);
     res.json(story);
   } catch (error) {
@@ -2998,6 +3018,89 @@ async function renumberStoryParts(storyId, transaction) {
   return ordered;
 }
 
+/**
+ * Queues the "new episode" email for every part published since the last
+ * announcement, then marks it done. Called once the story is publicly readable.
+ */
+async function notifyPendingPartPublications(story) {
+  if (!story || story.status !== 'published') return;
+  try {
+    const pending = await StoryPart.findAll({
+      where: { storyId: story.id, status: 'published', publishNotifiedAt: null },
+      order: [['partNumber', 'ASC']]
+    });
+    for (const part of pending) {
+      await notifyComingSoonPartPublished(story, part);
+      await part.update({ publishNotifiedAt: new Date() });
+    }
+  } catch (error) {
+    console.error(`Impossible d’annoncer les nouvelles parties de l’histoire ${story.id} :`, error);
+  }
+}
+
+/**
+ * Optional "new episode" email, sent when a coming-soon placeholder becomes a
+ * real part. Only readers who finished every part published before it are
+ * notified, and only if they kept the reminder preference on; everything goes
+ * through the existing queue so a mail failure never blocks the publication.
+ */
+async function notifyComingSoonPartPublished(story, part) {
+  if (!story || story.status !== 'published' || part.status !== 'published') return;
+  try {
+    const previousParts = await StoryPart.findAll({
+      where: { storyId: story.id, status: 'published', partNumber: { [Op.lt]: part.partNumber } },
+      attributes: ['id']
+    });
+    if (!previousParts.length) return;
+    const previousIds = previousParts.map((entry) => entry.id);
+    const rows = await ReadingProgress.findAll({
+      where: { storyId: story.id },
+      attributes: ['userId', 'completedParts']
+    });
+    const eligibleIds = rows
+      .filter((row) => {
+        const completed = completedIdSet(row);
+        return previousIds.every((id) => completed.has(id));
+      })
+      .map((row) => row.userId);
+    if (!eligibleIds.length) return;
+    const readers = await User.findAll({
+      where: {
+        id: { [Op.in]: eligibleIds },
+        role: 'READER',
+        status: 'ACTIVE',
+        emailVerifiedAt: { [Op.ne]: null }
+      },
+      attributes: ['id', 'firstName', 'language', 'emailPreferences']
+    });
+    // The queue helper re-checks the preference; this filter makes the intent explicit.
+    const recipients = readers.filter((reader) => reader.emailPreferences?.reminders !== false);
+    if (!recipients.length) return;
+    const publicUrl = getClientAppUrl();
+    const queued = await enqueueTemplateEmails({
+      recipients,
+      code: 'story_part_published',
+      preferenceCategory: 'reminders',
+      dedupeKeyPrefix: `story-part-published:${part.id}`,
+      metadata: (reader) => {
+        const language = requestedLanguage(reader.language);
+        return {
+          firstName: reader.firstName || '',
+          storyTitle: story.translations?.[language]?.title || story.title,
+          partTitle: part.translations?.[language]?.title || part.title,
+          partNumber: part.partNumber,
+          actionUrl: `${publicUrl}/${language}/stories/${encodeURIComponent(story.slug)}`
+        };
+      }
+    });
+    if (queued) {
+      console.info(`Notifications de nouvelle partie mises en file : ${queued} destinataires pour la partie ${part.id}.`);
+    }
+  } catch (error) {
+    console.error(`Impossible de mettre en file la notification de la partie ${part.id} :`, error);
+  }
+}
+
 router.post('/admin/content/stories/:id/parts', ...contentEditors, validateBody(schemas.partSchema), async (req, res, next) => {
   try {
     const storyId = parseId(req.params.id, 'Histoire');
@@ -3028,7 +3131,10 @@ router.post('/admin/content/stories/:id/parts', ...contentEditors, validateBody(
       storyId,
       content,
       endingHook: isUpcoming ? '' : rest.endingHook,
-      translations: syncPartTranslations(rest.translations, blocks)
+      translations: syncPartTranslations(rest.translations, blocks),
+      // Only a coming-soon part that becomes readable is announced, and only once
+      // the story is published again: a brand-new part is not an "episode is out".
+      publishNotifiedAt: isUpcoming ? null : new Date()
     });
     if (blocks && !isUpcoming) await syncPartBlocks(part, blocks);
     await renumberStoryParts(storyId);
@@ -3064,9 +3170,19 @@ router.patch('/admin/content/parts/:id', ...contentEditors, validateBody(schemas
       if (other) {
         return res.status(409).json({ message: 'Cette histoire a déjà une partie à venir.', code: 'UPCOMING_PART_EXISTS' });
       }
+      // A published story must keep at least one readable part.
+      const owner = await Story.findByPk(part.storyId);
+      const publishedCount = await StoryPart.count({ where: { storyId: part.storyId, status: 'published' } });
+      if (owner?.status === 'published' && publishedCount <= 1) {
+        return res.status(409).json({
+          message: 'Cette partie est la seule partie publiée : ajoutez une autre partie ou dépubliez l’histoire avant de la passer en « à venir ».',
+          code: 'LAST_PUBLISHED_PART'
+        });
+      }
     }
     // Turning a part into a placeholder hides it, but its text is kept so it can
     // be published again later without retyping anything.
+    const wasComingSoon = part.status === 'coming_soon';
     const content = becomesUpcoming ? part.content : resolvePartContent(rest, part.content);
     if (!becomesUpcoming && !content) {
       return res.status(422).json({
@@ -3084,6 +3200,11 @@ router.patch('/admin/content/parts/:id', ...contentEditors, validateBody(schemas
     if (blocks && !becomesUpcoming) await syncPartBlocks(part, blocks);
     await renumberStoryParts(part.storyId);
     const story = await Story.findByPk(part.storyId);
+    if (wasComingSoon && part.status === 'published') {
+      // Arm the notification now, but queue it only when the story is published
+      // again: this edit sends the story back to review, so the link would be dead.
+      await part.update({ publishNotifiedAt: null });
+    }
     await sendPublishedStoryBackToReview(req, story);
     await recordAudit(req, 'UPDATE_STORY_PART', 'StoryPart', part.id);
     res.json(await partWithBlocks(part.id));
@@ -3193,6 +3314,18 @@ router.get('/admin/content/parts/:id/impact', ...contentEditors, async (req, res
 router.delete('/admin/content/parts/:id', ...contentEditors, async (req, res, next) => {
   try {
     const partId = parseId(req.params.id, 'Partie');
+    const target = await StoryPart.findByPk(partId);
+    if (!target) return res.status(404).json({ message: 'Partie introuvable.' });
+    if (target.status !== 'coming_soon') {
+      const owner = await Story.findByPk(target.storyId);
+      const publishedCount = await StoryPart.count({ where: { storyId: target.storyId, status: 'published' } });
+      if (owner?.status === 'published' && publishedCount <= 1) {
+        return res.status(409).json({
+          message: 'Cette partie est la seule partie publiée : ajoutez une autre partie ou dépubliez l’histoire avant de la supprimer.',
+          code: 'LAST_PUBLISHED_PART'
+        });
+      }
+    }
     const storyId = await sequelize.transaction(async (transaction) => {
       const part = await StoryPart.findByPk(partId, { transaction, lock: transaction.LOCK.UPDATE });
       if (!part) return null;
@@ -3698,6 +3831,41 @@ router.delete('/admin/content/quizzes/:id', ...contentEditors, async (req, res, 
   }
 });
 
+/**
+ * `availabilityMode` decides the base format: an e-book-only book is an e-book,
+ * a "both" book keeps its printed data (price, stock, weight) and may add PDFs.
+ */
+function normalizeBookAvailability(fields, current = {}) {
+  const values = { ...fields };
+  const requestedMode = values.availabilityMode
+    ?? current.availabilityMode
+    ?? (values.format === 'ebook' || current.format === 'ebook' ? 'digital_only' : 'both');
+  values.availabilityMode = ['digital_only', 'print_only'].includes(requestedMode) ? requestedMode : 'both';
+  values.format = baseFormatFor(values.availabilityMode);
+  if (values.availabilityMode === 'digital_only') {
+    values.stockQuantity = null;
+    values.isReturnable = false;
+    values.weightGrams = null;
+    values.returnWindowDays = null;
+  }
+  // A printed-only book never sells its PDFs, even if files were uploaded earlier.
+  if (values.availabilityMode === 'print_only') values.digitalPrice = null;
+  return values;
+}
+
+/** A printed destination without a fee would ship for free: refuse to save it. */
+function assertShippingFeesComplete(fields) {
+  const missing = shippingCountriesWithoutFee(fields);
+  if (!missing.length) return;
+  // 409 (not 422) so the API keeps this specific code and message instead of
+  // the generic validation error.
+  const error = new Error(`Tarif de livraison manquant pour : ${missing.join(', ')}.`);
+  error.status = 409;
+  error.code = 'SHIPPING_FEE_MISSING';
+  error.missing = missing;
+  throw error;
+}
+
 router.get('/admin/content/books', ...contentEditors, async (req, res, next) => {
   try {
     res.json(await Book.findAll({ order: [['createdAt', 'DESC']] }));
@@ -3712,7 +3880,8 @@ router.post('/admin/content/books', ...contentEditors, validateBody(schemas.book
       (candidate) => assertUniqueSlug(Book, candidate),
       contentSlug(req.body.slug, req.body.title, req.body.translations)
     );
-    const bookFields = { ...req.body };
+    const bookFields = normalizeBookAvailability({ ...req.body });
+    assertShippingFeesComplete(bookFields);
     delete bookFields.isPublished;
     const book = await Book.create({ ...bookFields, slug, isPublished: false, status: 'draft' });
     await recordAudit(req, 'CREATE_BOOK', 'Book', book.id);
@@ -3726,7 +3895,8 @@ router.patch('/admin/content/books/:id', ...contentEditors, validateBody(schemas
   try {
     const book = await Book.findByPk(parseId(req.params.id, 'Livre'));
     if (!book) return res.status(404).json({ message: 'Livre introuvable.' });
-    const values = { ...req.body };
+    const values = normalizeBookAvailability({ ...req.body }, book);
+    assertShippingFeesComplete({ ...book.toJSON(), ...values });
     if (values.status !== undefined || values.isPublished !== undefined) {
       return res.status(403).json({ message: 'Utilisez les actions de publication du tableau de bord.', code: 'STATUS_ACTION_REQUIRED' });
     }
@@ -3769,7 +3939,7 @@ router.post('/admin/content/books/:id/publish', ...publishers, async (req, res, 
     if (!book) return res.status(404).json({ message: 'Livre introuvable.' });
     const missing = [];
     if (!book.title?.trim()) missing.push('Arabic title');
-    if (book.format === 'ebook' && !availableBookLanguages(book).length) missing.push('PDF file');
+    if (availabilityModeOf(book) === 'digital_only' && !availableBookLanguages(book).length) missing.push('PDF file');
     await assertUniqueSlug(Book, book.slug, book.id).catch((error) => {
       if (error.code === 'SLUG_CONFLICT') missing.push('unique slug');
       else throw error;
@@ -3874,7 +4044,7 @@ router.post('/admin/content/media', ...contentEditors, validateBody(schemas.medi
     if (req.body.bookId) {
       const book = await Book.findByPk(req.body.bookId);
       if (!book) return res.status(400).json({ message: 'Livre introuvable.' });
-      if (req.body.mediaType === 'ebook' && book.format !== 'ebook') {
+      if (req.body.mediaType === 'ebook' && !hasDigitalFormat(book)) {
         return res.status(400).json({ message: 'Un fichier ebook ne peut être rattaché qu’à un livre numérique.' });
       }
     }
@@ -3901,7 +4071,7 @@ router.post('/admin/content/media/upload-url', ...contentEditors, validateBody(s
     if (req.body.bookId) {
       const book = await Book.findByPk(req.body.bookId);
       if (!book) return res.status(400).json({ message: 'Livre introuvable.' });
-      if (req.body.mediaType === 'ebook' && book.format !== 'ebook') {
+      if (req.body.mediaType === 'ebook' && !hasDigitalFormat(book)) {
         return res.status(400).json({ message: 'Un fichier ebook ne peut être rattaché qu’à un livre numérique.' });
       }
     }

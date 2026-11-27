@@ -58,9 +58,6 @@ async function partAccess({ story, part, user, completedIds, accessible }) {
     return { code: 'COMING_SOON', status: 404, message: 'Cette partie n’est pas encore disponible.' };
   }
   if (isPrivileged(user?.role)) return null;
-  // A part the reader already finished stays readable forever, even after a
-  // reorder or when it becomes premium.
-  if (completedIds?.has(part.id)) return null;
   if (!user && part.partNumber >= 2) {
     return {
       code: 'LOGIN_REQUIRED',
@@ -69,8 +66,11 @@ async function partAccess({ story, part, user, completedIds, accessible }) {
       requiredPartNumber: 1
     };
   }
+  // A part already finished skips the reading-order rule, but never the paywall:
+  // a lapsed subscription locks every premium part again.
+  const alreadyCompleted = completedIds?.has(part.id);
   const previous = previousPart(story, part);
-  if (previous && !completedIds?.has(previous.id)) {
+  if (!alreadyCompleted && previous && !completedIds?.has(previous.id)) {
     return {
       code: 'SEQUENCE_LOCKED',
       status: 403,
@@ -81,22 +81,20 @@ async function partAccess({ story, part, user, completedIds, accessible }) {
   const allowed = typeof accessible === 'boolean'
     ? accessible
     : await canAccessPart({ userId: user?.id, role: user?.role, story, part });
-  if (!allowed) {
-    if (!user) {
-      return {
-        code: 'LOGIN_REQUIRED',
-        status: 401,
-        message: 'Créez un compte gratuit pour continuer la lecture.',
-        requiredPartNumber: 1
-      };
-    }
+  if (allowed) return null;
+  if (!user) {
     return {
-      code: 'SUBSCRIPTION_REQUIRED',
-      status: 403,
-      message: 'Un abonnement actif est requis pour cette partie.'
+      code: 'LOGIN_REQUIRED',
+      status: 401,
+      message: 'Créez un compte gratuit pour continuer la lecture.',
+      requiredPartNumber: 1
     };
   }
-  return null;
+  return {
+    code: 'SUBSCRIPTION_REQUIRED',
+    status: 403,
+    message: 'Un abonnement actif est requis pour cette partie.'
+  };
 }
 
 /**
@@ -109,13 +107,16 @@ async function partStates({ story, user, completedIds, accessibleFor }) {
   let currentAssigned = false;
   for (const part of parts) {
     const isCompleted = completedIds.has(part.id);
-    if (isCompleted) {
-      states.push({ part, status: 'completed' });
-      continue;
-    }
     const accessible = accessibleFor
       ? await accessibleFor(part)
       : await canAccessPart({ userId: user?.id, role: user?.role, story, part });
+    if (isCompleted) {
+      // Finished parts stay counted as read, but a lapsed paywall locks them again.
+      states.push(accessible
+        ? { part, status: 'completed' }
+        : { part, status: user ? 'locked_subscription' : 'login_required' });
+      continue;
+    }
     const issue = await partAccess({ story, part, user, completedIds, accessible });
     let status;
     if (!issue) {

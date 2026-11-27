@@ -39,21 +39,20 @@ describe('part block editor helpers', () => {
     expect(usableBlocks([textBlock('نص'), draft])).toHaveLength(1);
   });
 
-  it('carries the representation policy confirmation into the API payload', () => {
-    const block: PartBlock = { type: 'image', image, alt: { ar: 'سفينة', en: '', fr: '' }, policyConfirmed: true };
+  it('sends image blocks without any representation confirmation field', () => {
+    const block: PartBlock = { type: 'image', image, alt: { ar: 'سفينة', en: '', fr: '' } };
     const [sent] = blocksForApi([block]);
-    expect(sent.image?.policyConfirmed).toBe(true);
+    expect(sent.image).toEqual(image);
   });
 
-  it('flags missing text, alt text and policy confirmation before saving', () => {
+  it('flags missing text and alt text before saving', () => {
     expect(blocksInvalid([])).toMatch(/كتلة نص/);
-    expect(blocksInvalid([{ type: 'image', image, policyConfirmed: true }])).toMatch(/كتلة نص/);
-    expect(blocksInvalid([textBlock('نص'), { type: 'image', image, decorative: false, policyConfirmed: true }])).toMatch(/نص بديل/);
-    expect(blocksInvalid([textBlock('نص'), { type: 'image', image, alt: { ar: 'صورة' } }])).toMatch(/سياسة تصوير/);
+    expect(blocksInvalid([{ type: 'image', image }])).toMatch(/كتلة نص/);
+    expect(blocksInvalid([textBlock('نص'), { type: 'image', image, decorative: false }])).toMatch(/نص بديل/);
     expect(blocksInvalid([textBlock('نص'), { type: 'quote', text: { ar: 'آية' } }])).toMatch(/مرجع/);
     expect(blocksInvalid([
       textBlock('نص'),
-      { type: 'image', image, alt: { ar: 'صورة' }, policyConfirmed: true },
+      { type: 'image', image, alt: { ar: 'صورة' } },
       { type: 'quote', text: { ar: 'آية' }, reference: { ar: 'التوبة: 40' } }
     ])).toBeNull();
   });

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
-import { Check, Crop, ImagePlus, Loader2, ShieldCheck, Trash2, UploadCloud, X } from 'lucide-react';
+import { Check, Crop, ImagePlus, Loader2, Trash2, UploadCloud, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { SiteLanguage } from '@/lib/localization';
 
@@ -41,7 +41,6 @@ const imageCopy: Record<string, { en: string; fr: string }> = {
   'تكبير': { en: 'Zoom', fr: 'Zoom' },
   'استخدم هذا الاقتطاع': { en: 'Use this crop', fr: 'Utiliser ce recadrage' },
   'إلغاء': { en: 'Cancel', fr: 'Annuler' },
-  'أكّد أولًا أن الصورة تحترم سياسة التمثيل.': { en: 'First confirm that the image follows the depiction policy.', fr: 'Confirmez d’abord que l’image respecte la politique de représentation.' },
   'الصيغ المقبولة: JPG أو PNG أو WebP.': { en: 'Accepted formats: JPG, PNG or WebP.', fr: 'Formats acceptés : JPG, PNG ou WebP.' },
   'الحجم الأقصى للصورة 5 ميغابايت.': { en: 'Maximum image size is 5 MB.', fr: 'Taille maximale de l’image : 5 Mo.' },
   'تعذر رفع الصورة.': { en: 'Could not upload the image.', fr: 'Impossible de téléverser l’image.' },
@@ -49,9 +48,6 @@ const imageCopy: Record<string, { en: string; fr: string }> = {
   'تم رفع صورة البانر.': { en: 'Banner image uploaded.', fr: 'Image de bannière téléversée.' },
   'صور القصة': { en: 'Story images', fr: 'Images de l’histoire' },
   'غلاف عمودي 3:4 للبطاقات، وبانر عريض 16:9 اختياري لصفحة القصة. تُنشأ نسخ WebP متجاوبة تلقائيًا ويُحذف وصف الصورة الوصفي من الملف.': { en: 'A 3:4 vertical cover for cards and an optional 16:9 wide banner for the story page. Responsive WebP versions are generated automatically and the image description is removed from the file.', fr: 'Une couverture verticale 3:4 pour les cartes et une bannière large 16:9 facultative pour la page de l’histoire. Des versions WebP responsives sont générées automatiquement et la description de l’image est supprimée du fichier.' },
-  'دليل الصور المسموحة': { en: 'Allowed image guide', fr: 'Guide des images autorisées' },
-  'هذه الصورة تحترم سياسة التمثيل: لا وجه ولا جسد لأي نبي، ويُسمح بالضوء والظل والصورة من الخلف والخط العربي والمناظر والرموز فقط.': { en: 'This image follows the depiction policy: no face or body of any prophet; only light, shadow, rear views, Arabic calligraphy, landscapes and symbols are allowed.', fr: 'Cette image respecte la politique de représentation : aucun visage ni corps de prophète ; seuls la lumière, l’ombre, les vues de dos, la calligraphie arabe, les paysages et les symboles sont autorisés.' },
-  'المقاسات الموصى بها: الغلاف 900×1200 (3:4)، البانر 1600×900 (16:9). الصيغ: JPG أو PNG أو WebP، بحد أقصى 5 ميغابايت.': { en: 'Recommended sizes: cover 900×1200 (3:4), banner 1600×900 (16:9). Formats: JPG, PNG or WebP, maximum 5 MB.', fr: 'Tailles recommandées : couverture 900×1200 (3:4), bannière 1600×900 (16:9). Formats : JPG, PNG ou WebP, 5 Mo maximum.' },
   'الغلاف (3:4)': { en: 'Cover (3:4)', fr: 'Couverture (3:4)' },
   'استبدال الغلاف': { en: 'Replace cover', fr: 'Remplacer la couverture' },
   'رفع غلاف': { en: 'Upload cover', fr: 'Téléverser une couverture' },
@@ -223,7 +219,7 @@ export function StoryImagesEditor({
   saving?: boolean;
 }) {
   const [activeLanguage, setActiveLanguage] = useState<SiteLanguage>('ar');
-  const [depictionConfirmed, setDepictionConfirmed] = useState(Boolean(value.coverImage));
+
   const [busy, setBusy] = useState<'cover' | 'hero' | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -231,11 +227,6 @@ export function StoryImagesEditor({
   const [cropRequest, setCropRequest] = useState<CropRequest | null>(null);
   const coverInput = useRef<HTMLInputElement>(null);
   const heroInput = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    // Existing images were already validated before they were saved.
-    if (value.coverImage || value.heroImage) setDepictionConfirmed(true);
-  }, [value.coverImage, value.heroImage]);
 
   function patch(next: Partial<StoryImageValue>) {
     onChange({ ...value, ...next });
@@ -251,10 +242,6 @@ export function StoryImagesEditor({
     if (!file) return;
     setError('');
     setNotice('');
-    if (!depictionConfirmed) {
-      setError(imageText('أكّد أولًا أن الصورة تحترم سياسة التمثيل.', language));
-      return;
-    }
     if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
       setError(imageText('الصيغ المقبولة: JPG أو PNG أو WebP.', language));
       return;
@@ -293,22 +280,8 @@ export function StoryImagesEditor({
         </div>
         <div className="flex flex-wrap items-center gap-3">
           {saveFormId && <button type="submit" form={saveFormId} disabled={saving} className="inline-flex items-center gap-2 rounded-full bg-emerald-900 px-5 py-2.5 text-sm font-bold text-white disabled:opacity-50"><Check size={16} /> {saving ? imageText('جارٍ الحفظ…', language) : imageText('حفظ القصة', language)}</button>}
-          <a href="#story-images-guidelines" className="text-sm font-bold text-emerald-800 underline">{imageText('دليل الصور المسموحة', language)}</a>
         </div>
       </header>
-
-      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-7 text-amber-950">
-        <label className="flex items-start gap-3 font-semibold">
-          <input
-            type="checkbox"
-            className="mt-1 h-4 w-4"
-            checked={depictionConfirmed}
-            onChange={(event) => setDepictionConfirmed(event.target.checked)}
-          />
-          <span>{imageText('هذه الصورة تحترم سياسة التمثيل: لا وجه ولا جسد لأي نبي، ويُسمح بالضوء والظل والصورة من الخلف والخط العربي والمناظر والرموز فقط.', language)}</span>
-        </label>
-        <p className="mt-2 text-xs">{imageText('المقاسات الموصى بها: الغلاف 900×1200 (3:4)، البانر 1600×900 (16:9). الصيغ: JPG أو PNG أو WebP، بحد أقصى 5 ميغابايت.', language)}</p>
-      </div>
 
       {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm font-semibold text-red-800">{error}</p>}
       {notice && <p role="status" className="rounded-xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-900">{notice}</p>}
@@ -318,7 +291,7 @@ export function StoryImagesEditor({
           <div className="rounded-2xl border border-slate-200 p-4">
             <h3 className="font-bold text-emerald-950">{imageText('الغلاف (3:4)', language)}</h3>
             <div className="mt-3 flex flex-wrap items-center gap-3">
-              <button type="button" onClick={() => coverInput.current?.click()} disabled={!depictionConfirmed || busy !== null} className="inline-flex items-center gap-2 rounded-xl bg-emerald-900 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">
+              <button type="button" onClick={() => coverInput.current?.click()} disabled={busy !== null} className="inline-flex items-center gap-2 rounded-xl bg-emerald-900 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">
                 {busy === 'cover' ? <Loader2 className="animate-spin" size={16} /> : <UploadCloud size={16} />}
                 {imageText(cover ? 'استبدال الغلاف' : 'رفع غلاف', language)}
               </button>
@@ -332,7 +305,7 @@ export function StoryImagesEditor({
             <h3 className="font-bold text-emerald-950">{imageText('البانر العريض (16:9، اختياري)', language)}</h3>
             {value.heroImage ? <div className="mt-3 aspect-video overflow-hidden rounded-xl bg-slate-100"><img src={value.heroImage} alt="" className="h-full w-full object-cover" style={{ objectPosition }} /></div> : <p className="mt-2 text-sm text-slate-500">{imageText('يُستخدم الغلاف في الأعلى إن لم يوجد بانر.', language)}</p>}
             <div className="mt-3 flex flex-wrap gap-3">
-              <button type="button" onClick={() => heroInput.current?.click()} disabled={!depictionConfirmed || busy !== null} className="inline-flex items-center gap-2 rounded-xl border border-emerald-900 px-4 py-2 text-sm font-bold text-emerald-900 disabled:opacity-50">
+              <button type="button" onClick={() => heroInput.current?.click()} disabled={busy !== null} className="inline-flex items-center gap-2 rounded-xl border border-emerald-900 px-4 py-2 text-sm font-bold text-emerald-900 disabled:opacity-50">
                 {busy === 'hero' ? <Loader2 className="animate-spin" size={16} /> : <ImagePlus size={16} />}
                 {imageText(value.heroImage ? 'استبدال البانر' : 'رفع بانر', language)}
               </button>
@@ -417,19 +390,6 @@ export function StoryImagesEditor({
             </div>
           </div>
 
-          <div id="story-images-guidelines" className="rounded-2xl border border-emerald-950/10 bg-emerald-50/60 p-4 text-sm leading-7">
-            <p className="flex items-center gap-2 font-bold text-emerald-950"><ShieldCheck size={16} /> {imageText('مسموح', language)}</p>
-            <ul className="mt-1 list-inside list-disc text-emerald-900">
-              <li>{imageText('مناظر طبيعية، صحراء، جبال، ماء، ليل ونجوم.', language)}</li>
-              <li>{imageText('خط عربي، زخارف هندسية، أقواس، مصابيح، رموز مجردة.', language)}</li>
-              <li>{imageText('أشخاص من الخلف أو ظلال أو ضوء بعيد دون ملامح.', language)}</li>
-            </ul>
-            <p className="mt-3 font-bold text-red-800">{imageText('ممنوع', language)}</p>
-            <ul className="mt-1 list-inside list-disc text-red-800">
-              <li>{imageText('أي وجه أو جسد يُنسب إلى نبي أو صحابي.', language)}</li>
-              <li>{imageText('تصوير مباشر للمشاهد المقدسة أو الشخصيات.', language)}</li>
-            </ul>
-          </div>
         </aside>
       </div>
 

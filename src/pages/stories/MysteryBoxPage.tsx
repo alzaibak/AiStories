@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Check, ChevronLeft, Gift, Lock, ShieldCheck, Sparkles, Truck, Zap } from 'lucide-react';
+import { ArrowLeft, Check, ChevronLeft, Gift, Lock, ShieldCheck, ShoppingBag, Sparkles, Truck, Zap } from 'lucide-react';
 import { SiteLayout } from './StoryPlatform';
 import { ApiError, api } from '@/lib/api';
 import { useStoryAuth } from '@/contexts/StoryAuthContext';
 import {
   MysteryBoxArt,
+  MysteryBoxPhoto,
   cardPalette,
   countdownUnit,
   formatMoney,
@@ -20,6 +21,7 @@ type PublicItem = { id: number; displayName?: string; teaserText?: string; name?
 type PromoBlock = { type: 'text' | 'image'; title: string; body: string; imageUrl: string | null; imageAlt: string | null };
 type ShippingFeeEntry = { amount: string; amountMinor: number; freeShipping: boolean } | null;
 type PublicBox = {
+  id: number;
   slug: string;
   title: string;
   tagline: string | null;
@@ -134,11 +136,14 @@ export function MysteryBoxPage() {
   const [data, setData] = useState<BoxResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadStatus, setLoadStatus] = useState<number | null>(null);
   const [country, setCountry] = useState('FR');
   const [consent, setConsent] = useState(false);
   const [consentError, setConsentError] = useState<string | null>(null);
   const [buying, setBuying] = useState(false);
   const [buyError, setBuyError] = useState<string | null>(null);
+  const [addingToCart, setAddingToCart] = useState(false);
+  const [cartNotice, setCartNotice] = useState<string | null>(null);
   const text = copy(language);
 
   const load = useMemo(() => async () => {
@@ -146,11 +151,13 @@ export function MysteryBoxPage() {
       const response = await api.get<BoxResponse>(`/mystery-box/${slug}?lang=${language}`);
       setData(response);
       setLoadError(null);
+      setLoadStatus(null);
       if (response.box.shipping?.allowedCountries?.length) {
         setCountry((current) => response.box.shipping!.allowedCountries.includes(current) ? current : response.box.shipping!.allowedCountries[0]);
       }
     } catch (caught) {
       setLoadError(caught instanceof Error ? caught.message : 'Not found');
+      setLoadStatus(caught instanceof ApiError ? caught.status ?? null : null);
     } finally {
       setLoading(false);
     }
@@ -233,6 +240,31 @@ export function MysteryBoxPage() {
     }
   }
 
+  async function addToCart() {
+    if (!box) return;
+    setBuyError(null);
+    setCartNotice(null);
+    if (!user) {
+      navigate(`/login?next=${encodeURIComponent(`/mystery-box/${box.slug}`)}`);
+      return;
+    }
+    setAddingToCart(true);
+    try {
+      await api.post('/cart/items', { mysteryBoxId: box.id, quantity: 1 });
+      window.dispatchEvent(new Event('cart:changed'));
+      setCartNotice(translateText('أُضيف الصندوق إلى سلتك.', language));
+    } catch (caught) {
+      const code = caught instanceof ApiError ? String(caught.code || '') : '';
+      if (/ALREADY_IN_CART|BOX_ALREADY/i.test(code)) setCartNotice(translateText('الصندوق موجود في سلتك بالفعل.', language));
+      else if (/PER_USER|LIMIT/i.test(code)) setBuyError(text.limit(box.perUserLimit));
+      else if (/MIXED_CART/i.test(code)) setBuyError(translateText('سلتك تحتوي كتبًا. أتمم دفعها أولًا ثم أضف الصندوق.', language));
+      else if (/SOLD_OUT|STOCK|NOT_ACTIVE/i.test(code)) setBuyError(text.soldOut);
+      else setBuyError(caught instanceof Error ? caught.message : text.soldOut);
+    } finally {
+      setAddingToCart(false);
+    }
+  }
+
   if (loading) {
     return (
       <SiteLayout>
@@ -253,9 +285,26 @@ export function MysteryBoxPage() {
       <SiteLayout>
         <main className="mx-auto w-full max-w-2xl px-5 py-20 text-center">
           <Gift size={40} className="mx-auto text-brand-ink" aria-hidden="true" />
-          <h1 className="mt-4 text-2xl font-semibold text-brand-ink">{translateText('لا يوجد صندوق بهذا العنوان', language)}</h1>
-          <p className="mt-2 text-ink-muted">{translateText('قد يكون الطرح قد انتهى أو تعذّر تحميله. أعد المحاولة بعد لحظات.', language)}</p>
-          <Link to="/" className="mt-6 inline-flex items-center gap-2 rounded-full bg-brand px-5 py-3 font-semibold text-brand-on">{text.back}</Link>
+          <h1 className="mt-4 text-2xl font-semibold text-brand-ink">
+            {loadStatus === 404
+              ? translateText('لا يوجد صندوق بهذا العنوان', language)
+              : translateText('تعذّر تحميل الصندوق', language)}
+          </h1>
+          <p className="mt-2 text-ink-muted">
+            {loadStatus === 404
+              ? translateText('قد يكون الطرح قد انتهى أو حُذف.', language)
+              : translateText('قد يكون الاتصال بطيئًا. أعد المحاولة بعد لحظات.', language)}
+          </p>
+          {loadStatus !== 404 && (
+            <button
+              type="button"
+              onClick={() => { setLoading(true); void load(); }}
+              className="mt-6 inline-flex items-center gap-2 rounded-full bg-brand px-5 py-3 font-semibold text-brand-on"
+            >
+              {translateText('أعد المحاولة', language)}
+            </button>
+          )}
+          <Link to="/" className="mt-3 inline-flex items-center gap-2 rounded-full border border-line px-5 py-3 font-semibold text-ink">{text.back}</Link>
         </main>
       </SiteLayout>
     );
@@ -279,15 +328,18 @@ export function MysteryBoxPage() {
           {/* The photo attached to the box in the admin is the hero backdrop. */}
           {box.appearance?.bannerImage && (
             <>
-              <img src={box.appearance.bannerImage} alt="" aria-hidden="true" className="absolute inset-0 h-full w-full object-cover opacity-45" />
+              <img src={box.appearance.bannerImage} alt="" aria-hidden="true" className="absolute inset-0 h-full w-full scale-110 object-cover opacity-30 blur-2xl" />
               <span aria-hidden="true" className="absolute inset-0" style={{ backgroundImage: 'linear-gradient(160deg, rgba(7,19,15,0.82) 0%, rgba(7,19,15,0.94) 75%)' }} />
             </>
           )}
           <div aria-hidden="true" className="pointer-events-none absolute inset-0" style={{ backgroundImage: `radial-gradient(55% 45% at 70% 20%, ${palette.glowFrom}b3 0%, transparent 70%), radial-gradient(40% 40% at 15% 85%, ${palette.glowTo}8c 0%, transparent 72%)` }} />
           <div className="relative mx-auto grid w-full max-w-6xl gap-10 px-5 py-12 md:grid-cols-[0.95fr_1.05fr] md:items-center md:py-16">
             <div className="order-2 flex justify-center md:order-1">
-              <div className="w-full max-w-[16rem] sm:max-w-sm">
-                <MysteryBoxArt accent={palette.accent} glowFrom={palette.glowFrom} glowTo={palette.glowTo} className="h-auto w-full" />
+              <div className="w-full max-w-md sm:max-w-lg">
+                {/* Shown whole: the photo may hold the contents, dates or a price. */}
+                {box.appearance?.bannerImage
+                  ? <MysteryBoxPhoto src={box.appearance.bannerImage} alt={box.title} maxHeight="max-h-[22rem] sm:max-h-[30rem]" />
+                  : <MysteryBoxArt accent={palette.accent} glowFrom={palette.glowFrom} glowTo={palette.glowTo} className="h-auto w-full" />}
               </div>
             </div>
             <div className="order-1 md:order-2">
@@ -332,10 +384,10 @@ export function MysteryBoxPage() {
             {box.promo && box.promo.length > 0 && (
               <section aria-label={translateText('محتوى ترويجي', language)} className="space-y-4">
                 {box.promo.map((block: PromoBlock, index: number) => block.type === 'image' && block.imageUrl ? (
-                  <figure key={`promo-${index}`} className="overflow-hidden rounded-[24px] border border-line bg-surface">
-                    <img src={block.imageUrl} alt={block.imageAlt || block.title || ''} className="max-h-[24rem] w-full object-cover" loading="lazy" />
+                  <figure key={`promo-${index}`} className="overflow-hidden rounded-[24px] bg-[#F7F3E7] p-2 ring-1 ring-[#D9B15F]/50">
+                    <img src={block.imageUrl} alt={block.imageAlt || block.title || ''} className="max-h-[34rem] w-full rounded-[16px] object-contain" loading="lazy" />
                     {(block.title || block.body) && (
-                      <figcaption className="p-5">
+                      <figcaption className="p-4">
                         {block.title && <p className="text-lg font-semibold text-brand-ink">{block.title}</p>}
                         {block.body && <p className="mt-2 whitespace-pre-line text-sm leading-8 text-ink-muted">{block.body}</p>}
                       </figcaption>
@@ -454,7 +506,20 @@ export function MysteryBoxPage() {
                     ? translateText('لم يبدأ بعد', language)
                     : text.buy}
             </button>
+            <button
+              type="button"
+              onClick={addToCart}
+              disabled={!canBuy || addingToCart}
+              className="mt-3 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full border px-5 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-60"
+              style={{ borderColor: palette.gold, color: palette.gold }}
+            >
+              <ShoppingBag size={16} aria-hidden="true" />
+              {addingToCart
+                ? translateText('جارٍ الإضافة…', language)
+                : translateText('أضف إلى السلة', language)}
+            </button>
 
+            {cartNotice && <p role="status" className="mt-3 rounded-xl bg-brand-soft p-3 text-center text-xs font-semibold text-brand-ink">{cartNotice} <Link to="/cart" className="underline">{translateText('عرض السلة', language)}</Link></p>}
             {buyError && <p role="alert" className="mt-3 rounded-xl bg-danger-soft p-3 text-xs leading-6 text-danger">{buyError}</p>}
             {!user && <p className="mt-3 text-center text-[11px] text-ink-faint">{text.loginFirst} <Link to={`/login?next=${encodeURIComponent(`/mystery-box/${box.slug}`)}`} className="font-semibold text-brand-ink underline">{translateText('دخول', language)}</Link></p>}
             {data?.blockedReason === 'per_user_limit' && <p className="mt-3 text-center text-[11px] font-semibold text-ink-muted">{text.limit(box.perUserLimit)}</p>}

@@ -69,12 +69,17 @@ type Story = {
   translations?: Partial<Record<Language, Record<string, string>>>;
   parts: Part[];
 };
+type AvailabilityMode = 'both' | 'digital_only' | 'print_only';
+
 type Book = {
   id: number;
   title: string;
   description?: string | null;
   slug: string;
   format: string;
+  /** both = printed + e-book, digital_only = e-book only, print_only = printed only. */
+  availabilityMode?: AvailabilityMode;
+  digitalPrice?: string | number | null;
   price: string | number;
   currency: string;
   stockQuantity: number | null;
@@ -90,9 +95,18 @@ type Book = {
   coverAlt?: Partial<LocalizedAlt> | null;
   weightGrams?: number | null;
   isbn?: string | null;
+  shippingCountries?: string[] | null;
+  shippingFees?: Record<string, string | number> | null;
+  shippingFreeOver?: string | number | null;
   translations: Partial<Record<Language, Record<string, string>>>;
 };
 type BookFileLanguage = 'ar' | 'en' | 'fr';
+/** Countries offered by the “all of Europe” shortcut (EU + close neighbours). */
+const EUROPE_COUNTRIES = [
+  'FR', 'BE', 'NL', 'DE', 'ES', 'IT', 'PT', 'IE', 'LU', 'AT',
+  'DK', 'SE', 'FI', 'PL', 'CZ', 'SK', 'HU', 'RO', 'BG', 'GR',
+  'HR', 'SI', 'EE', 'LV', 'LT', 'MT', 'CY', 'CH', 'GB', 'NO', 'IS'
+];
 const bookFileLanguages: Array<{ code: BookFileLanguage; label: string }> = [
   { code: 'ar', label: 'العربية' },
   { code: 'en', label: 'English' },
@@ -451,21 +465,58 @@ export default function AdminContentPage() {
   const [editingPartId, setEditingPartId] = useState<number | null>(null);
   const [highlightedPartId, setHighlightedPartId] = useState<number | null>(null);
   const [bookText, setBookText] = useState(emptyFields(['title', 'description']));
-  const [bookForm, setBookForm] = useState({ slug: '', format: 'ebook', price: '', currency: 'EUR', stockQuantity: '', isPublished: false, isReturnable: true, returnWindowDays: '', cover: '', weightGrams: '', isbn: '', previewFileKey: '' });
+  const [bookForm, setBookForm] = useState({
+    slug: '',
+    availabilityMode: 'digital_only' as AvailabilityMode,
+    format: 'ebook' as 'print' | 'ebook',
+    digitalPrice: '',
+    price: '',
+    currency: 'EUR',
+    stockQuantity: '',
+    isPublished: false,
+    isReturnable: true,
+    returnWindowDays: '',
+    cover: '',
+    weightGrams: '',
+    isbn: '',
+    previewFileKey: ''
+  });
   const [bookCoverAlt, setBookCoverAlt] = useState<LocalizedAlt>(emptyAlt);
+  const [bookShipping, setBookShipping] = useState({ countries: '', fees: [] as Array<{ country: string; fee: string }>, freeOver: '' });
   // One PDF per language: only the uploaded versions are offered to readers.
   const [bookFiles, setBookFiles] = useState<Partial<Record<BookFileLanguage, File>>>({});
   const [bookExistingFiles, setBookExistingFiles] = useState<Record<BookFileLanguage, boolean>>({ ar: false, en: false, fr: false });
   const [pendingBookId, setPendingBookId] = useState<number | null>(null);
   const [fileInputKeys, setFileInputKeys] = useState<Record<BookFileLanguage, number>>({ ar: 0, en: 0, fr: 0 });
   const bookHasPdf = bookFileLanguages.some(({ code }) => bookExistingFiles[code] || Boolean(bookFiles[code]));
+  // Section numbers follow the sections actually displayed, so a PDF-only book
+  // never shows a gap where the printed/shipping blocks used to be.
+  const bookSectionOrder = [
+    'info', 'availability', 'cover',
+    ...(bookForm.availabilityMode !== 'digital_only' ? ['printed', 'shipping'] : []),
+    ...(bookForm.availabilityMode !== 'print_only' ? ['pdf'] : [])
+  ];
+  const bookSectionNumber = (key: string) => String(bookSectionOrder.indexOf(key) + 1);
+  // A served country without a fee would ship for free: show it and block save.
+  const bookShippingCountryCodes = [...new Set(bookShipping.countries
+    .split(',')
+    .map((code) => code.trim().toUpperCase())
+    .filter((code) => /^[A-Z]{2}$/.test(code)))];
+  const bookShippingFeeCodes = new Set(bookShipping.fees
+    .map((row) => ({ country: row.country.trim().toUpperCase(), fee: row.fee.trim() }))
+    .filter((row) => /^[A-Z]{2}$/.test(row.country) && row.fee !== '' && Number.isFinite(Number(row.fee)))
+    .map((row) => row.country));
+  const bookShippingCountriesWithoutFee = bookForm.availabilityMode === 'digital_only'
+    ? []
+    : bookShippingCountryCodes.filter((code) => !bookShippingFeeCodes.has(code));
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [previewVisible, setPreviewVisible] = useState(false);
   const isCollectionForm = location.pathname.endsWith('/content/collections/new') || location.pathname.includes('/content/collections/') && location.pathname.endsWith('/edit');
   const isBookForm = location.pathname.startsWith(`/${locale}/admin/shop/books/`) &&
     (location.pathname.endsWith('/new') || location.pathname.endsWith('/edit'));
   const isPartForm = location.pathname.endsWith('/parts/new');
-  const isStoryForm = location.pathname.endsWith('/content/stories/new') || location.pathname.endsWith('/edit');
+  const isStoryForm = location.pathname.endsWith('/content/stories/new') ||
+    (location.pathname.includes('/content/stories/') && location.pathname.endsWith('/edit'));
 
   useEffect(() => {
     document.documentElement.lang = locale;
@@ -534,7 +585,9 @@ export default function AdminContentPage() {
     });
     setBookForm({
       slug: book.slug,
-      format: book.format,
+      availabilityMode: book.availabilityMode ?? (book.format === 'ebook' ? 'digital_only' : 'both'),
+      format: book.format === 'ebook' ? 'ebook' : 'print',
+      digitalPrice: book.digitalPrice == null ? '' : String(book.digitalPrice),
       price: String(book.price),
       currency: book.currency,
       stockQuantity: book.stockQuantity == null ? '' : String(book.stockQuantity),
@@ -547,6 +600,13 @@ export default function AdminContentPage() {
       previewFileKey: book.previewFileKey || ''
     });
     setBookCoverAlt({ ar: book.coverAlt?.ar || '', en: book.coverAlt?.en || '', fr: book.coverAlt?.fr || '' });
+    setBookShipping({
+      countries: Array.isArray(book.shippingCountries) ? book.shippingCountries.join(',') : '',
+      fees: book.shippingFees && typeof book.shippingFees === 'object'
+        ? Object.entries(book.shippingFees).map(([country, fee]) => ({ country, fee: String(fee) }))
+        : [],
+      freeOver: book.shippingFreeOver == null ? '' : String(book.shippingFreeOver)
+    });
     setPendingBookId(book.id);
     setBookExistingFiles({
       ar: Boolean(book.bookFiles?.ar?.key || book.fileStorageKey),
@@ -671,48 +731,74 @@ export default function AdminContentPage() {
   async function saveBook(event: FormEvent) {
     const saved = await submit(event, async () => {
       const translations = languageRecord(bookText);
+      const digitalOnly = bookForm.availabilityMode === 'digital_only';
+      const printOnly = bookForm.availabilityMode === 'print_only';
+      const stock = String(bookForm.stockQuantity ?? '').trim();
+      // Returning from "digital only" to "both" must not save a silent 0 stock.
+      if (!digitalOnly && !stock) {
+        throw new Error(translateText('أدخل كمية المخزون للنسخة المطبوعة.', locale as Language));
+      }
+      if (!digitalOnly && (!Number.isFinite(Number(stock)) || Number(stock) < 0)) {
+        throw new Error(translateText('كمية المخزون يجب أن تكون رقمًا صالحًا.', locale as Language));
+      }
+      const shippingCountries = bookShipping.countries
+        .split(',')
+        .map((code) => code.trim().toUpperCase())
+        .filter((code) => /^[A-Z]{2}$/.test(code));
+      if (!digitalOnly && !shippingCountries.length) {
+        throw new Error(translateText('أضف دولة واحدة على الأقل للشحن.', locale as Language));
+      }
+      const shippingFees = Object.fromEntries(bookShipping.fees
+        .map((row) => ({ country: row.country.trim().toUpperCase(), fee: row.fee.trim() }))
+        .filter((row) => /^[A-Z]{2}$/.test(row.country) && row.fee !== '' && Number.isFinite(Number(row.fee)))
+        .map((row) => [row.country, Number(row.fee)]));
+      if (!digitalOnly) {
+        const missingFees = shippingCountries.filter((code) => !Object.prototype.hasOwnProperty.call(shippingFees, code));
+        if (missingFees.length) {
+          throw new Error(translateText(`أضف سعر توصيل لهذه الدول قبل الحفظ: ${missingFees.join(', ')}.`, locale as Language));
+        }
+      }
       const details = {
         title: bookText.ar.title,
         description: bookText.ar.description,
         translations,
-        format: bookForm.format,
+        availabilityMode: bookForm.availabilityMode,
+        format: digitalOnly ? 'ebook' : 'print',
         price: Number(bookForm.price),
+        digitalPrice: !digitalOnly && !printOnly && bookForm.digitalPrice.trim() ? Number(bookForm.digitalPrice) : null,
         currency: bookForm.currency,
-        stockQuantity: bookForm.format === 'print' ? Number(bookForm.stockQuantity) : null,
-        isReturnable: bookForm.format === 'print' ? bookForm.isReturnable : false,
+        stockQuantity: digitalOnly ? null : Number(stock),
+        isReturnable: digitalOnly ? false : bookForm.isReturnable,
         ...(bookForm.cover.trim() ? { cover: bookForm.cover.trim(), coverAlt: bookCoverAlt } : { cover: null }),
-        ...(bookForm.format === 'print' && bookForm.weightGrams ? { weightGrams: Number(bookForm.weightGrams) } : {}),
-        ...(bookForm.format === 'print' && bookForm.isbn.trim() ? { isbn: bookForm.isbn.trim() } : {}),
+        ...(!digitalOnly && bookForm.weightGrams ? { weightGrams: Number(bookForm.weightGrams) } : {}),
+        ...(!digitalOnly && bookForm.isbn.trim() ? { isbn: bookForm.isbn.trim() } : {}),
         ...(bookForm.previewFileKey.trim() ? { previewFileKey: bookForm.previewFileKey.trim() } : {}),
-        returnWindowDays: bookForm.format === 'print' && bookForm.returnWindowDays
+        returnWindowDays: !digitalOnly && bookForm.returnWindowDays
           ? Number(bookForm.returnWindowDays)
-          : null
+          : null,
+        ...(!digitalOnly ? {
+          shippingCountries,
+          shippingFees,
+          shippingFreeOver: bookShipping.freeOver.trim() ? Number(bookShipping.freeOver) : null
+        } : {})
       };
       let targetBookId = bookId ? Number(bookId) : pendingBookId;
       const selectedFiles = bookFileLanguages
         .map(({ code }) => ({ code, file: bookFiles[code] }))
         .filter((entry): entry is { code: BookFileLanguage; file: File } => Boolean(entry.file));
-      if (bookForm.format === 'ebook') {
-        if (bookForm.isPublished && !bookHasPdf) {
-          throw new Error(translateText('أضف ملف PDF للكتاب الإلكتروني (نسخة واحدة على الأقل).', locale as Language));
-        }
-        if (targetBookId) {
-          await api.patch(`/admin/content/books/${targetBookId}`, details);
-        } else {
-          const created = await api.post<{ id: number }>('/admin/content/books', details);
-          targetBookId = created.id;
-          setPendingBookId(targetBookId);
-        }
-        for (const { code, file } of selectedFiles) {
-          await uploadBookPdf(targetBookId, file, code);
-          setBookExistingFiles((current) => ({ ...current, [code]: true }));
-        }
+      if (digitalOnly && bookForm.isPublished && !bookHasPdf) {
+        throw new Error(translateText('أضف ملف PDF للكتاب الإلكتروني (نسخة واحدة على الأقل).', locale as Language));
+      }
+      if (targetBookId) {
+        await api.patch(`/admin/content/books/${targetBookId}`, details);
       } else {
-        if (targetBookId) await api.patch(`/admin/content/books/${targetBookId}`, details);
-        else {
-          const created = await api.post<{ id: number }>('/admin/content/books', details);
-          targetBookId = created.id;
-        }
+        const created = await api.post<{ id: number }>('/admin/content/books', details);
+        targetBookId = created.id;
+        setPendingBookId(targetBookId);
+      }
+      for (const { code, file } of selectedFiles) {
+        await uploadBookPdf(targetBookId, file, code);
+        setBookExistingFiles((current) => ({ ...current, [code]: true }));
       }
       if (!targetBookId) throw new Error(translateText('Impossible d’enregistrer le livre.', locale as Language));
       const currentBook = books.find((book) => book.id === targetBookId);
@@ -721,19 +807,20 @@ export default function AdminContentPage() {
       } else if (!bookForm.isPublished && currentBook?.status === 'published') {
         await api.post(`/admin/content/books/${targetBookId}/unpublish`, {});
       }
-      if (bookForm.format === 'ebook' && !selectedFiles.length && !bookHasPdf && !bookForm.isPublished) return;
+      if (digitalOnly && !selectedFiles.length && !bookHasPdf && !bookForm.isPublished) return;
       setPendingBookId(null);
       setBookFiles({});
       setFileInputKeys({ ar: 0, en: 0, fr: 0 });
       setBookText(emptyFields(['title', 'description']));
-      setBookForm({ slug: '', format: 'ebook', price: '', currency: 'EUR', stockQuantity: '', isPublished: false, isReturnable: true, returnWindowDays: '', cover: '', weightGrams: '', isbn: '', previewFileKey: '' });
+      setBookForm({ slug: '', availabilityMode: 'digital_only', format: 'ebook', digitalPrice: '', price: '', currency: 'EUR', stockQuantity: '', isPublished: false, isReturnable: true, returnWindowDays: '', cover: '', weightGrams: '', isbn: '', previewFileKey: '' });
       setBookCoverAlt(emptyAlt());
-    }, bookForm.format === 'ebook' && !bookHasPdf
+      setBookShipping({ countries: '', fees: [], freeOver: '' });
+    }, bookForm.availabilityMode === 'digital_only' && !bookHasPdf
       ? 'تم حفظ مسودة الكتاب. أعد اختيار ملف PDF لإكمال الرفع.'
-      : bookForm.format === 'ebook' && bookForm.isPublished
+      : bookForm.availabilityMode === 'digital_only' && bookForm.isPublished
         ? 'تم رفع ملف الكتاب ونشره للبيع.'
         : 'تم حفظ الكتاب باللغات التي أدخلتها.', 'book');
-    if (saved && (bookId || bookForm.format === 'print' || bookHasPdf)) {
+    if (saved && (bookId || bookForm.availabilityMode !== 'digital_only' || bookHasPdf)) {
       navigate(`/${locale}/admin/shop/books`);
     }
   }
@@ -1278,41 +1365,174 @@ export default function AdminContentPage() {
 
       {isBookForm && <section className="rounded-3xl border border-emerald-950/10 bg-white p-6 sm:p-8">
         <h2 className="mb-5 text-xl font-extrabold text-emerald-950">{bookId ? 'تعديل الكتاب' : pendingBookId ? 'استكمال رفع ملف PDF' : 'إضافة كتاب بلغاته'}</h2>
-        <form onChange={() => setHasUnsavedChanges(true)} onSubmit={saveBook} className="space-y-5">
+        <form onChange={() => setHasUnsavedChanges(true)} onSubmit={saveBook} className="space-y-7">
+          <StorySectionHeader number={bookSectionNumber('info')} title="معلومات الكتاب" hint="العنوان والوصف بكل لغة. العربية إلزامية والباقي اختياري." />
           <LanguageFields values={bookText} onChange={(lang, value) => updateFields(setBookText, 'title', lang, value)} field="title" label="عنوان الكتاب" disabled={bookDraftLocked} errors={errorsFor('book')} />
           <LanguageFields values={bookText} onChange={(lang, value) => updateFields(setBookText, 'description', lang, value)} field="description" label="الوصف" multiline disabled={bookDraftLocked} errors={errorsFor('book')} />
-          <div className="grid gap-4 md:grid-cols-2">
-            <label className="text-sm font-semibold">النوع<select disabled={bookDraftLocked} value={bookForm.format} onChange={(event) => setBookForm({ ...bookForm, format: event.target.value })} className={selectClass}><option value="ebook">إلكتروني</option><option value="print">ورقي</option></select><FieldError errors={errorsFor('book')} field="format" /></label>
-            <label className="text-sm font-semibold">السعر<input required disabled={bookDraftLocked} type="number" min="0" step="0.01" value={bookForm.price} onChange={(event) => setBookForm({ ...bookForm, price: event.target.value })} className={inputClass} /><FieldError errors={errorsFor('book')} field="price" /></label>
-            <label className="text-sm font-semibold">العملة<input required disabled={bookDraftLocked} minLength={3} maxLength={3} value={bookForm.currency} onChange={(event) => setBookForm({ ...bookForm, currency: event.target.value.toUpperCase() })} className={inputClass} /><FieldError errors={errorsFor('book')} field="currency" /></label>
-            {bookForm.format === 'print' && <label className="text-sm font-semibold">المخزون<input required disabled={bookDraftLocked} type="number" min="0" value={bookForm.stockQuantity} onChange={(event) => setBookForm({ ...bookForm, stockQuantity: event.target.value })} className={inputClass} /><FieldError errors={errorsFor('book')} field="stockQuantity" /></label>}
-            <div className="md:col-span-2"><AdminImageField label="غلاف الكتاب" hint="يظهر في المتجر وصفحة الكتاب. عند تركه فارغًا يُستخدم غلاف بديل أنيق." value={bookForm.cover} alt={bookCoverAlt} ratio="3:4" role="cover" onChange={(value) => setBookForm({ ...bookForm, cover: value })} onAltChange={setBookCoverAlt} disabled={bookDraftLocked} /><FieldError errors={errorsFor('book')} field="cover" /></div>
-            <label className="text-sm font-semibold">ملف المعاينة المجاني (مفتاح تخزين عام، اختياري)<input dir="ltr" disabled={bookDraftLocked} value={bookForm.previewFileKey} onChange={(event) => setBookForm({ ...bookForm, previewFileKey: event.target.value })} className={inputClass} /><FieldError errors={errorsFor('book')} field="previewFileKey" /></label>
-            {bookForm.format === 'print' && <><label className="text-sm font-semibold">الوزن بالغرام<input type="number" min="0" value={bookForm.weightGrams} onChange={(event) => setBookForm({ ...bookForm, weightGrams: event.target.value })} className={inputClass} /><FieldError errors={errorsFor('book')} field="weightGrams" /></label><label className="text-sm font-semibold">ISBN (اختياري)<input dir="ltr" value={bookForm.isbn} onChange={(event) => setBookForm({ ...bookForm, isbn: event.target.value })} className={inputClass} /><FieldError errors={errorsFor('book')} field="isbn" /></label></>}
+
+          <StorySectionHeader number={bookSectionNumber('availability')} title="التوفّر والأسعار" hint="اختر ما تبيعه: نسخة ورقية فقط، نسخة PDF فقط، أو الاثنتين معًا." />
+          <div className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50/40 p-4 sm:p-5">
+            <label className="block text-sm font-semibold">التوفّر<select
+              disabled={bookDraftLocked}
+              value={bookForm.availabilityMode}
+              onChange={(event) => {
+                const mode = event.target.value as AvailabilityMode;
+                if (mode === 'digital_only') {
+                  // The digital price becomes the price actually charged.
+                  const digital = bookForm.digitalPrice.trim();
+                  setBookForm({ ...bookForm, availabilityMode: mode, format: 'ebook', price: digital || bookForm.price, digitalPrice: '' });
+                  return;
+                }
+                if (mode === 'print_only') {
+                  setBookForm({ ...bookForm, availabilityMode: mode, format: 'print', digitalPrice: '' });
+                  return;
+                }
+                setBookForm({ ...bookForm, availabilityMode: 'both', format: 'print' });
+              }}
+              className={`${selectClass} mt-1`}
+            >
+              <option value="digital_only">إلكتروني فقط (PDF)</option>
+              <option value="both">ورقي وإلكتروني معًا</option>
+              <option value="print_only">ورقي فقط</option>
+            </select><FieldError errors={errorsFor('book')} field="availabilityMode" />
+              <span className="mt-1 block text-xs font-normal text-slate-500">
+                {bookForm.availabilityMode === 'both'
+                  ? 'يُعرض للقارئ خياران: نسخة مطبوعة ونسخة PDF (عند رفع ملف).'
+                  : bookForm.availabilityMode === 'print_only'
+                    ? 'نسخة مطبوعة فقط: لا يُعرض ملف PDF للقارئ حتى لو وُجد.'
+                    : 'لا يُعرض أي خيار ورقي؛ يبقى الكتاب رقميًا فقط.'}
+              </span>
+            </label>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="text-sm font-semibold">{bookForm.availabilityMode === 'digital_only' ? 'سعر الكتاب الإلكتروني' : 'سعر النسخة المطبوعة'}<input required disabled={bookDraftLocked} type="number" min="0" step="0.01" value={bookForm.price} onChange={(event) => setBookForm({ ...bookForm, price: event.target.value })} className={inputClass} /><FieldError errors={errorsFor('book')} field="price" /></label>
+              {bookForm.availabilityMode === 'both' && <label className="text-sm font-semibold">سعر الكتاب الإلكتروني (اختياري)<input disabled={bookDraftLocked} type="number" min="0" step="0.01" value={bookForm.digitalPrice} onChange={(event) => setBookForm({ ...bookForm, digitalPrice: event.target.value })} className={inputClass} placeholder="اتركه فارغًا لاستخدام السعر المطبوع" /><FieldError errors={errorsFor('book')} field="digitalPrice" /></label>}
+              <label className="text-sm font-semibold">العملة<input required disabled={bookDraftLocked} minLength={3} maxLength={3} value={bookForm.currency} onChange={(event) => setBookForm({ ...bookForm, currency: event.target.value.toUpperCase() })} className={inputClass} /><FieldError errors={errorsFor('book')} field="currency" /></label>
+              {bookForm.availabilityMode !== 'digital_only' && <label className="text-sm font-semibold">المخزون<input required disabled={bookDraftLocked} type="number" min="0" value={bookForm.stockQuantity} onChange={(event) => setBookForm({ ...bookForm, stockQuantity: event.target.value })} className={inputClass} placeholder="كم نسخة مطبوعة متوفرة؟" /><FieldError errors={errorsFor('book')} field="stockQuantity" /></label>}
+            </div>
           </div>
-          {bookForm.format === 'print' && <fieldset className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/60 p-4">
-            <legend className="px-1 text-sm font-bold">الإرجاع والاسترداد</legend>
-            <label className="flex items-start justify-between gap-3 text-sm font-semibold">
-              <span>السماح بإرجاع هذا الكتاب<span className="mt-1 block text-xs font-normal text-slate-500">عند الإيقاف يظهر الكتاب في الطلبات دون زر إرجاع، مع شرح السبب للعميل.</span></span>
-              <input type="checkbox" checked={bookForm.isReturnable} onChange={(event) => setBookForm({ ...bookForm, isReturnable: event.target.checked })} className="mt-1 h-4 w-4" />
-            </label>
-            <label className="block text-sm font-semibold">مدة إرجاع مخصصة (بالأيام، اختياري)
-              <input type="number" min="1" max="365" disabled={!bookForm.isReturnable} value={bookForm.returnWindowDays} onChange={(event) => setBookForm({ ...bookForm, returnWindowDays: event.target.value })} className={inputClass} placeholder="اتركه فارغًا لاستخدام المدة الافتراضية للسياسة" />
-              <span className="mt-1 block text-xs font-normal text-slate-500">تُحفظ هذه المدة في الطلب عند الشراء ولا تتأثر بتغيير السياسة لاحقًا.</span>
-            </label>
-          </fieldset>}
-          {bookForm.format === 'ebook' && <fieldset className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/60 p-4">
-            <legend className="px-1 text-sm font-bold">ملفات الكتاب الإلكتروني (PDF) حسب اللغة</legend>
-            <p className="text-xs leading-6 text-slate-500">أضف النسخة المتوفرة فقط: يمكنك رفع اللغة العربية وحدها، أو إضافة الإنجليزية والفرنسية. لا تُعرض للقارئ إلا اللغات التي رفعت ملفها، ويُنزّل النسخة التي يشتريها. تُرفع الملفات إلى التخزين الخاص ولا تُتاح إلا بعد الشراء.</p>
-            {bookFileLanguages.map(({ code, label }) => <label key={code} className="block text-sm font-semibold">{label} (PDF)
-              <input key={fileInputKeys[code]} type="file" accept="application/pdf,.pdf" onChange={(event) => setBookFiles((current) => ({ ...current, [code]: event.target.files?.[0] || undefined }))} className={`${inputClass} file:mr-3 file:rounded-lg file:border-0 file:bg-emerald-50 file:px-3 file:py-2`} />
-              <span className="mt-1 block text-xs font-normal text-slate-500">{bookExistingFiles[code] ? 'نسخة مرفوعة — اختر ملفًا جديدًا لاستبدالها.' : 'لا توجد نسخة بهذه اللغة بعد.'}{bookFiles[code] ? ` سيُرفع: ${bookFiles[code]?.name}` : ''}</span>
-            </label>)}
-            {(errorsFor('book').file || errorsFor('book').mimeType) && <span className="mt-1 block text-xs text-red-700">{errorsFor('book').file || errorsFor('book').mimeType}</span>}
-          </fieldset>}
+
+          <StorySectionHeader number={bookSectionNumber('cover')} title="غلاف الكتاب" hint="يظهر في المتجر وصفحة الكتاب. عند تركه فارغًا يُستخدم غلاف بديل أنيق." />
+          <AdminImageField label="غلاف الكتاب" hint="JPG أو PNG أو WebP، بحد أقصى 5 ميغابايت." value={bookForm.cover} alt={bookCoverAlt} ratio="3:4" role="cover" onChange={(value) => setBookForm({ ...bookForm, cover: value })} onAltChange={setBookCoverAlt} disabled={bookDraftLocked} />
+          <FieldError errors={errorsFor('book')} field="cover" />
+
+          {bookForm.availabilityMode !== 'digital_only' && <>
+            <StorySectionHeader number={bookSectionNumber('printed')} title="بيانات النسخة المطبوعة" hint="الوزن وISBN والإرجاع تُستعمل في الشحن والاسترداد فقط." />
+            <div className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50/40 p-4 sm:p-5">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="text-sm font-semibold">الوزن بالغرام<input type="number" min="0" disabled={bookDraftLocked} value={bookForm.weightGrams} onChange={(event) => setBookForm({ ...bookForm, weightGrams: event.target.value })} className={inputClass} /><FieldError errors={errorsFor('book')} field="weightGrams" /></label>
+                <label className="text-sm font-semibold">ISBN (اختياري)<input dir="ltr" disabled={bookDraftLocked} value={bookForm.isbn} onChange={(event) => setBookForm({ ...bookForm, isbn: event.target.value })} className={inputClass} /><FieldError errors={errorsFor('book')} field="isbn" /></label>
+              </div>
+              <fieldset className="space-y-3 border-t border-slate-200 pt-4">
+                <legend className="px-1 text-sm font-bold">الإرجاع والاسترداد</legend>
+                <label className="flex items-start justify-between gap-3 text-sm font-semibold">
+                  <span>السماح بإرجاع هذا الكتاب<span className="mt-1 block text-xs font-normal text-slate-500">عند الإيقاف يظهر الكتاب في الطلبات دون زر إرجاع، مع شرح السبب للعميل.</span></span>
+                  <input type="checkbox" checked={bookForm.isReturnable} onChange={(event) => setBookForm({ ...bookForm, isReturnable: event.target.checked })} className="mt-1 h-4 w-4" />
+                </label>
+                <label className="block text-sm font-semibold">مدة إرجاع مخصصة (بالأيام، اختياري)
+                  <input type="number" min="1" max="365" disabled={!bookForm.isReturnable} value={bookForm.returnWindowDays} onChange={(event) => setBookForm({ ...bookForm, returnWindowDays: event.target.value })} className={inputClass} placeholder="اتركه فارغًا لاستخدام المدة الافتراضية للسياسة" />
+                  <span className="mt-1 block text-xs font-normal text-slate-500">تُحفظ هذه المدة في الطلب عند الشراء ولا تتأثر بتغيير السياسة لاحقًا.</span>
+                </label>
+              </fieldset>
+            </div>
+          </>}
+
+          {bookForm.availabilityMode !== 'digital_only' && <>
+            <StorySectionHeader number={bookSectionNumber('shipping')} title="الشحن والتوصيل" hint="حدّد الدول التي نشحن إليها وسعر التوصيل في كل دولة، كما في الصندوق الغامض." />
+            <div className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50/40 p-4 sm:p-5">
+              <div className="flex flex-wrap items-end gap-3">
+                <label className="min-w-52 flex-1 text-sm font-semibold">الدول المسموح الشحن إليها (رموز مفصولة بفاصلة)
+                  <input
+                    dir="ltr"
+                    disabled={bookDraftLocked}
+                    value={bookShipping.countries}
+                    onChange={(event) => setBookShipping((current) => ({ ...current, countries: event.target.value.toUpperCase() }))}
+                    placeholder="FR,BE,NL"
+                    className={`${inputClass} text-left uppercase`}
+                  />
+                </label>
+                <button
+                  type="button"
+                  disabled={bookDraftLocked}
+                  onClick={() => setBookShipping((current) => ({
+                    ...current,
+                    countries: EUROPE_COUNTRIES.join(','),
+                    fees: EUROPE_COUNTRIES.map((country) =>
+                      current.fees.find((row) => row.country === country) || { country, fee: current.fees[0]?.fee || '' }
+                    )
+                  }))}
+                  className="rounded-xl border border-emerald-800 px-4 py-2 text-sm font-bold text-emerald-900 disabled:opacity-50"
+                >أوروبا كلها</button>
+              </div>
+              <label className="block max-w-xs text-sm font-semibold">توصيل مجاني ابتداءً من (اختياري)
+                <input type="number" min="0" step="0.01" disabled={bookDraftLocked} value={bookShipping.freeOver} onChange={(event) => setBookShipping((current) => ({ ...current, freeOver: event.target.value }))} className={inputClass} placeholder="مثال: 40" />
+              </label>
+              <div>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h4 className="text-sm font-bold">سعر التوصيل حسب الدولة</h4>
+                  <button type="button" disabled={bookDraftLocked} onClick={() => setBookShipping((current) => ({ ...current, fees: [...current.fees, { country: '', fee: '' }] }))} className="rounded-xl border border-emerald-800 px-3 py-1.5 text-xs font-bold text-emerald-900 disabled:opacity-50">+ إضافة دولة</button>
+                </div>
+                <p className="mt-1 text-xs text-slate-500">لكل دولة مسموحة سعر توصيل خاص بها. لا يمكن حفظ الكتاب إذا بقيت دولة بلا سعر، حتى لا تُشحن مجانًا بالخطأ.</p>
+                {bookShippingCountriesWithoutFee.length > 0 && <div role="alert" className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+                  <p className="font-bold">دول بلا سعر توصيل: {bookShippingCountriesWithoutFee.join(', ')}</p>
+                  <p className="mt-1 text-xs leading-6">أضف سعرًا لكل دولة أو احذفها من قائمة الدول المسموحة. الحفظ متوقف حتى تكتمل جميع الأسعار.</p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {bookShippingCountriesWithoutFee.map((code) => <button
+                      key={code}
+                      type="button"
+                      onClick={() => setBookShipping((current) => ({
+                        ...current,
+                        fees: [...current.fees, { country: code, fee: '' }]
+                      }))}
+                      className="rounded-lg border border-red-300 bg-white px-2 py-1 text-xs font-bold text-red-800"
+                    >{code} + سعر</button>)}
+                  </div>
+                </div>}
+                <div className="mt-3 space-y-2">
+                  {bookShipping.fees.map((row, index) => (
+                    <div key={index} className="grid grid-cols-[1fr_1fr_auto] gap-2">
+                      <input
+                        aria-label="الدولة"
+                        dir="ltr"
+                        maxLength={2}
+                        value={row.country}
+                        onChange={(event) => setBookShipping((current) => ({ ...current, fees: current.fees.map((entry, entryIndex) => entryIndex === index ? { ...entry, country: event.target.value.toUpperCase() } : entry) }))}
+                        placeholder="FR"
+                        className={`${inputClass} text-center uppercase`}
+                      />
+                      <input
+                        aria-label="سعر التوصيل"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={row.fee}
+                        onChange={(event) => setBookShipping((current) => ({ ...current, fees: current.fees.map((entry, entryIndex) => entryIndex === index ? { ...entry, fee: event.target.value } : entry) }))}
+                        placeholder="سعر التوصيل"
+                        className={inputClass}
+                      />
+                      <button type="button" aria-label="حذف" onClick={() => setBookShipping((current) => ({ ...current, fees: current.fees.filter((_, entryIndex) => entryIndex !== index) }))} className="rounded-xl border border-red-200 px-3 text-red-700">×</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </>}
+
+          {bookForm.availabilityMode !== 'print_only' && <>
+            <StorySectionHeader number={bookSectionNumber('pdf')} title="ملفات الكتاب الإلكتروني (PDF)" hint="أضف النسخة المتوفرة فقط. لا تُعرض للقارئ إلا اللغات التي رفعت ملفها، وتُنزَّل النسخة التي يشتريها." />
+            <fieldset className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/40 p-4 sm:p-5">
+              <label className="block text-sm font-semibold">ملف المعاينة المجاني (مفتاح تخزين عام، اختياري)<input dir="ltr" disabled={bookDraftLocked} value={bookForm.previewFileKey} onChange={(event) => setBookForm({ ...bookForm, previewFileKey: event.target.value })} className={inputClass} /><FieldError errors={errorsFor('book')} field="previewFileKey" /></label>
+              {bookFileLanguages.map(({ code, label }) => <label key={code} className="block text-sm font-semibold">{label} (PDF)
+                <input key={fileInputKeys[code]} type="file" accept="application/pdf,.pdf" onChange={(event) => setBookFiles((current) => ({ ...current, [code]: event.target.files?.[0] || undefined }))} className={`${inputClass} file:mr-3 file:rounded-lg file:border-0 file:bg-emerald-50 file:px-3 file:py-2`} />
+                <span className="mt-1 block text-xs font-normal text-slate-500">{bookExistingFiles[code] ? 'نسخة مرفوعة — اختر ملفًا جديدًا لاستبدالها.' : 'لا توجد نسخة بهذه اللغة بعد.'}{bookFiles[code] ? ` سيُرفع: ${bookFiles[code]?.name}` : ''}</span>
+              </label>)}
+              {(errorsFor('book').file || errorsFor('book').mimeType) && <span className="mt-1 block text-xs text-red-700">{errorsFor('book').file || errorsFor('book').mimeType}</span>}
+              <p className="text-xs leading-6 text-slate-500">{bookForm.availabilityMode === 'both' ? 'في وضع «ورقي وإلكتروني» يُعرض خيار PDF فقط بعد رفع ملف واحد على الأقل.' : 'مطلوب ملف PDF واحد على الأقل قبل النشر.'}</p>
+            </fieldset>
+          </>}
+
           {pendingBookId && !bookHasPdf && <p role="status" className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">تم حفظ مسودة الكتاب رقم {pendingBookId}. أعد اختيار ملف PDF لإكمال الرفع.</p>}
           <label className="inline-flex items-center gap-2 text-sm font-semibold"><input type="checkbox" disabled={!isPublisher} checked={bookForm.isPublished} onChange={(event) => setBookForm({ ...bookForm, isPublished: event.target.checked })} /> نشر الكتاب الآن<FieldError errors={errorsFor('book')} field="isPublished" /></label>
-          <button disabled={busy || bookForm.format === 'ebook' && bookForm.isPublished && !bookHasPdf} className={submitClass}>{translateText(bookId ? 'حفظ التعديلات' : 'حفظ الكتاب', locale as Language)}</button>
+          <button disabled={busy || (bookForm.availabilityMode === 'digital_only' && bookForm.isPublished && !bookHasPdf)} className={submitClass}>{translateText(bookId ? 'حفظ التعديلات' : 'حفظ الكتاب', locale as Language)}</button>
         </form>
       </section>}
   </main>;

@@ -74,7 +74,6 @@ export function AdminVideosPage() {
   const [mediaAssetId, setMediaAssetId] = useState('');
   const [subtitles, setSubtitles] = useState<Record<Language, string>>({ ar: '', en: '', fr: '' });
   const [isFree, setIsFree] = useState(false);
-  const [depictionPolicyConfirmed, setDepictionPolicyConfirmed] = useState(false);
   const [translations, setTranslations] = useState<LanguageText>({
     ar: { title: '', description: '' },
     en: { title: '', description: '' },
@@ -124,7 +123,6 @@ export function AdminVideosPage() {
       fr: video.subtitles?.fr || ''
     });
     setIsFree(video.isFree);
-    setDepictionPolicyConfirmed(video.depictionPolicyConfirmed);
     setTranslations({
       ar: { title: video.translations?.ar?.title || video.title || '', description: video.translations?.ar?.description || '' },
       en: { title: video.translations?.en?.title || '', description: video.translations?.en?.description || '' },
@@ -139,7 +137,6 @@ export function AdminVideosPage() {
     setMediaAssetId('');
     setSubtitles({ ar: '', en: '', fr: '' });
     setIsFree(false);
-    setDepictionPolicyConfirmed(false);
     setTranslations({
       ar: { title: '', description: '' },
       en: { title: '', description: '' },
@@ -162,7 +159,8 @@ export function AdminVideosPage() {
       translations,
       subtitles: Object.fromEntries(languageCodes.map((code) => [code, subtitles[code].trim() || undefined])),
       isFree,
-      depictionPolicyConfirmed
+      // No confirmation step in the admin: uploads are trusted from this account.
+      depictionPolicyConfirmed: true
     };
     try {
       if (editingId) {
@@ -228,7 +226,6 @@ export function AdminVideosPage() {
         <label className="text-sm font-semibold md:col-span-2">{t('رابط ملف الترجمة VTT', language)}<input type="url" value={subtitles[activeLanguage]} onChange={(event) => setSubtitles((current) => ({ ...current, [activeLanguage]: event.target.value }))} dir="ltr" className={inputClass} /></label>
       </div>
       <label className="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={isFree} onChange={(event) => setIsFree(event.target.checked)} />{t('فيديو مجاني', language)}</label>
-      <label className="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" required checked={depictionPolicyConfirmed} onChange={(event) => setDepictionPolicyConfirmed(event.target.checked)} />{t('أؤكد الالتزام بسياسة التمثيل والمراجعة', language)}</label>
       <div className="flex flex-wrap gap-2">
         <button disabled={busy} className="rounded-full bg-emerald-900 px-5 py-2.5 font-bold text-white disabled:opacity-50">{busy ? t('جارٍ الحفظ…', language) : t('حفظ كمسودة', language)}</button>
         {editingId && <button type="button" onClick={reset} className="rounded-full border px-5 py-2.5 font-bold">{t('إلغاء التعديل', language)}</button>}

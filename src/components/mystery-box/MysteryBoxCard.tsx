@@ -201,17 +201,17 @@ function Countdown({ box, language }: { box: ActiveMysteryBox; language: SiteLan
 
   return (
     <div>
-      <p className="text-[10px] font-semibold uppercase tracking-[0.18em]" style={{ color: 'rgba(244,238,221,0.62)' }}>{heading}</p>
-      <div className="mt-2 flex items-center gap-1.5" role="timer" aria-live="off">
+      <p className="text-[9.5px] font-semibold uppercase tracking-[0.18em]" style={{ color: 'rgba(244,238,221,0.62)' }}>{heading}</p>
+      <div className="mt-1.5 flex items-center gap-1" role="timer" aria-live="off">
         {[
           { value: units.days, label: countdownUnit('يوم', units.days, language) },
           { value: units.hours, label: countdownUnit('ساعة', units.hours, language) },
           { value: units.minutes, label: countdownUnit('دقيقة', units.minutes, language) },
           { value: units.seconds, label: countdownUnit('ثانية', units.seconds, language) }
         ].map((unit) => (
-          <div key={unit.label} className="flex min-w-[3rem] flex-col items-center rounded-xl border border-white/10 bg-black/25 px-1 py-1.5">
-            <span className="tabular-nums text-lg font-semibold leading-none text-[#F4EEDD]">{String(unit.value).padStart(2, '0')}</span>
-            <span className="mt-1 text-[9px] font-semibold" style={{ color: 'rgba(244,238,221,0.6)' }}>{unit.label}</span>
+          <div key={unit.label} className="flex min-w-[2.5rem] flex-1 flex-col items-center rounded-lg border border-white/10 bg-black/25 px-1 py-1">
+            <span className="tabular-nums text-base font-semibold leading-none text-[#F4EEDD]">{String(unit.value).padStart(2, '0')}</span>
+            <span className="mt-1 text-[8.5px] font-semibold" style={{ color: 'rgba(244,238,221,0.6)' }}>{unit.label}</span>
           </div>
         ))}
       </div>
@@ -219,6 +219,44 @@ function Countdown({ box, language }: { box: ActiveMysteryBox; language: SiteLan
         {urgent ? translateText('ينتهي الطرح خلال أقل من ساعة', language) : ''}
       </p>
     </div>
+  );
+}
+
+/**
+ * Box photos often carry text (dates, contents, prices). They are therefore shown
+ * whole on a light matte, like a print, instead of being cropped in a small frame.
+ */
+export function MysteryBoxPhoto({ src, alt, className = '', maxHeight = 'max-h-[18rem] sm:max-h-[22rem]' }: {
+  src: string;
+  alt: string;
+  className?: string;
+  /** Height cap: the frame hugs the photo and only shrinks when it is too tall. */
+  maxHeight?: string;
+}) {
+  // The photo is lazy-loaded, so its intrinsic size is unknown at first paint.
+  // A reserved frame keeps the card from collapsing and then jumping.
+  const [loaded, setLoaded] = useState(false);
+  return (
+    <figure className={`relative mx-auto w-fit max-w-full rounded-[24px] bg-[#F7F3E7] p-2 shadow-[0_18px_45px_rgba(0,0,0,0.4)] ring-1 ring-[#D9B15F]/60 ${className}`}>
+      {/* The skeleton paints a photo-sized frame so the card cannot collapse
+          while the lazy image is still loading; the photo keeps its own ratio. */}
+      {!loaded && (
+        <span
+          aria-hidden="true"
+          className="block h-[13rem] w-[min(78vw,17rem)] animate-pulse rounded-[16px] bg-[#E7DCC2] sm:h-[17rem] sm:w-64"
+        />
+      )}
+      <img
+        src={src}
+        alt={alt}
+        loading="lazy"
+        onLoad={() => setLoaded(true)}
+        onError={() => setLoaded(true)}
+        className={loaded
+          ? `block h-auto w-auto max-w-full rounded-[16px] object-contain ${maxHeight}`
+          : 'absolute inset-2 h-[calc(100%-1rem)] w-[calc(100%-1rem)] rounded-[16px] object-contain'}
+      />
+    </figure>
   );
 }
 
@@ -309,21 +347,23 @@ export function MysteryBoxCard({
           </span>
         </div>
 
-        <div className="relative mx-auto w-full max-w-[14rem]">
-          {/* The box photo uploaded in the admin replaces the drawn art. */}
-          {box.bannerImage
-            ? <img src={box.bannerImage} alt={box.label} loading="lazy" className="aspect-[4/3] w-full rounded-2xl border border-white/10 object-cover shadow-[0_10px_30px_rgba(0,0,0,0.35)]" />
-            : <MysteryBoxArt accent={palette.accent} glowFrom={palette.glowFrom} glowTo={palette.glowTo} className="h-auto w-full" />}
-        </div>
+        {/* Design E: photo and information side by side, stacked on phones. */}
+        <div className="grid gap-4 sm:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)] sm:items-center sm:gap-5">
+          <div className="relative mx-auto w-full max-w-[21rem] sm:max-w-none">
+            {/* The box photo uploaded in the admin replaces the drawn art. */}
+            {box.bannerImage
+              ? <MysteryBoxPhoto src={box.bannerImage} alt={box.label} />
+              : <MysteryBoxArt accent={palette.accent} glowFrom={palette.glowFrom} glowTo={palette.glowTo} className="h-auto w-full" />}
+          </div>
 
-        <div>
+          <div>
           {box.seasonLabel.trim().length >= 3 && (
             <p className="text-[11px] font-semibold uppercase tracking-[0.2em]" style={{ color: palette.accent }}>{box.seasonLabel}</p>
           )}
-          <h2 className="mt-1 text-2xl font-semibold leading-[1.4] sm:text-[1.7rem]" style={{ color: palette.ink }}>{box.label}</h2>
+          <h2 className="mt-1 text-xl font-semibold leading-[1.4] sm:text-[1.45rem]" style={{ color: palette.ink }}>{box.label}</h2>
 
-          <div className="mt-3 flex flex-wrap items-end gap-x-3 gap-y-2">
-            <span className="font-display text-3xl font-semibold leading-none tabular-nums" style={{ color: palette.gold }}>{price}</span>
+          <div className="mt-2 flex flex-wrap items-end gap-x-3 gap-y-2">
+            <span className="font-display text-2xl font-semibold leading-none tabular-nums sm:text-[1.7rem]" style={{ color: palette.gold }}>{price}</span>
             {box.price.tier === 'early_bird' && (
               <span className="mb-0.5 rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ backgroundColor: palette.accent, color: '#08150F' }}>
                 {translateText('سعر مبكر', language)}
@@ -353,7 +393,8 @@ export function MysteryBoxCard({
             )}
           </div>
 
-          {!soldOut && <div className="mt-4"><Countdown box={box} language={language} /></div>}
+          {!soldOut && <div className="mt-3"><Countdown box={box} language={language} /></div>}
+          </div>
         </div>
 
         <div>
@@ -421,7 +462,7 @@ export function MysteryBoxBar({ box, language }: { box: ActiveMysteryBox; langua
     <div style={{ backgroundColor: '#07130F', color: palette.ink }}>
       <div className="mx-auto flex min-h-10 w-full max-w-7xl items-center gap-2 px-4 text-[12px] sm:px-8">
         {box.bannerImage
-          ? <img src={box.bannerImage} alt="" aria-hidden="true" className="h-7 w-10 shrink-0 rounded object-cover" />
+          ? <img src={box.bannerImage} alt="" aria-hidden="true" className="h-7 w-10 shrink-0 rounded bg-[#F7F3E7] object-contain" />
           : <Zap size={13} aria-hidden="true" style={{ color: palette.gold }} />}
         <Link to={`/mystery-box/${box.slug}`} className="min-w-0 flex-1 truncate hover:underline">
           <span className="font-semibold" style={{ color: palette.gold }}>{translateText('الصندوق الغامض', language)}</span>

@@ -5,6 +5,15 @@ export type SiteLanguage = 'ar' | 'en' | 'fr';
 
 const english: Record<string, string> = {
   'حكايات إسلامية': 'Islamic Stories',
+  // Book availability: printed copy and/or e-book.
+  'ورقي وإلكتروني': 'Print + e-book',
+  'صيغة الكتاب': 'Book format',
+  'كتاب إلكتروني (PDF)': 'E-book (PDF)',
+  'حُدّثت نسخة الكتاب في سلتك.': 'The version in your cart was updated.',
+  'اختر باقة القراءة': 'Choose a reading plan',
+  'هذا الجزء متاح للمشتركين. اختر باقة لتتابع القراءة فورًا.': 'This part is for subscribers. Pick a plan to keep reading right away.',
+  'لا توجد باقات متاحة حاليًا.': 'No plans are available right now.',
+  'ليس الآن': 'Not now',
   // Reading order and story parts flow.
   'تابع إلى الجزء {n}': 'Continue to part {n}',
   'أنهيتُ الحكاية': 'I finished the story',
@@ -21,7 +30,6 @@ const english: Record<string, string> = {
   'اكتمل': 'Completed',
   'أكملت هذه الحكاية': 'You finished this story',
   'نهاية الحكاية': 'End of story',
-  'نهاية الجزء': 'End of part',
   'اكتشف حكايات أخرى': 'Discover other stories',
   'كل الحكايات': 'All stories',
   'جزء جديد متاح': 'New part available',
@@ -743,6 +751,20 @@ const english: Record<string, string> = {
   'اختر قصة لعرض أجزائها.': 'Choose a story to view its parts.',
   'لا توجد أجزاء بعد.': 'There are no parts yet.',
   'مجاني': 'Free',
+  'بالاشتراك': 'Subscription',
+  'الكل': 'All',
+  'معلومات الكتاب': 'Book information',
+  'العنوان والوصف بكل لغة. العربية إلزامية والباقي اختياري.': 'Title and description in every language. Arabic is required, the rest optional.',
+  'التوفّر والأسعار': 'Availability and pricing',
+  'اختر ما تبيعه: نسخة ورقية فقط، نسخة PDF فقط، أو الاثنتين معًا.': 'Choose what you sell: printed only, PDF only, or both.',
+  'غلاف الكتاب': 'Book cover',
+  'يظهر في المتجر وصفحة الكتاب. عند تركه فارغًا يُستخدم غلاف بديل أنيق.': 'Shown in the store and on the book page. When left empty, a styled fallback cover is used.',
+  'بيانات النسخة المطبوعة': 'Printed edition details',
+  'الوزن وISBN والإرجاع تُستعمل في الشحن والاسترداد فقط.': 'Weight, ISBN and returns are only used for shipping and refunds.',
+  'الشحن والتوصيل': 'Shipping and delivery',
+  'حدّد الدول التي نشحن إليها وسعر التوصيل في كل دولة، كما في الصندوق الغامض.': 'Choose the countries you ship to and the delivery fee for each, as with the mystery box.',
+  'ملفات الكتاب الإلكتروني (PDF)': 'E-book files (PDF)',
+  'أضف النسخة المتوفرة فقط. لا تُعرض للقارئ إلا اللغات التي رفعت ملفها، وتُنزَّل النسخة التي يشتريها.': 'Add only the versions you have. Readers only see languages with an uploaded file, and download the version they buy.',
   'مميز': 'Premium',
   'حفظ التعديل': 'Save changes',
   'نسخ': 'Duplicate',
@@ -847,6 +869,14 @@ const english: Record<string, string> = {
 
 const french: Record<string, string> = {
   'حكايات إسلامية': 'Récits islamiques',
+  'ورقي وإلكتروني': 'Papier + e-book',
+  'صيغة الكتاب': 'Format du livre',
+  'كتاب إلكتروني (PDF)': 'E-book (PDF)',
+  'حُدّثت نسخة الكتاب في سلتك.': 'La version de votre panier a été mise à jour.',
+  'اختر باقة القراءة': 'Choisissez une formule de lecture',
+  'هذا الجزء متاح للمشتركين. اختر باقة لتتابع القراءة فورًا.': 'Cette partie est réservée aux abonnés. Choisissez une formule pour continuer tout de suite.',
+  'لا توجد باقات متاحة حاليًا.': 'Aucune formule disponible pour le moment.',
+  'ليس الآن': 'Pas maintenant',
   // Ordre de lecture et parties de l'histoire.
   'تابع إلى الجزء {n}': 'Continuer vers la partie {n}',
   'أنهيتُ الحكاية': 'J’ai terminé l’histoire',
@@ -863,7 +893,6 @@ const french: Record<string, string> = {
   'اكتمل': 'Terminé',
   'أكملت هذه الحكاية': 'Vous avez terminé cette histoire',
   'نهاية الحكاية': 'Fin de l’histoire',
-  'نهاية الجزء': 'Fin de la partie',
   'اكتشف حكايات أخرى': 'Découvrez d’autres histoires',
   'كل الحكايات': 'Toutes les histoires',
   'جزء جديد متاح': 'Nouvelle partie disponible',
@@ -1580,6 +1609,20 @@ const french: Record<string, string> = {
   'اختر قصة لعرض أجزائها.': 'Choisissez une histoire pour afficher ses parties.',
   'لا توجد أجزاء بعد.': 'Il n’y a pas encore de parties.',
   'مجاني': 'Gratuit',
+  'بالاشتراك': 'Abonnement',
+  'الكل': 'Tout',
+  'معلومات الكتاب': 'Informations du livre',
+  'العنوان والوصف بكل لغة. العربية إلزامية والباقي اختياري.': 'Titre et description dans chaque langue. L’arabe est obligatoire, le reste facultatif.',
+  'التوفّر والأسعار': 'Disponibilité et prix',
+  'اختر ما تبيعه: نسخة ورقية فقط، نسخة PDF فقط، أو الاثنتين معًا.': 'Choisissez ce que vous vendez : version papier seule, PDF seul, ou les deux.',
+  'غلاف الكتاب': 'Couverture du livre',
+  'يظهر في المتجر وصفحة الكتاب. عند تركه فارغًا يُستخدم غلاف بديل أنيق.': 'Affichée dans la boutique et sur la page du livre. Laissée vide, une couverture de remplacement soignée est utilisée.',
+  'بيانات النسخة المطبوعة': 'Détails de l’édition imprimée',
+  'الوزن وISBN والإرجاع تُستعمل في الشحن والاسترداد فقط.': 'Le poids, l’ISBN et le retour ne servent qu’à l’expédition et au remboursement.',
+  'الشحن والتوصيل': 'Livraison et expédition',
+  'حدّد الدول التي نشحن إليها وسعر التوصيل في كل دولة، كما في الصندوق الغامض.': 'Choisissez les pays desservis et les frais de livraison de chacun, comme pour le coffret mystère.',
+  'ملفات الكتاب الإلكتروني (PDF)': 'Fichiers du livre numérique (PDF)',
+  'أضف النسخة المتوفرة فقط. لا تُعرض للقارئ إلا اللغات التي رفعت ملفها، وتُنزَّل النسخة التي يشتريها.': 'Ajoutez uniquement les versions disponibles. Le lecteur ne voit que les langues avec un fichier et télécharge la version achetée.',
   'مميز': 'Premium',
   'حفظ التعديل': 'Enregistrer les modifications',
   'نسخ': 'Dupliquer',
@@ -2052,8 +2095,24 @@ const phase1French: Record<string, string> = {
 };
 
 const catalog: Record<Exclude<SiteLanguage, 'ar'>, Record<string, string>> = {
-  en: { ...english, ...featureEnglish, ...designEnglish, ...phase1English, ...journeyEnglish, 'داخل كل بطاقة:': 'Inside each card:', 'الأسطح الغائرة': 'Sunken surfaces', 'حدود أقوى': 'Stronger borders', 'وضع ورقي': 'Sepia', 'ترتيب الأعمدة': 'Column order' },
-  fr: { ...french, ...featureFrench, ...designFrench, ...phase1French, ...journeyFrench, 'داخل كل بطاقة:': 'Dans chaque carte :', 'الأسطح الغائرة': 'Surfaces creusées', 'حدود أقوى': 'Bordures renforcées', 'وضع ورقي': 'Sépia', 'ترتيب الأعمدة': 'Ordre des colonnes' }
+  en: {
+    ...english, ...featureEnglish, ...designEnglish, ...phase1English, ...journeyEnglish,
+    'داخل كل بطاقة:': 'Inside each card:', 'الأسطح الغائرة': 'Sunken surfaces', 'حدود أقوى': 'Stronger borders',
+    'وضع ورقي': 'Sepia', 'ترتيب الأعمدة': 'Column order',
+    'جرّب وضع القراءة': 'Try reading mode',
+    'خلفية داكنة دافئة مريحة للعين ونص أوسع للقراءة الطويلة. غيّره متى شئت من الزر أعلى الصفحة.': 'A warm dark background that is easy on the eyes, with a wider column for long reads. Change it any time from the button at the top.',
+    'تفعيل وضع القراءة': 'Turn on reading mode',
+    'لاحقًا': 'Later'
+  },
+  fr: {
+    ...french, ...featureFrench, ...designFrench, ...phase1French, ...journeyFrench,
+    'داخل كل بطاقة:': 'Dans chaque carte :', 'الأسطح الغائرة': 'Surfaces creusées', 'حدود أقوى': 'Bordures renforcées',
+    'وضع ورقي': 'Sépia', 'ترتيب الأعمدة': 'Ordre des colonnes',
+    'جرّب وضع القراءة': 'Essayez le mode lecture',
+    'خلفية داكنة دافئة مريحة للعين ونص أوسع للقراءة الطويلة. غيّره متى شئت من الزر أعلى الصفحة.': 'Un fond sombre et chaleureux, confortable pour les yeux, avec une colonne plus large pour les longues lectures. Changez-le à tout moment depuis le bouton en haut.',
+    'تفعيل وضع القراءة': 'Activer le mode lecture',
+    'لاحقًا': 'Plus tard'
+  }
 };
 
 export function translateText(value: string, language: SiteLanguage) {

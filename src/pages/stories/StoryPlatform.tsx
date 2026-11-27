@@ -21,7 +21,7 @@ import { useStoryAuth } from '@/contexts/StoryAuthContext';
 import { ApiError, api, type ReaderSubscription } from '@/lib/api';
 import { translateText, translateTree } from '@/lib/localization';
 import { localizeAuthError } from '@/lib/authErrors';
-import { useSiteTheme } from '@/contexts/SiteThemeContext';
+import { readStoredSiteTheme, useSiteTheme } from '@/contexts/SiteThemeContext';
 import { BrandMark } from '@/components/ui/BrandMark';
 import { buttonClasses } from '@/components/ui/Button';
 import { StoryCard } from '@/components/ui/StoryCard';
@@ -30,6 +30,7 @@ import { pluralMinutes, pluralParts } from '@/lib/plural';
 import { MysteryBoxBar, MysteryBoxCard, formatMoney as formatBoxPrice } from '@/components/mystery-box/MysteryBoxCard';
 import { ReturnsPolicyPage } from './ReturnsPolicyPage';
 import { useMysteryBox } from '@/hooks/useMysteryBox';
+import { useSubscriptionCheckout } from '@/hooks/useSubscriptionCheckout';
 
 type SiteLanguage = 'ar' | 'en' | 'fr';
 const siteLanguages: SiteLanguage[] = ['ar', 'en', 'fr'];
@@ -153,6 +154,7 @@ type StoryPart = {
 };
 
 type ReadingProgressEntry = {
+  id: number;
   storyId: number;
   completedParts: number[];
   nextPart?: { id: number; partNumber: number } | null;
@@ -236,6 +238,8 @@ type CollectionSummary = {
   stories?: StorySummary[];
 };
 
+type BookFormat = 'print' | 'ebook';
+
 type BookSummary = {
   id: number;
   title: string;
@@ -243,12 +247,34 @@ type BookSummary = {
   description?: string | null;
   cover?: string | null;
   format: 'print' | 'ebook';
+  /** What the admin sells: printed + e-book, or e-book only. */
+  availabilityMode?: 'both' | 'digital_only' | 'print_only';
+  formats?: BookFormat[];
+  prices?: { print: number | null; digital: number | null };
+  digitalPrice?: number | string | null;
   price: number | string;
   currency: string;
   stockQuantity?: number | null;
+  /** Printed delivery: countries the book ships to and the fee per country. */
+  shippingCountries?: string[] | null;
+  shippingFees?: Record<string, number | string> | null;
+  shippingFreeOver?: number | string | null;
   /** PDF versions the admin uploaded; only these can be bought. */
   languages?: string[];
 };
+
+/** Purchase formats actually offered for a book (falls back to the legacy format). */
+function bookFormats(book: Pick<BookSummary, 'formats' | 'format'> | null | undefined): BookFormat[] {
+  if (!book) return [];
+  if (book.formats?.length) return book.formats;
+  return [book.format === 'ebook' ? 'ebook' : 'print'];
+}
+
+function bookFormatLabel(book: Pick<BookSummary, 'formats' | 'format'>, language: SiteLanguage) {
+  const formats = bookFormats(book);
+  if (formats.includes('print') && formats.includes('ebook')) return t('ورقي وإلكتروني', language);
+  return formats.includes('ebook') ? t('كتاب إلكتروني', language) : t('نسخة مطبوعة', language);
+}
 
 /** Native names of the ebook versions, readable in every site language. */
 const BOOK_LANGUAGE_LABELS: Record<string, string> = { ar: 'العربية', en: 'English', fr: 'Français' };
@@ -904,7 +930,7 @@ function BookCard({ book }: { book: BookSummary }) {
             <BookOpen size={46} strokeWidth={1.2} className="text-brand-ink/70" />
           </div>
         )}
-        <span className="absolute right-4 top-4 rounded-full bg-surface/90 px-3 py-1 text-xs font-semibold text-brand-ink">{t(book.format === 'ebook' ? 'كتاب إلكتروني' : 'نسخة مطبوعة', language)}</span>
+        <span className="absolute right-4 top-4 rounded-full bg-surface/90 px-3 py-1 text-xs font-semibold text-brand-ink">{bookFormatLabel(book, language)}</span>
       </div>
       <div className="p-5">
         <h3 className="font-semibold text-brand-ink">{book.title}</h3>
@@ -995,6 +1021,7 @@ function EmptyState({ children }: { children: ReactNode }) {
 
 export function LandingPage() {
   const language = useSiteLanguage();
+  const { user, isLoading: authLoading } = useStoryAuth();
   const { data: stories, loading, error } = useRemote<StorySummary[]>('/stories?limit=4');
   const { data: books } = useRemote<BookSummary[]>('/books?limit=3');
   const navigate = useLocalizedNavigate();
@@ -1096,7 +1123,8 @@ export function LandingPage() {
           </Container>
         </section>
 
-        <Container className="py-16 sm:py-20">
+        {/* Only readers without an account see the invitation to register. */}
+        {!authLoading && !user && <Container className="py-16 sm:py-20">
           <div className="grid gap-6 rounded-[2rem] bg-brand p-8 text-brand-on sm:grid-cols-[1fr_auto] sm:items-center sm:p-12">
             <div>
               <p className="text-sm font-semibold text-gold-ink">مساحة آمنة للعائلة</p>
@@ -1105,7 +1133,7 @@ export function LandingPage() {
             </div>
             <Link to="/register" className="inline-flex items-center justify-center gap-2 rounded-full bg-gold-soft px-6 py-3 font-semibold text-brand-ink hover:bg-gold-soft">إنشاء حساب مجاني <ChevronLeft size={17} /></Link>
           </div>
-        </Container>
+        </Container>}
       </main>
     </SiteLayout>
   );
@@ -1114,14 +1142,21 @@ export function LandingPage() {
 export function StoriesPage() {
   const [searchParams] = useSearchParams();
   const [search, setSearch] = useState(searchParams.get('q') || '');
+  const [activeCollection, setActiveCollection] = useState<number | 'all'>('all');
+  const [accessFilter, setAccessFilter] = useState<'all' | 'free' | 'paid'>('all');
   const { data: stories, loading, error } = useRemote<StorySummary[]>('/stories?limit=100');
   const { data: collections } = useRemote<CollectionSummary[]>('/collections');
-  const filteredStories = useMemo(() => stories?.filter((story) =>
-    `${story.title} ${story.summary} ${story.collection?.title || ''}`.toLocaleLowerCase('ar').includes(search.trim().toLocaleLowerCase('ar'))
-  ) || [], [stories, search]);
+  const filteredStories = useMemo(() => (stories || []).filter((story) => {
+    const matchesSearch = `${story.title} ${story.summary} ${story.collection?.title || ''}`
+      .toLocaleLowerCase('ar')
+      .includes(search.trim().toLocaleLowerCase('ar'));
+    const matchesCollection = activeCollection === 'all' || story.collectionId === activeCollection;
+    // A free collection makes every story inside it readable without a plan.
+    const isFree = Boolean(story.isFree || story.collection?.isFree);
+    const matchesAccess = accessFilter === 'all' || (accessFilter === 'free' ? isFree : !isFree);
+    return matchesSearch && matchesCollection && matchesAccess;
+  }), [stories, search, activeCollection, accessFilter]);
   const language = useSiteLanguage();
-  const recommended = stories?.find((story) => story.isStoryOfTheWeek) || stories?.[0];
-  const recommendedMinutes = recommended?.parts?.reduce((total, part) => total + (part.estimatedReadingMinutes || 0), 0) || 0;
 
   return (
     <SiteLayout>
@@ -1134,36 +1169,51 @@ export function StoriesPage() {
             <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="ابحث عن قصة أو موضوع" className="w-full bg-transparent text-sm outline-none placeholder:text-ink-muted" aria-label="ابحث عن قصة" />
           </label>
         </div>
-        {!search && recommended && (
-          <div className="mt-8 overflow-hidden rounded-3xl border border-brand/20 bg-brand-soft/60 p-6 sm:p-8">
-            <div className="flex flex-col justify-between gap-6 sm:flex-row sm:items-center">
-              <div className="max-w-2xl">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-brand-ink">{t('ابدأ من هنا', language)}</p>
-                <h2 dir="auto" className="mt-2 text-2xl font-semibold text-ink">{recommended.title}</h2>
-                <p dir="auto" className="mt-2 line-clamp-2 leading-7 text-ink-muted">{recommended.summary}</p>
-                <p className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs font-semibold text-ink-muted">
-                  <span className="inline-flex items-center gap-1.5"><BookOpen size={14} /> {recommended.parts?.length || 0} {t('أجزاء', language)}</span>
-                  {recommendedMinutes > 0 && <span className="inline-flex items-center gap-1.5"><Clock3 size={14} /> {recommendedMinutes} {t('دقيقة', language)}</span>}
-                  <span>{t('حكاية مقترحة لتبدأ بها', language)}</span>
-                </p>
-              </div>
-              <Link to={`/stories/${recommended.slug}`} className={buttonClasses({ size: 'md', className: 'shrink-0' })}>
-                {t('افتح الحكاية', language)} <ChevronLeft size={17} />
-              </Link>
-            </div>
-          </div>
-        )}
-        {!!collections?.length && <div className="mt-9 flex flex-wrap gap-2">{collections.map((collection) => <a key={collection.id} href={`#collection-${collection.id}`} className="rounded-full border border-line bg-surface px-4 py-2 text-sm font-semibold text-brand-ink hover:border-line">{collection.title}</a>)}</div>}
+        <div className="mt-7 flex flex-wrap items-center gap-2">
+          <span className="text-xs font-semibold text-ink-muted">{t('الوصول', language)}:</span>
+          {([
+            { key: 'all' as const, label: 'الكل' },
+            { key: 'free' as const, label: 'مجاني' },
+            { key: 'paid' as const, label: 'بالاشتراك' }
+          ]).map((option) => (
+            <button
+              key={option.key}
+              type="button"
+              onClick={() => setAccessFilter(option.key)}
+              aria-pressed={accessFilter === option.key}
+              className={`rounded-full px-4 py-2 text-sm font-semibold transition ${accessFilter === option.key ? 'bg-brand text-brand-on' : 'bg-surface-soft text-brand-ink hover:bg-brand-soft'}`}
+            >{t(option.label, language)}</button>
+          ))}
+        </div>
+        {!!collections?.length && <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setActiveCollection('all')}
+            aria-pressed={activeCollection === 'all'}
+            className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${activeCollection === 'all' ? 'border-brand bg-brand text-brand-on' : 'border-line bg-surface text-brand-ink hover:border-brand/40'}`}
+          >{t('كل القصص', language)}</button>
+          {collections.map((collection) => (
+            <button
+              key={collection.id}
+              type="button"
+              onClick={() => setActiveCollection(collection.id)}
+              aria-pressed={activeCollection === collection.id}
+              className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${activeCollection === collection.id ? 'border-brand bg-brand text-brand-on' : 'border-line bg-surface text-brand-ink hover:border-brand/40'}`}
+            >{collection.title}</button>
+          ))}
+        </div>}
         {loading && <LoadingState />}
         {error && <div className="mt-8"><ErrorState message={error} /></div>}
-        {!loading && !error && !filteredStories.length && <div className="mt-8"><EmptyState>{search ? 'لا توجد حكايات تطابق بحثك.' : 'لا توجد حكايات منشورة حتى الآن.'}</EmptyState></div>}
+        {!loading && !error && !filteredStories.length && <div className="mt-8"><EmptyState>{search ? 'لا توجد حكايات تطابق بحثك.' : accessFilter !== 'all' ? `لا توجد حكايات ${accessFilter === 'free' ? 'مجانية' : 'بالاشتراك'} في هذا الاختيار.` : activeCollection === 'all' ? 'لا توجد حكايات منشورة حتى الآن.' : 'لا توجد حكايات منشورة في هذه المجموعة بعد.'}</EmptyState></div>}
         {!!filteredStories.length && (
           <div className="mt-10 space-y-12">
-            {collections?.length ? collections.map((collection) => {
-              const collectionStories = filteredStories.filter((story) => story.collectionId === collection.id);
-              if (!collectionStories.length) return null;
-              return <section id={`collection-${collection.id}`} key={collection.id}><SectionHeading eyebrow="مجموعة قصصية" title={collection.title} /><div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">{collectionStories.map((story) => <StoryCard key={story.id} story={story} />)}</div></section>;
-            }) : <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">{filteredStories.map((story) => <StoryCard key={story.id} story={story} />)}</div>}
+            {collections?.length ? collections
+              .filter((collection) => activeCollection === 'all' || collection.id === activeCollection)
+              .map((collection) => {
+                const collectionStories = filteredStories.filter((story) => story.collectionId === collection.id);
+                if (!collectionStories.length) return null;
+                return <section id={`collection-${collection.id}`} key={collection.id}><SectionHeading eyebrow="مجموعة قصصية" title={collection.title} /><div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">{collectionStories.map((story) => <StoryCard key={story.id} story={story} />)}</div></section>;
+              }) : <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">{filteredStories.map((story) => <StoryCard key={story.id} story={story} />)}</div>}
           </div>
         )}
       </Container></main>
@@ -1211,6 +1261,9 @@ export function StoryDetailPage() {
   const progressPercent = totalParts ? Math.max(0, Math.min(100, Math.round((completedCount / totalParts) * 100))) : 0;
   const lastPart = publishedParts[publishedParts.length - 1];
   const currentPart = parts.find((part) => part.status === 'current');
+  // The server keeps the finished progress but locks premium parts again once the
+  // subscription lapses: never offer "read again" on content the reader lost.
+  const planLocked = Boolean(user) && !currentPart && parts.some((part) => part.status === 'locked_subscription');
   const order = readingOrderCopy(language);
   const { data: profile } = useRemote<ProfileSummary>(user && started ? '/me/profile-summary' : '');
   const { data: libraryStories } = useRemote<StorySummary[]>('/stories?limit=100');
@@ -1234,6 +1287,7 @@ export function StoryDetailPage() {
   const retention = retentionCopy(language);
   const playableVideos = (story?.videos || []).filter((video) => Boolean(video.videoUrl || video.mediaAssetId));
   const [shareNotice, setShareNotice] = useState('');
+  const [plansOpen, setPlansOpen] = useState(false);
 
   useEffect(() => {
     if (!story) return;
@@ -1274,21 +1328,27 @@ export function StoryDetailPage() {
       : t('قصة موثقة', language);
   // The main button always points to the first part the reader may open and has
   // not finished yet; a finished story offers the quiz or the next episode.
-  const primaryHref = finished
+  const primaryHref = planLocked
+    ? '/membership'
+    : finished
     ? `/stories/${story?.slug}/read/${lastPart?.partNumber || 1}#quiz`
     : currentPart
       ? `/stories/${story?.slug}/read/${currentPart.partNumber}`
       : user && user.role === 'READER' && !currentPart
         ? '/membership'
         : `/stories/${story?.slug}/read/1`;
-  const primaryLabel = finished
+  const primaryLabel = planLocked
+    ? t('افتح الحكاية بالاشتراك', language)
+    : finished
     ? t('أعد القراءة', language)
     : currentPart
       ? started
         ? `${t('تابع القراءة', language)} — ${t('الجزء', language)} ${currentPart.partNumber}`
         : t('ابدأ القراءة', language)
       : t('افتح الحكاية بالاشتراك', language);
-  const waitingForNextEpisode = finished && Boolean(upcoming);
+  const waitingForNextEpisode = finished && Boolean(upcoming) && !planLocked;
+  // The quiz follows the part content: no paywall bypass through the quiz card.
+  const quizUnlocked = finished && !planLocked;
 
   return (
     <SiteLayout>
@@ -1351,6 +1411,11 @@ export function StoryDetailPage() {
                       <span className={buttonClasses({ size: 'lg', variant: 'secondary', className: 'cursor-default' })}>
                         <Clock3 size={17} aria-hidden="true" /> {order.comingSoon}
                       </span>
+                    ) : planLocked ? (
+                      <button type="button" onClick={() => setPlansOpen(true)} className={buttonClasses({ size: 'lg' })}>
+                        {primaryLabel}
+                        <ChevronLeft size={17} className="ltr:rotate-180" aria-hidden="true" />
+                      </button>
                     ) : (
                       <Link to={primaryHref} className={buttonClasses({ size: 'lg' })}>
                         {primaryLabel}
@@ -1383,7 +1448,7 @@ export function StoryDetailPage() {
                   <p className="text-sm text-ink-muted">
                     {completedCount} {t('من', language)} {totalParts} {t('أجزاء', language)}
                     {upcoming && <span> · +1 {t('قريبًا', language)}</span>}
-                    {finished && !upcoming && <span className="text-success"> · {t('مكتملة', language)}</span>}
+                    {finished && !upcoming && !planLocked && <span className="text-success"> · {t('مكتملة', language)}</span>}
                   </p>
                 </div>
                 {user && parts.length > 0 && (
@@ -1448,9 +1513,9 @@ export function StoryDetailPage() {
                               {order.finishFirst(previousNumber)}
                             </button>
                           ) : lockedByPlan ? (
-                            <Link to="/membership" className="inline-flex min-h-11 items-center rounded-full border border-line px-3.5 text-xs font-semibold text-ink-muted hover:text-ink">
+                            <button type="button" onClick={() => setPlansOpen(true)} className="inline-flex min-h-11 items-center rounded-full border border-line px-3.5 text-xs font-semibold text-ink-muted hover:text-ink">
                               {t('افتح بالاشتراك', language)}
-                            </Link>
+                            </button>
                           ) : needsAccount ? (
                             <Link to="/login" className="inline-flex min-h-11 items-center rounded-full border border-line px-3.5 text-xs font-semibold text-brand-ink">
                               {t('سجّل الدخول', language)}
@@ -1469,18 +1534,18 @@ export function StoryDetailPage() {
                       </li>
                     );
                   })}
-                  <li className="journey-row" data-state={finished ? 'todo' : 'locked'}>
+                  <li className="journey-row" data-state={quizUnlocked ? 'todo' : 'locked'}>
                     <span className="journey-dot" aria-hidden="true">
-                      {finished ? <CircleHelp size={16} /> : <LockKeyhole size={15} />}
+                      {quizUnlocked ? <CircleHelp size={16} /> : <LockKeyhole size={15} />}
                     </span>
                     <div className="min-w-0 flex-1">
                       <p className="journey-title font-semibold text-ink">{order.quiz}</p>
                       <p className="mt-1 text-[0.8125rem] text-ink-muted">
-                        {finished ? t('أجب عن أسئلة قصيرة مستندة إلى مصادر القصة.', language) : t('يُفتح الاختبار بعد إكمال الجزء الأخير', language)}
+                        {quizUnlocked ? t('أجب عن أسئلة قصيرة مستندة إلى مصادر القصة.', language) : t('يُفتح الاختبار بعد إكمال الجزء الأخير', language)}
                       </p>
                     </div>
                     <div className="journey-actions shrink-0 self-center">
-                      {finished ? (
+                      {quizUnlocked ? (
                         <Link to={`/stories/${story.slug}/read/${lastPart?.partNumber || 1}#quiz`} className="inline-flex min-h-11 items-center gap-1.5 rounded-full border border-line px-4 text-xs font-semibold text-brand-ink hover:bg-brand-soft">
                           {order.quiz}
                         </Link>
@@ -1583,6 +1648,7 @@ export function StoryDetailPage() {
             </>
           )}
         </Container>
+        <SubscriptionPlansDialog open={plansOpen} onClose={() => setPlansOpen(false)} />
       </main>
     </SiteLayout>
   );
@@ -1692,6 +1758,17 @@ function readReaderPreferences(): ReaderPreferences {
   }
 }
 
+/** Shown once per browser, never again on the stories the reader opens next. */
+const READER_MODE_HINT_KEY = 'reader-mode-hint-seen';
+
+function readReaderModeHintSeen() {
+  try {
+    return window.localStorage.getItem(READER_MODE_HINT_KEY) === '1';
+  } catch {
+    return true;
+  }
+}
+
 function readStoredReadingTheme(): 'light' | 'reading' | 'dark' | null {
   try {
     const stored = window.localStorage.getItem('reader-theme');
@@ -1711,6 +1788,7 @@ export function ReaderPage() {
   const { theme: siteTheme, setTheme: setSiteTheme } = useSiteTheme();
   const [readingTheme, setReadingTheme] = useState<'light' | 'reading' | 'dark'>(() => readStoredReadingTheme() || siteTheme);
   const readerThemeTouched = useRef(false);
+  const [readingModeHint, setReadingModeHint] = useState(false);
   const [preferences, setPreferences] = useState<ReaderPreferences>(readReaderPreferences);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [scrollProgress, setScrollProgress] = useState(0);
@@ -1732,12 +1810,32 @@ export function ReaderPage() {
   const [completedPartIds, setCompletedPartIds] = useState<number[]>([]);
   const [lightbox, setLightbox] = useState<{ url: string; alt: string; caption?: string } | null>(null);
   const [accessIssue, setAccessIssue] = useState<{ code: string } | null>(null);
+  const [plansOpen, setPlansOpen] = useState(false);
   const [savingFailed, setSavingFailed] = useState(false);
   const [showEndScreen, setShowEndScreen] = useState(false);
   const [recommendations, setRecommendations] = useState<StorySummary[]>([]);
   const [remindersOn, setRemindersOn] = useState(false);
   const endSentinel = useRef<HTMLDivElement | null>(null);
   const autoCompleted = useRef(false);
+
+  // The reading mode is offered once, at the first story the reader opens: a
+  // small arrow points at the theme buttons instead of asking again every time.
+  useEffect(() => {
+    if (readReaderModeHintSeen()) return;
+    try {
+      window.localStorage.setItem(READER_MODE_HINT_KEY, '1');
+    } catch {
+      /* ignore */
+    }
+    // Very first story and no choice saved yet: switch to reading mode once so
+    // the reader discovers it, then never again.
+    if (!readStoredReadingTheme() && !readStoredSiteTheme()) {
+      setReadingTheme('reading');
+      setSiteTheme('reading');
+    }
+    const timer = window.setTimeout(() => setReadingModeHint(true), 900);
+    return () => window.clearTimeout(timer);
+  }, [setSiteTheme]);
 
   // Persist an explicit choice without overriding the site theme on first mount.
   useEffect(() => {
@@ -1863,6 +1961,13 @@ export function ReaderPage() {
     }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [slug, number, language]);
+
+  // A locked part opens the plans right away, over the reading screen.
+  useEffect(() => {
+    if (accessIssue && (accessIssue.code === 'SUBSCRIPTION_REQUIRED' || accessIssue.code === 'CONTENT_LOCKED')) {
+      setPlansOpen(true);
+    }
+  }, [accessIssue]);
 
   // Restore the scroll position of this part, then keep it up to date.
   useEffect(() => {
@@ -2094,7 +2199,7 @@ export function ReaderPage() {
                   <Link to={`/register?next=${encodeURIComponent(returnTo)}`} className={buttonClasses({ variant: 'secondary', size: 'md' })}>{t('إنشاء حساب مجاني', language)}</Link>
                 </>
               ) : isPlan ? (
-                <Link to="/membership" className={buttonClasses({ size: 'md' })}>{t('عرض الاشتراكات', language)}</Link>
+                <button type="button" onClick={() => setPlansOpen(true)} className={buttonClasses({ size: 'md' })}>{t('عرض الاشتراكات', language)}</button>
               ) : isComing ? null : (
                 <>
                   <Link to={`/stories/${slug}/read/${currentNumber}`} className={buttonClasses({ size: 'md' })}>
@@ -2113,6 +2218,7 @@ export function ReaderPage() {
               </Link>
             </div>
           </Container>
+          <SubscriptionPlansDialog open={plansOpen} onClose={() => setPlansOpen(false)} />
         </main>
       </SiteLayout>
     );
@@ -2184,7 +2290,7 @@ export function ReaderPage() {
               type="button"
               aria-expanded={settingsOpen}
               aria-label={t('إعدادات القراءة', language)}
-              onClick={() => setSettingsOpen((open) => !open)}
+              onClick={() => { setSettingsOpen((open) => !open); setReadingModeHint(false); }}
               className={`inline-flex h-11 min-w-11 items-center justify-center rounded-full px-2.5 text-sm font-semibold transition ${settingsOpen ? 'bg-brand-soft text-brand-ink' : 'text-ink-muted hover:bg-surface-soft hover:text-ink'}`}
             >
               <span aria-hidden="true" className="font-sans text-base leading-none">Aa</span>
@@ -2193,7 +2299,7 @@ export function ReaderPage() {
               type="button"
               aria-pressed={readingTheme !== 'light'}
               aria-label={t(readingTheme === 'light' ? 'التبديل إلى الوضع الداكن' : 'التبديل إلى الوضع الفاتح', language)}
-              onClick={() => setReadingTheme(readingTheme === 'light' ? 'dark' : 'light')}
+              onClick={() => { setReadingModeHint(false); setReadingTheme(readingTheme === 'light' ? 'dark' : 'light'); }}
               className="grid h-11 w-11 place-items-center rounded-full text-ink-muted transition hover:bg-surface-soft hover:text-ink"
             >
               {readingTheme === 'light' ? <Moon size={17} aria-hidden="true" /> : <Sun size={17} aria-hidden="true" />}
@@ -2201,6 +2307,39 @@ export function ReaderPage() {
           </Container>
           <div className="reader-progress" aria-hidden="true"><span style={{ width: `${scrollProgress}%` }} /></div>
         </div>
+
+        {readingModeHint && (
+          <Container className="max-w-5xl">
+            <div className="mt-3 flex justify-end">
+              <div role="status" className="relative w-full max-w-sm rounded-2xl border border-line bg-surface p-4">
+                <span aria-hidden="true" className="absolute -top-1.5 end-6 h-3 w-3 rotate-45 border-s border-t border-line bg-surface" />
+                <p className="flex items-center gap-2 text-sm font-semibold text-brand-ink">
+                  <ArrowUpLeft size={16} aria-hidden="true" />
+                  {t('جرّب وضع القراءة', language)}
+                </p>
+                <p className="mt-1.5 text-xs leading-6 text-ink-muted">
+                  {t('خلفية داكنة دافئة مريحة للعين ونص أوسع للقراءة الطويلة. غيّره متى شئت من الزر أعلى الصفحة.', language)}
+                </p>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => { setReadingTheme('reading'); setReadingModeHint(false); }}
+                    className="rounded-full bg-brand px-4 py-2 text-xs font-semibold text-brand-on"
+                  >
+                    {t('تفعيل وضع القراءة', language)}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setReadingModeHint(false)}
+                    className="rounded-full px-3 py-2 text-xs font-semibold text-ink-muted hover:bg-surface-soft"
+                  >
+                    {t('لاحقًا', language)}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </Container>
+        )}
 
           {settingsOpen && (
             <Container className="border-t border-line bg-surface py-4">
@@ -2834,11 +2973,13 @@ export function EventsPage() {
 
 type CartItem = {
   id: number;
-  bookId: number;
+  kind?: 'book' | 'mystery_box';
+  bookId: number | null;
+  mysteryBoxId?: number | null;
   slug: string;
   title: string;
   cover: string | null;
-  format: 'ebook' | 'print';
+  format: 'ebook' | 'print' | 'mystery_box';
   quantity: number;
   unitPrice: number;
   currency: string;
@@ -2848,6 +2989,8 @@ type CartItem = {
   alreadyOwned: boolean;
   ownedLanguages: string[];
   available: boolean;
+  requiresShipping?: boolean;
+  requiresDigitalConsent?: boolean;
   lineTotalMinor: number;
 };
 
@@ -2855,6 +2998,15 @@ type CartPayload = {
   items: CartItem[];
   itemCount: number;
   hasPhysical: boolean;
+  hasBooks?: boolean;
+  hasPrint?: boolean;
+  hasMysteryBox?: boolean;
+  shippingAtCheckout?: boolean;
+  shippingLegacy?: boolean;
+  shippingCountries?: string[];
+  shippingFees?: Record<string, number>;
+  shippingCountry?: string | null;
+  shippingCountryAllowed?: boolean;
   currency: string;
   subtotalMinor: number;
   shippingMinor: number;
@@ -2864,8 +3016,27 @@ type CartPayload = {
   total: string;
 };
 
-type GuestCartLine = { bookId: number; quantity: number; language?: string };
+type GuestCartLine = { bookId: number; quantity: number; format?: BookFormat; language?: string };
 const GUEST_CART_KEY = 'islamic-stories-guest-cart';
+const PREFERRED_SHIPPING_COUNTRY_KEY = 'islamic-stories-shipping-country';
+
+/** Country picked on a book page, reused as the cart's delivery country. */
+function readPreferredShippingCountry() {
+  try {
+    return (window.localStorage.getItem(PREFERRED_SHIPPING_COUNTRY_KEY) || '').trim().toUpperCase();
+  } catch {
+    return '';
+  }
+}
+
+function storePreferredShippingCountry(country: string) {
+  try {
+    if (country) window.localStorage.setItem(PREFERRED_SHIPPING_COUNTRY_KEY, country);
+    else window.localStorage.removeItem(PREFERRED_SHIPPING_COUNTRY_KEY);
+  } catch {
+    /* storage may be unavailable; the cart still asks for the country */
+  }
+}
 
 function readGuestCart(): GuestCartLine[] {
   try {
@@ -2873,6 +3044,7 @@ function readGuestCart(): GuestCartLine[] {
     return Array.isArray(parsed) ? parsed.filter((line) => Number.isSafeInteger(line?.bookId) && line.bookId > 0).map((line) => ({
       bookId: Number(line.bookId),
       quantity: Math.max(1, Math.min(20, Number(line.quantity) || 1)),
+      ...(line.format === 'print' || line.format === 'ebook' ? { format: line.format as BookFormat } : {}),
       ...(typeof line.language === 'string' ? { language: line.language } : {})
     })) : [];
   } catch {
@@ -2885,11 +3057,28 @@ function writeGuestCart(lines: GuestCartLine[]) {
   window.dispatchEvent(new Event('cart:changed'));
 }
 
+/** Selects one cart line: a book can be there as a printed copy and per PDF language. */
+function cartLinePath(item: CartItem) {
+  if (item.format === 'mystery_box') return `/cart/items/mystery-box/${item.mysteryBoxId}`;
+  const params = new URLSearchParams({ format: item.format });
+  if (item.format === 'ebook' && item.language) params.set('language', item.language);
+  return `/cart/items/${item.bookId}?${params.toString()}`;
+}
+
 const emptyCart: CartPayload = {
-  items: [], itemCount: 0, hasPhysical: false, currency: 'EUR',
+  items: [], itemCount: 0, hasPhysical: false, hasBooks: false, hasPrint: false, hasMysteryBox: false,
+  shippingLegacy: false, shippingCountries: [], shippingFees: {}, shippingCountryAllowed: true, currency: 'EUR',
   subtotalMinor: 0, shippingMinor: 0, totalMinor: 0,
   subtotal: '0.00', shipping: '0.00', total: '0.00'
 };
+
+function countryLabel(code: string, language: SiteLanguage) {
+  try {
+    return new Intl.DisplayNames([language], { type: 'region' }).of(code) || code;
+  } catch {
+    return code;
+  }
+}
 
 export function CartPage() {
   const language = useSiteLanguage();
@@ -2914,7 +3103,12 @@ export function CartPage() {
     let active = true;
     api.get<{ address: Record<string, unknown> | null; source?: 'profile' | 'order' | null }>('/me/shipping-address')
       .then(({ address, source }) => {
-        if (!active || !address) return;
+        if (!active) return;
+        const preferredCountry = readPreferredShippingCountry();
+        if (!address) {
+          if (preferredCountry) setShippingAddress((current) => ({ ...current, country: current.country || preferredCountry }));
+          return;
+        }
         const pick = (...keys: string[]) => {
           for (const key of keys) {
             const value = address[key];
@@ -2936,7 +3130,8 @@ export function CartPage() {
           line1: current.line1 || saved.line1,
           city: current.city || saved.city,
           postalCode: current.postalCode || saved.postalCode,
-          country: current.country || saved.country,
+          // The country chosen on a book page wins over the stored profile one.
+          country: current.country || preferredCountry || saved.country,
           phone: current.phone || saved.phone
         }));
         setSavedAddressSource(source === 'order' ? 'order' : 'profile');
@@ -2973,12 +3168,26 @@ export function CartPage() {
     return () => { active = false; };
   }, [user]);
 
+  // The printed shipping fee depends on the destination country: refetch the
+  // cart (debounced while typing) so the summary shows the real total.
+  useEffect(() => {
+    if (!user || user.role !== 'READER' || !cart.hasPrint) return;
+    let active = true;
+    const timer = window.setTimeout(() => {
+      const query = shippingAddress.country ? `?country=${encodeURIComponent(shippingAddress.country)}` : '';
+      api.get<CartPayload>(`/cart${query}`)
+        .then((value) => { if (active) setCart(value); })
+        .catch(() => { /* the previous shipping estimate stays visible */ });
+    }, 300);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [user, shippingAddress.country, cart.hasPrint]);
+
   async function updateQuantity(item: CartItem, quantity: number) {
     if (quantity < 1) return;
     setBusyBook(item.bookId);
     setError(null);
     try {
-      setCart(await api.patch<CartPayload>(`/cart/items/${item.bookId}`, { quantity }));
+      setCart(await api.patch<CartPayload>(cartLinePath(item), { quantity }));
       window.dispatchEvent(new Event('cart:changed'));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'تعذر تحديث الكمية.');
@@ -2991,20 +3200,22 @@ export function CartPage() {
     setBusyBook(item.bookId);
     setError(null);
     try {
-      setCart(await api.patch<CartPayload>(`/cart/items/${item.bookId}`, { language: languageChoice }));
+      setCart(await api.patch<CartPayload>(cartLinePath(item), { language: languageChoice }));
       window.dispatchEvent(new Event('cart:changed'));
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : t('تعذر تحديث لغة الكتاب.', language));
+      setError(caught instanceof ApiError && caught.code === 'LANGUAGE_IN_CART'
+        ? 'هذه اللغة موجودة بالفعل في سلتك — احذف السطر الآخر أو اختر لغة مختلفة.'
+        : (caught instanceof Error ? caught.message : t('تعذر تحديث لغة الكتاب.', language)));
     } finally {
       setBusyBook(null);
     }
   }
 
   async function removeItem(item: CartItem) {
-    setBusyBook(item.bookId);
+    setBusyBook(item.mysteryBoxId ?? item.bookId);
     setError(null);
     try {
-      setCart(await api.delete<CartPayload>(`/cart/items/${item.bookId}`));
+      setCart(await api.delete<CartPayload>(cartLinePath(item)));
       window.dispatchEvent(new Event('cart:changed'));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'تعذر حذف الكتاب.');
@@ -3017,13 +3228,52 @@ export function CartPage() {
     event.preventDefault();
     if (!cart.items.length) return;
     const hasEbook = cart.items.some((item) => item.format === 'ebook');
+    const printItem = cart.items.some((item) => item.format === 'print');
+    const boxItem = cart.items.find((item) => item.format === 'mystery_box');
     setConsentError(null);
     if (hasEbook && !digitalConsent) {
       setConsentError('يجب الموافقة على شروط التنزيل الرقمي قبل المتابعة.');
       return;
     }
-    if (cart.hasPhysical && (!shippingAddress.name || !shippingAddress.line1 || !shippingAddress.city || !shippingAddress.postalCode || !shippingAddress.country || !shippingAddress.phone)) {
+    if (printItem && (!shippingAddress.name || !shippingAddress.line1 || !shippingAddress.city || !shippingAddress.postalCode || !shippingAddress.country || !shippingAddress.phone)) {
       setError('أكمل عنوان التوصيل للكتب المطبوعة.');
+      return;
+    }
+    if (printItem && cart.shippingCountryAllowed === false) {
+      setError(`لا نوصّل الكتب المطبوعة إلى ${countryLabel(shippingAddress.country, language)}. اختر بلدًا من الدول المتاحة.`);
+      return;
+    }
+    // The mystery box keeps its own checkout: reservation, per-person limit and
+    // destination-based shipping are already enforced there.
+    if (boxItem) {
+      if (boxItem.requiresDigitalConsent && !digitalConsent) {
+        setConsentError('وافق على تسليم المحتوى الرقمي قبل متابعة الدفع.');
+        return;
+      }
+      if (boxItem.requiresShipping && !shippingAddress.country) {
+        setError('اختر بلد التوصيل للصندوق.');
+        return;
+      }
+      setCheckingOut(true);
+      setError(null);
+      try {
+        const response = await api.post<{ checkoutUrl: string }>(`/mystery-box/${boxItem.slug}/checkout`, {
+          language,
+          ...(boxItem.requiresShipping ? { country: shippingAddress.country } : {}),
+          digitalContentConsent: boxItem.requiresDigitalConsent ? digitalConsent : false
+        });
+        await api.delete<CartPayload>(cartLinePath(boxItem)).catch(() => undefined);
+        window.dispatchEvent(new Event('cart:changed'));
+        window.location.assign(response.checkoutUrl);
+      } catch (caught) {
+        const code = caught instanceof ApiError ? String(caught.code || '') : '';
+        setError(/PER_USER|LIMIT/i.test(code)
+          ? 'الحد الأقصى لشراء هذا الصندوق لكل عميل تم بلوغه.'
+          : /SOLD_OUT|STOCK/i.test(code)
+            ? 'نُفدت كمية الصندوق. لم يُخصم منك شيء.'
+            : (caught instanceof Error ? caught.message : 'تعذر بدء الدفع.'));
+        setCheckingOut(false);
+      }
       return;
     }
     setCheckingOut(true);
@@ -3034,6 +3284,7 @@ export function CartPage() {
         items: cart.items.map((item) => ({
           bookId: item.bookId,
           quantity: item.quantity,
+          format: item.format,
           ...(item.format === 'ebook' && item.language ? { language: item.language } : {})
         })),
         language,
@@ -3048,6 +3299,10 @@ export function CartPage() {
     }
   }
 
+  const cartHasPrint = cart.items.some((item) => item.format === 'print');
+  const cartBox = cart.items.find((item) => item.format === 'mystery_box');
+  const cartBoxNeedsShipping = Boolean(cartBox?.requiresShipping);
+
   if (isLoading || loading) return <SiteLayout><Container className="py-16"><LoadingState /></Container></SiteLayout>;
   if (!user) {
     const guestCount = readGuestCart().reduce((sum, line) => sum + line.quantity, 0);
@@ -3059,9 +3314,9 @@ export function CartPage() {
     {error && <div className="mt-5"><ErrorState message={error} /></div>}
     {!cart.items.length ? <div className="mt-8 rounded-3xl border border-line bg-surface p-10 text-center"><ShoppingBag className="mx-auto text-brand-ink" size={38} /><h2 className="mt-4 text-xl font-semibold text-brand-ink">سلتك فارغة</h2><p className="mt-2 text-ink-muted">أضف كتابًا إلكترونيًا أو نسخة مطبوعة للبدء.</p><Link to="/books" className="mt-6 inline-block rounded-full bg-brand px-6 py-3 font-semibold text-brand-on">تصفح الكتب</Link></div> :
     <div className="mt-8 grid gap-8 lg:grid-cols-[1.4fr_0.8fr]">
-      <section className="space-y-4">{cart.items.map((item) => <article key={item.bookId} className="flex gap-4 rounded-2xl border border-line bg-surface p-4 sm:p-5">
+      <section className="space-y-4">{cart.items.map((item) => <article key={item.format === 'mystery_box' ? `box-${item.mysteryBoxId}` : `${item.bookId}-${item.format}-${item.language || 'print'}`} className="flex gap-4 rounded-2xl border border-line bg-surface p-4 sm:p-5">
         <div className="h-28 w-20 shrink-0 overflow-hidden rounded-xl bg-surface-soft">{item.cover ? <img src={item.cover} alt="" className="h-full w-full object-cover" /> : <BookOpen className="m-5 text-brand-ink" size={28} />}</div>
-        <div className="min-w-0 flex-1"><h2 className="font-semibold text-brand-ink">{item.title}</h2><p className="mt-1 text-sm text-ink-muted">{item.format === 'ebook' ? 'كتاب إلكتروني · تنزيل فوري' : 'نسخة مطبوعة'}</p><p className="mt-2 font-semibold text-brand-ink">{formatPrice(item.unitPrice, item.currency, language)}</p>
+        <div className="min-w-0 flex-1"><h2 className="font-semibold text-brand-ink">{item.title}</h2><p className="mt-1 text-sm text-ink-muted">{item.format === 'mystery_box' ? 'صندوق غامض · يُكشف محتواه بعد الشراء' : item.format === 'ebook' ? `كتاب إلكتروني · ${item.language ? bookLanguageLabel(item.language) : ''} · تنزيل فوري` : 'نسخة مطبوعة'}</p><p className="mt-2 font-semibold text-brand-ink">{formatPrice(item.unitPrice, item.currency, language)}</p>
           {!item.available && <p className="mt-1 text-xs font-semibold text-danger">الكمية المطلوبة غير متوفرة حاليًا.</p>}
           {item.format === 'ebook' && item.languages.length > 1 && <label className="mt-2 block text-xs font-semibold text-ink">{t('لغة ملف الكتاب:', language)}
             <select value={item.language || item.languages[0]} onChange={(event) => void updateLanguage(item, event.target.value)} disabled={busyBook === item.bookId} className="mt-1 w-full rounded-xl border border-line px-3 py-2 text-sm font-normal disabled:opacity-50">{item.languages.map((code) => <option key={code} value={code}>{bookLanguageLabel(code)}</option>)}</select>
@@ -3069,23 +3324,41 @@ export function CartPage() {
           {item.format === 'ebook' && item.languages.length === 1 && <p className="mt-1 text-xs font-semibold text-brand-ink">{t('نسخة PDF:', language)} {bookLanguageLabel(item.language)}</p>}
           {item.alreadyOwned && <p className="mt-1 text-xs font-semibold text-brand-ink">{t('لديك نسخة سابقة من هذا الكتاب — يمكنك شراؤه مرة أخرى والحصول على تنزيل جديد.', language)}{item.ownedLanguages.length ? ` (${item.ownedLanguages.map((code) => bookLanguageLabel(code)).join(' · ')})` : ''}</p>}
           <div className="mt-3 flex flex-wrap items-center gap-3">
-            {item.format === 'print' ? <div className="inline-flex items-center rounded-full border border-line"><button type="button" onClick={() => void updateQuantity(item, item.quantity - 1)} disabled={busyBook === item.bookId || item.quantity <= 1} className="px-3 py-1.5 disabled:opacity-40">−</button><span className="min-w-8 text-center text-sm font-semibold">{item.quantity}</span><button type="button" onClick={() => void updateQuantity(item, item.quantity + 1)} disabled={busyBook === item.bookId || (item.stockQuantity !== null && item.quantity >= item.stockQuantity)} className="px-3 py-1.5 disabled:opacity-40">+</button></div> : <span className="rounded-full bg-surface-soft px-3 py-1.5 text-xs font-semibold text-ink-muted">الكمية: 1</span>}
-            <button type="button" onClick={() => void removeItem(item)} disabled={busyBook === item.bookId} className="text-sm font-semibold text-danger underline disabled:opacity-40">حذف</button>
+            {item.format === 'print' ? <div className="inline-flex items-center rounded-full border border-line"><button type="button" onClick={() => void updateQuantity(item, item.quantity - 1)} disabled={busyBook === item.bookId || item.quantity <= 1} className="px-3 py-1.5 disabled:opacity-40">−</button><span className="min-w-8 text-center text-sm font-semibold">{item.quantity}</span><button type="button" onClick={() => void updateQuantity(item, item.quantity + 1)} disabled={busyBook === item.bookId || (item.stockQuantity !== null && item.quantity >= item.stockQuantity)} className="px-3 py-1.5 disabled:opacity-40">+</button></div> : <span className="rounded-full bg-surface-soft px-3 py-1.5 text-xs font-semibold text-ink-muted">{item.format === 'mystery_box' ? 'صندوق واحد لكل طلب' : 'الكمية: 1'}</span>}
+            <button type="button" onClick={() => void removeItem(item)} disabled={busyBook === (item.bookId ?? item.mysteryBoxId ?? null)} className="text-sm font-semibold text-danger underline disabled:opacity-40">حذف</button>
           </div>
         </div>
       </article>)}</section>
       <form onSubmit={checkout} className="h-fit space-y-4 rounded-3xl border border-line bg-surface p-6 lg:sticky lg:top-24">
         <h2 className="text-xl font-semibold text-brand-ink">ملخص الطلب</h2>
-        <div className="space-y-2 border-b border-line pb-4 text-sm"><div className="flex justify-between"><span>المجموع الفرعي</span><span>{formatPrice(cart.subtotal, cart.currency, language)}</span></div>{cart.hasPhysical && <div className="flex justify-between"><span>الشحن</span><span>{formatPrice(cart.shipping, cart.currency, language)}</span></div>}{promoCode.trim() && <p className="text-xs text-brand-ink">يُطبّق رمز الخصم عند إنشاء الطلب ويُتحقق منه على الخادم.</p>}<div className="flex justify-between text-lg font-semibold text-brand-ink"><span>الإجمالي</span><span>{formatPrice(cart.total, cart.currency, language)}</span></div></div>
-        <label className="block text-sm font-semibold text-ink">رمز الخصم (اختياري)<input value={promoCode} onChange={(event) => setPromoCode(event.target.value.toUpperCase())} maxLength={64} dir="ltr" className="mt-2 w-full rounded-xl border border-line px-3 py-2.5 text-left" /></label>
-        {cart.hasPhysical && <fieldset className="space-y-3"><legend className="text-sm font-semibold text-brand-ink">عنوان التوصيل</legend>
+        <div className="space-y-2 border-b border-line pb-4 text-sm"><div className="flex justify-between"><span>المجموع الفرعي</span><span>{formatPrice(cart.subtotal, cart.currency, language)}</span></div>{cart.hasPhysical && <div className="flex justify-between"><span>{cart.shippingCountry ? `الشحن إلى ${countryLabel(cart.shippingCountry, language)}` : 'الشحن'}</span><span>{cart.shippingAtCheckout ? 'يُحسب عند الدفع' : formatPrice(cart.shipping, cart.currency, language)}</span></div>}
+        {!!cart.shippingCountries?.length && <div className="rounded-xl bg-surface-soft px-3 py-2 text-[11px] leading-5 text-ink-muted">
+          <p className="font-semibold text-ink">الدول التي نوصّل إليها: {cart.shippingCountries.map((code) => countryLabel(code, language)).join(' · ')}</p>
+          {cart.shippingCountry && cart.shippingCountryAllowed
+            ? <p className="mt-1">سعر التوصيل إلى {countryLabel(cart.shippingCountry, language)}: <span className="font-semibold text-brand-ink">{formatPrice(cart.shipping, cart.currency, language)}</span></p>
+            : <p className="mt-1">اختر بلد التوصيل لاحتساب الشحن في الإجمالي.</p>}
+        </div>}
+        {cart.hasPrint && cart.shippingCountry && cart.shippingCountryAllowed === false && <p role="alert" className="rounded-xl bg-danger-soft p-3 text-xs font-semibold leading-5 text-danger">
+          لا نوصّل الكتب المطبوعة إلى {countryLabel(cart.shippingCountry, language)}. اختر إحدى الدول المتاحة أعلاه أو احذف الكتب المطبوعة من السلة.
+        </p>}{promoCode.trim() && <p className="text-xs text-brand-ink">يُطبّق رمز الخصم عند إنشاء الطلب ويُتحقق منه على الخادم.</p>}<div className="flex justify-between text-lg font-semibold text-brand-ink"><span>الإجمالي</span><span>{formatPrice(cart.total, cart.currency, language)}</span></div></div>
+        {!cart.hasMysteryBox && <label className="block text-sm font-semibold text-ink">رمز الخصم (اختياري)<input value={promoCode} onChange={(event) => setPromoCode(event.target.value.toUpperCase())} maxLength={64} dir="ltr" className="mt-2 w-full rounded-xl border border-line px-3 py-2.5 text-left" /></label>}
+        {!cartHasPrint && cartBoxNeedsShipping && <fieldset className="space-y-3"><legend className="text-sm font-semibold text-brand-ink">بلد توصيل الصندوق</legend>
+          <input required placeholder="رمز الدولة (FR)" minLength={2} maxLength={2} value={shippingAddress.country} onChange={(event) => setShippingAddress({ ...shippingAddress, country: event.target.value.toUpperCase() })} className="w-full rounded-xl border border-line px-3 py-2.5 uppercase" />
+          <p className="text-[11px] leading-5 text-ink-muted">يُحسب الشحن حسب هذا البلد، ويُجمع العنوان الكامل أثناء الدفع الآمن.</p>
+        </fieldset>}
+        {cartHasPrint && <fieldset className="space-y-3"><legend className="text-sm font-semibold text-brand-ink">عنوان التوصيل</legend>
           {savedAddressSource && <p className="rounded-xl bg-brand-soft px-3 py-2 text-[11px] font-semibold leading-5 text-brand-ink">
             {t(savedAddressSource === 'profile'
               ? 'عنوانك المحفوظ مستخدم في السلة — يمكنك تعديله قبل الدفع.'
               : 'استخدمنا العنوان المحفوظ من طلبك السابق — يمكنك تعديله قبل الدفع.', language)}
           </p>}
-          <input required placeholder="الاسم الكامل" value={shippingAddress.name} onChange={(event) => setShippingAddress({ ...shippingAddress, name: event.target.value })} className="w-full rounded-xl border border-line px-3 py-2.5" /><input required placeholder="العنوان" value={shippingAddress.line1} onChange={(event) => setShippingAddress({ ...shippingAddress, line1: event.target.value })} className="w-full rounded-xl border border-line px-3 py-2.5" /><div className="grid grid-cols-2 gap-3"><input required placeholder="المدينة" value={shippingAddress.city} onChange={(event) => setShippingAddress({ ...shippingAddress, city: event.target.value })} className="rounded-xl border border-line px-3 py-2.5" /><input required placeholder="الرمز البريدي" value={shippingAddress.postalCode} onChange={(event) => setShippingAddress({ ...shippingAddress, postalCode: event.target.value })} className="rounded-xl border border-line px-3 py-2.5" /><input required placeholder="رمز الدولة (FR)" minLength={2} maxLength={2} value={shippingAddress.country} onChange={(event) => setShippingAddress({ ...shippingAddress, country: event.target.value.toUpperCase() })} className="rounded-xl border border-line px-3 py-2.5 uppercase" /><input required placeholder="الهاتف" value={shippingAddress.phone} onChange={(event) => setShippingAddress({ ...shippingAddress, phone: event.target.value })} className="rounded-xl border border-line px-3 py-2.5" /></div></fieldset>}
-        {cart.items.some((item) => item.format === 'ebook') && <div><label className={`flex items-start gap-2 rounded-xl border p-3 text-xs leading-6 text-brand-ink ${consentError ? 'border-danger bg-danger-soft' : 'border-transparent bg-brand-soft'}`}><input type="checkbox" checked={digitalConsent} onChange={(event) => { setDigitalConsent(event.target.checked); if (event.target.checked) setConsentError(null); }} className="mt-1" />أوافق على البدء الفوري في تنزيل الكتب الإلكترونية، وأعلم أن حق التراجع عن المحتوى الرقمي يسقط بعد بدء التنزيل.</label>{consentError && <p role="alert" className="mt-2 text-sm font-semibold text-danger">{consentError}</p>}</div>}
+          <input required placeholder="الاسم الكامل" value={shippingAddress.name} onChange={(event) => setShippingAddress({ ...shippingAddress, name: event.target.value })} className="w-full rounded-xl border border-line px-3 py-2.5" /><input required placeholder="العنوان" value={shippingAddress.line1} onChange={(event) => setShippingAddress({ ...shippingAddress, line1: event.target.value })} className="w-full rounded-xl border border-line px-3 py-2.5" /><div className="grid grid-cols-2 gap-3"><input required placeholder="المدينة" value={shippingAddress.city} onChange={(event) => setShippingAddress({ ...shippingAddress, city: event.target.value })} className="rounded-xl border border-line px-3 py-2.5" /><input required placeholder="الرمز البريدي" value={shippingAddress.postalCode} onChange={(event) => setShippingAddress({ ...shippingAddress, postalCode: event.target.value })} className="rounded-xl border border-line px-3 py-2.5" />{cart.shippingCountries?.length
+              ? <select required value={shippingAddress.country} onChange={(event) => { storePreferredShippingCountry(event.target.value); setShippingAddress({ ...shippingAddress, country: event.target.value }); }} className="rounded-xl border border-line px-3 py-2.5">
+                <option value="">بلد التوصيل…</option>
+                {cart.shippingCountries.map((code) => <option key={code} value={code}>{countryLabel(code, language)}</option>)}
+              </select>
+              : <input required placeholder="رمز الدولة (FR)" minLength={2} maxLength={2} value={shippingAddress.country} onChange={(event) => { const country = event.target.value.toUpperCase(); storePreferredShippingCountry(country); setShippingAddress({ ...shippingAddress, country }); }} className="rounded-xl border border-line px-3 py-2.5 uppercase" />}<input required placeholder="الهاتف" value={shippingAddress.phone} onChange={(event) => setShippingAddress({ ...shippingAddress, phone: event.target.value })} className="rounded-xl border border-line px-3 py-2.5" /></div></fieldset>}
+        {cart.items.some((item) => item.format === 'ebook' || (item.format === 'mystery_box' && item.requiresDigitalConsent)) && <div><label className={`flex items-start gap-2 rounded-xl border p-3 text-xs leading-6 text-brand-ink ${consentError ? 'border-danger bg-danger-soft' : 'border-transparent bg-brand-soft'}`}><input type="checkbox" checked={digitalConsent} onChange={(event) => { setDigitalConsent(event.target.checked); if (event.target.checked) setConsentError(null); }} className="mt-1" />أوافق على البدء الفوري في تنزيل الكتب الإلكترونية، وأعلم أن حق التراجع عن المحتوى الرقمي يسقط بعد بدء التنزيل.</label>{consentError && <p role="alert" className="mt-2 text-sm font-semibold text-danger">{consentError}</p>}</div>}
         <button type="submit" disabled={checkingOut || !cart.items.length} className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-brand px-5 py-3.5 font-semibold text-brand-on disabled:opacity-50"><CreditCard size={17} /> {checkingOut ? 'جارٍ تحويلك للدفع…' : 'إتمام الدفع الآمن'}</button>
         <p className="text-center text-xs leading-6 text-ink-muted"><ShieldCheck size={13} className="inline" /> دفع آمن عبر Stripe. لا نحتفظ ببيانات البطاقة.</p>
       </form>
@@ -3111,8 +3384,68 @@ export function BookDetailPage() {
   // PDF version the reader is buying: the site language when it exists, else the first available.
   const [languageChoice, setLanguageChoice] = useState<string>('');
   const [entitlementLanguage, setEntitlementLanguage] = useState<string | null>(null);
-  const bookLanguages = book?.format === 'ebook' ? (book.languages || []) : [];
+  const offeredFormats = bookFormats(book);
+  const hasPrint = offeredFormats.includes('print');
+  const hasDigital = offeredFormats.includes('ebook');
+  const [purchaseFormat, setPurchaseFormat] = useState<BookFormat>('print');
+  const purchaseFormatRef = useRef<BookFormat>('print');
+  const bookLanguages = hasDigital ? (book?.languages || []) : [];
   const bookLanguagesKey = bookLanguages.join(',');
+  const selectedPrice = book
+    ? (purchaseFormat === 'ebook'
+      ? (book.prices?.digital ?? (book.digitalPrice ?? book.price))
+      : (book.prices?.print ?? book.price))
+    : null;
+  const printSoldOut = hasPrint && book?.stockQuantity !== null && book?.stockQuantity !== undefined && Number(book.stockQuantity) <= 0;
+  const unavailable = Boolean(book) && offeredFormats.length === 0;
+  // Delivery options shown before the cart, so the reader knows the fee up front.
+  const shippingCountries = hasPrint
+    ? [...new Set((book?.shippingCountries || []).filter((code): code is string => typeof code === 'string' && code.length === 2))]
+    : [];
+  const shippingFees = book?.shippingFees || {};
+  const shippingFreeOver = book?.shippingFreeOver === null || book?.shippingFreeOver === undefined || book?.shippingFreeOver === ''
+    ? null
+    : Number(book.shippingFreeOver);
+  const shippingCountriesKey = shippingCountries.join(',');
+  const [deliveryCountry, setDeliveryCountry] = useState('');
+
+  // Default the delivery country to the one saved in the reader's profile (or
+  // the last one picked on a book page), and let the reader change it here.
+  useEffect(() => {
+    if (!shippingCountries.length) { setDeliveryCountry(''); return; }
+    const preferred = readPreferredShippingCountry();
+    if (preferred && shippingCountries.includes(preferred)) { setDeliveryCountry(preferred); return; }
+    if (!user || user.role !== 'READER') { setDeliveryCountry(shippingCountries[0]); return; }
+    let active = true;
+    api.get<{ address: Record<string, unknown> | null }>('/me/shipping-address')
+      .then(({ address }) => {
+        if (!active) return;
+        const country = String(address?.country || address?.countryCode || '').trim().toUpperCase();
+        setDeliveryCountry(shippingCountries.includes(country) ? country : shippingCountries[0]);
+      })
+      .catch(() => { if (active) setDeliveryCountry(shippingCountries[0]); });
+    return () => { active = false; };
+    // The country list itself is the dependency; it is stable per book.
+  }, [shippingCountriesKey, user]);
+
+  function chooseDeliveryCountry(country: string) {
+    setDeliveryCountry(country);
+    storePreferredShippingCountry(country);
+  }
+
+  // Default to the format that is actually offered (and keep the reader's pick).
+  useEffect(() => {
+    if (!book) return;
+    const available = bookFormats(book);
+    const next = available.includes(purchaseFormatRef.current) ? purchaseFormatRef.current : (available[0] || 'print');
+    purchaseFormatRef.current = next;
+    setPurchaseFormat(next);
+  }, [book]);
+
+  function chooseFormat(format: BookFormat) {
+    purchaseFormatRef.current = format;
+    setPurchaseFormat(format);
+  }
 
   useEffect(() => {
     if (!bookLanguagesKey) { setLanguageChoice(''); return; }
@@ -3123,7 +3456,7 @@ export function BookDetailPage() {
   }, [bookLanguagesKey, language]);
 
   useEffect(() => {
-    if (!book || book.format !== 'ebook' || !user) {
+    if (!book || !hasDigital || !user) {
       setCanDownload(false);
       setCheckingAccess(false);
       return;
@@ -3144,7 +3477,7 @@ export function BookDetailPage() {
       })
       .finally(() => { if (active) setCheckingAccess(false); });
     return () => { active = false; };
-  }, [book, user]);
+  }, [book, user, hasDigital]);
 
   async function downloadEbook() {
     if (!book) return;
@@ -3174,26 +3507,42 @@ export function BookDetailPage() {
   }
 
   async function addToCart() {
-    if (!book) return;
+    if (!book || unavailable) return;
     if (!user) {
       const lines = readGuestCart();
-      const existing = lines.find((line) => line.bookId === book.id);
-      if (existing && book.format === 'ebook') {
-        if (existing.language !== (languageChoice || undefined)) {
-          existing.language = languageChoice;
-          writeGuestCart(lines);
-          setCheckoutError(null);
-          setCartNotice(t('حُدّثت لغة الكتاب في سلتك.', language));
+      const lineLanguage = purchaseFormat === 'ebook' ? (languageChoice || bookLanguages[0]) : undefined;
+      const sameLine = lines.find((line) => line.bookId === book.id
+        && (line.format || 'print') === purchaseFormat
+        && (purchaseFormat === 'ebook' ? (line.language || bookLanguages[0]) === lineLanguage : true));
+      if (sameLine) {
+        if (purchaseFormat === 'ebook') {
+          setCheckoutError('هذه النسخة موجودة بالفعل في سلتك.');
           return;
         }
-        setCheckoutError('هذا الكتاب موجود بالفعل في سلتك.');
+        sameLine.quantity = Math.min(20, sameLine.quantity + quantity);
+        writeGuestCart(lines);
+        setCheckoutError(null);
+        setCartNotice('أُضيف الكتاب إلى سلتك. ستُدمج السلة بعد تسجيل الدخول.');
         return;
       }
-      if (existing) existing.quantity = Math.min(20, existing.quantity + quantity);
-      else lines.push({
+      // A single line of this book switches format (historical behaviour); another
+      // PDF language becomes a second line so both versions can be bought together.
+      const singleLine = lines.length === 1 && lines[0].bookId === book.id ? lines[0] : null;
+      if (singleLine && (singleLine.format || 'print') !== purchaseFormat) {
+        singleLine.format = purchaseFormat;
+        singleLine.quantity = purchaseFormat === 'ebook' ? 1 : quantity;
+        if (purchaseFormat === 'ebook' && lineLanguage) singleLine.language = lineLanguage;
+        else delete singleLine.language;
+        writeGuestCart(lines);
+        setCheckoutError(null);
+        setCartNotice(t('حُدّثت نسخة الكتاب في سلتك.', language));
+        return;
+      }
+      lines.push({
         bookId: book.id,
-        quantity: book.format === 'ebook' ? 1 : quantity,
-        ...(book.format === 'ebook' && languageChoice ? { language: languageChoice } : {})
+        quantity: purchaseFormat === 'ebook' ? 1 : quantity,
+        format: purchaseFormat,
+        ...(purchaseFormat === 'ebook' && lineLanguage ? { language: lineLanguage } : {})
       });
       writeGuestCart(lines);
       setCheckoutError(null);
@@ -3207,14 +3556,15 @@ export function BookDetailPage() {
     try {
       await api.post('/cart/items', {
         bookId: book.id,
-        quantity: book.format === 'print' ? quantity : 1,
-        ...(book.format === 'ebook' && languageChoice ? { language: languageChoice } : {})
+        format: purchaseFormat,
+        quantity: purchaseFormat === 'print' ? quantity : 1,
+        ...(purchaseFormat === 'ebook' && languageChoice ? { language: languageChoice } : {})
       });
       setCartNotice(t('تمت إضافة الكتاب إلى السلة.', language));
       window.dispatchEvent(new Event('cart:changed'));
     } catch (caught) {
       if (caught instanceof ApiError && caught.code === 'ALREADY_IN_CART') {
-        setCheckoutError('هذا الكتاب موجود بالفعل في سلتك.');
+        setCheckoutError('هذه النسخة موجودة بالفعل في سلتك. اختر لغة أخرى لإضافتها بشكل منفصل.');
       } else {
         setCheckoutError(caught instanceof Error ? caught.message : 'تعذر إضافة الكتاب إلى السلة.');
       }
@@ -3232,36 +3582,89 @@ export function BookDetailPage() {
       <div className="self-center">
         <p className="text-sm font-semibold text-brand-ink">من متجر الحكايات</p>
         <h1 className="mt-3 text-3xl font-semibold leading-relaxed text-brand-ink">{book.title}</h1>
-        <p className="mt-5 leading-8 text-ink-muted">{book.description || 'كتاب يجمع بين متعة الحكاية وقيمها.'}</p>
-        <p className="mt-5 text-xl font-semibold text-brand-ink">{formatPrice(book.price, book.currency, language)}</p>
-        {book.format === 'ebook' && <p className="mt-2 text-sm leading-6 text-ink-muted">{t('يُشترى هذا الكتاب الإلكتروني بشكل منفصل، ولا يشمله الاشتراك.', language)}</p>}
-        {book.format === 'ebook' && bookLanguages.length === 1 && <div className="mt-4 rounded-2xl border border-line bg-surface p-4">
+        {book.description && <div className="mt-5">
+          <p className="text-sm font-semibold text-brand-ink">عن الكتاب</p>
+          <p className="mt-2 whitespace-pre-line leading-8 text-ink-muted">{book.description}</p>
+        </div>}
+        <p className="mt-5 text-xl font-semibold text-brand-ink">{formatPrice(selectedPrice ?? book.price, book.currency, language)}</p>
+        {hasPrint && (() => {
+          const selectedFee = Number(shippingFees[deliveryCountry]);
+          const hasFee = Number.isFinite(selectedFee) && selectedFee >= 0;
+          const printSubtotal = Number(selectedPrice ?? book.price) * quantity;
+          const freeDelivery = hasFee && shippingFreeOver !== null && Number.isFinite(shippingFreeOver) && printSubtotal >= shippingFreeOver;
+          const payableFee = hasFee ? (freeDelivery ? 0 : selectedFee) : 0;
+          return <div className="mt-5 rounded-2xl border border-line bg-surface-soft p-4">
+            <p className="text-sm font-semibold text-brand-ink">الشحن والتوصيل</p>
+            {shippingCountries.length > 0 ? <>
+              <label className="mt-2 block text-xs font-semibold text-ink-muted">بلد التوصيل
+                <select
+                  value={deliveryCountry}
+                  onChange={(event) => chooseDeliveryCountry(event.target.value)}
+                  className="mt-1.5 w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm font-normal text-ink"
+                >
+                  {shippingCountries.map((code) => <option key={code} value={code}>{countryLabel(code, language)}</option>)}
+                </select>
+              </label>
+              <p className="mt-2 text-xs leading-6 text-ink-muted">
+                {hasFee ? <>سعر التوصيل إلى {countryLabel(deliveryCountry, language)}: <span className="font-semibold text-brand-ink">{formatPrice(freeDelivery ? 0 : selectedFee, book.currency, language)}</span>{freeDelivery ? ' (مجاني)' : ''}.</> : 'سعر التوصيل إلى هذا البلد غير متاح بعد.'}
+              </p>
+              {hasFee && <p className="text-xs leading-6 text-ink-muted">إجمالي النسخة المطبوعة مع الشحن: <span className="font-semibold text-brand-ink">{formatPrice(printSubtotal + payableFee, book.currency, language)}</span>.</p>}
+              {shippingFreeOver !== null && Number.isFinite(shippingFreeOver) && shippingFreeOver > 0 && <p className="mt-2 text-xs font-semibold text-brand-ink">توصيل مجاني ابتداءً من {formatPrice(shippingFreeOver, book.currency, language)}.</p>}
+            </> : <p className="mt-1 text-xs leading-6 text-ink-muted">تُحسب رسوم الشحن حسب بلد التوصيل في السلة قبل الدفع.</p>}
+          </div>;
+        })()}
+        {hasPrint && hasDigital && (
+          <div className="mt-4 grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label={t('صيغة الكتاب', language)}>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={purchaseFormat === 'print'}
+              onClick={() => chooseFormat('print')}
+              className={`rounded-2xl border p-4 text-start transition ${purchaseFormat === 'print' ? 'border-brand bg-brand-soft' : 'border-line bg-surface hover:border-line-strong'}`}
+            >
+              <span className="block text-sm font-semibold text-brand-ink">{t('نسخة مطبوعة', language)}</span>
+              <span className="mt-1 block text-sm text-ink-muted">{formatPrice(book.prices?.print ?? book.price, book.currency, language)}</span>
+            </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={purchaseFormat === 'ebook'}
+              onClick={() => chooseFormat('ebook')}
+              className={`rounded-2xl border p-4 text-start transition ${purchaseFormat === 'ebook' ? 'border-brand bg-brand-soft' : 'border-line bg-surface hover:border-line-strong'}`}
+            >
+              <span className="block text-sm font-semibold text-brand-ink">{t('كتاب إلكتروني (PDF)', language)}</span>
+              <span className="mt-1 block text-sm text-ink-muted">{formatPrice(book.prices?.digital ?? book.digitalPrice ?? book.price, book.currency, language)}</span>
+            </button>
+          </div>
+        )}
+        {hasDigital && purchaseFormat === 'ebook' && <p className="mt-2 text-sm leading-6 text-ink-muted">{t('يُشترى هذا الكتاب الإلكتروني بشكل منفصل، ولا يشمله الاشتراك.', language)}</p>}
+        {hasDigital && purchaseFormat === 'ebook' && bookLanguages.length === 1 && <div className="mt-4 rounded-2xl border border-line bg-surface p-4">
           <p className="text-sm font-semibold text-brand-ink">{t('نسخة PDF:', language)} {bookLanguageLabel(bookLanguages[0])}</p>
         </div>}
-        {book.format === 'ebook' && bookLanguages.length > 1 && <div className="mt-4 rounded-2xl border border-line bg-surface p-4">
+        {hasDigital && purchaseFormat === 'ebook' && bookLanguages.length > 1 && <div className="mt-4 rounded-2xl border border-line bg-surface p-4">
           <label className="block text-sm font-semibold text-brand-ink">{t('اختر لغة الكتاب الإلكتروني (PDF)', language)}
             <select value={languageChoice || bookLanguages[0]} onChange={(event) => setLanguageChoice(event.target.value)} className="mt-2 w-full rounded-xl border border-line px-3 py-2.5">{bookLanguages.map((code) => <option key={code} value={code}>{bookLanguageLabel(code)}</option>)}</select>
           </label>
           <p className="mt-2 text-xs leading-6 text-ink-muted">{t('يتوفر هذا الكتاب بالنسخ التالية فقط. تُنزّل النسخة التي تختارها.', language)}</p>
         </div>}
-        {book.format === 'print' && book.stockQuantity !== null && book.stockQuantity !== undefined && <p className="mt-2 text-sm text-ink-muted">المتوفر: {book.stockQuantity}</p>}
+        {purchaseFormat === 'print' && book.stockQuantity !== null && book.stockQuantity !== undefined && <p className="mt-2 text-sm text-ink-muted">المتوفر: {book.stockQuantity}</p>}
         {!user && <p className="mt-5 text-sm text-ink-muted">أكمل الطلب بعد <Link to="/login" className="font-semibold text-brand-ink underline">تسجيل الدخول</Link>.</p>}
         {checkoutError && <div className="mt-5"><ErrorState message={checkoutError} /></div>}
         {cartNotice && <p role="status" className="mt-5 rounded-xl bg-brand-soft p-3 text-sm font-semibold text-brand-ink">{cartNotice} <Link to="/cart" className="underline">عرض السلة</Link></p>}
         {downloadError && <div className="mt-5"><ErrorState message={downloadError} /></div>}
-        {book.format === 'ebook' && canDownload ? <div className="mt-6 space-y-2">
+        {hasDigital && canDownload ? <div className="mt-6 space-y-2">
           <button type="button" onClick={downloadEbook} disabled={downloadBusy || checkingAccess} className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-brand px-5 py-3 font-semibold text-brand-on disabled:opacity-50"><BookOpen size={17} /> {t(downloadBusy ? 'جارٍ تجهيز التنزيل…' : 'تنزيل الكتاب الإلكتروني', language)}</button>
           {entitlementLanguage && <p className="text-center text-xs font-semibold text-ink-muted">{t('نسخة PDF:', language)} {bookLanguageLabel(entitlementLanguage)}</p>}
         </div> :
         <>
-        {book.format === 'ebook' && downloaded && <div className="mt-6 rounded-2xl border border-line bg-surface p-5">
+        {hasDigital && downloaded && <div className="mt-6 rounded-2xl border border-line bg-surface p-5">
           <p className="flex items-center justify-center gap-2 text-center text-sm font-semibold text-brand-ink"><Check size={16} aria-hidden="true" /> {t('لقد نزّلت هذا الكتاب بالفعل. لا يُسمح بتنزيله مرة أخرى.', language)}</p>
           <p className="mt-2 text-center text-xs leading-6 text-ink-muted">{t('يمكنك شراء الكتاب مرة أخرى لتحصل على تنزيل جديد، باللغة التي تختارها.', language)}</p>
         </div>}
         <div className="mt-6 space-y-4 rounded-2xl border border-line bg-surface p-5">
-          {book.format === 'print' && book.stockQuantity !== null && book.stockQuantity !== undefined && book.stockQuantity > 0 && <label className="block text-sm font-semibold text-ink">الكمية<select value={quantity} onChange={(event) => setQuantity(Number(event.target.value))} className="mt-2 w-full rounded-xl border border-line px-3 py-2.5">{Array.from({ length: Math.min(book.stockQuantity, 10) }, (_, index) => index + 1).map((count) => <option key={count} value={count}>{count}</option>)}</select></label>}
-          <button type="button" onClick={() => void addToCart()} disabled={cartBusy || (book.format === 'print' && book.stockQuantity === 0)} className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-brand px-5 py-3 font-semibold text-brand-on transition hover:bg-brand disabled:cursor-not-allowed disabled:border disabled:border-line disabled:bg-surface-soft disabled:text-ink-muted">
-            <ShoppingBag size={17} /> {cartBusy ? 'جارٍ الإضافة…' : book.format === 'print' && book.stockQuantity === 0 ? 'غير متوفر حاليًا' : downloaded ? t('اشترِ مرة أخرى', language) : 'أضف إلى السلة'}
+          {purchaseFormat === 'print' && book.stockQuantity !== null && book.stockQuantity !== undefined && book.stockQuantity > 0 && <label className="block text-sm font-semibold text-ink">الكمية<select value={quantity} onChange={(event) => setQuantity(Number(event.target.value))} className="mt-2 w-full rounded-xl border border-line px-3 py-2.5">{Array.from({ length: Math.min(book.stockQuantity, 10) }, (_, index) => index + 1).map((count) => <option key={count} value={count}>{count}</option>)}</select></label>}
+          <button type="button" onClick={() => void addToCart()} disabled={cartBusy || unavailable || (purchaseFormat === 'print' && printSoldOut)} className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-brand px-5 py-3 font-semibold text-brand-on transition hover:bg-brand disabled:cursor-not-allowed disabled:border disabled:border-line disabled:bg-surface-soft disabled:text-ink-muted">
+            <ShoppingBag size={17} /> {cartBusy ? 'جارٍ الإضافة…' : unavailable || (purchaseFormat === 'print' && printSoldOut) ? 'غير متوفر حاليًا' : downloaded && purchaseFormat === 'ebook' ? t('اشترِ مرة أخرى', language) : 'أضف إلى السلة'}
           </button>
           <p className="text-center text-xs leading-6 text-ink-muted">الشحن والعنوان (المحفوظ من حسابك) والدفع الآمن عبر Stripe تُكمَل في السلة.</p>
         </div>
@@ -3471,9 +3874,13 @@ export function AccountPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [updatingSubscriptionId, setUpdatingSubscriptionId] = useState<number | null>(null);
   const [subscriptionActionError, setSubscriptionActionError] = useState<string | null>(null);
-  const [planCheckoutId, setPlanCheckoutId] = useState<number | null>(null);
-  const [planCheckoutError, setPlanCheckoutError] = useState<string | null>(null);
   const [promoCode, setPromoCode] = useState('');
+  const { checkoutPlanId: planCheckoutId, checkoutError: planCheckoutError, startCheckout: startPlanCheckout } = useSubscriptionCheckout({
+    language,
+    isReader: user?.role === 'READER',
+    promoCode,
+    onRequireLogin: () => window.location.assign(`/${language}/login`)
+  });
   const [giftCode, setGiftCode] = useState('');
   const [giftCodeBusy, setGiftCodeBusy] = useState(false);
   const [giftCodeError, setGiftCodeError] = useState<string | null>(null);
@@ -3482,13 +3889,7 @@ export function AccountPage() {
   const [savingEmailPreferences, setSavingEmailPreferences] = useState(false);
   const [emailPreferencesError, setEmailPreferencesError] = useState<string | null>(null);
   const [emailPreferencesNotice, setEmailPreferencesNotice] = useState<string | null>(null);
-  const { data: progress, loading, error } = useRemote<Array<{
-    id: number;
-    storyId: number;
-    completedParts: number[];
-    nextPart?: { id: number; partNumber: number } | null;
-    story?: { title: string; slug: string; cover?: string | null };
-  }>>('/reading-progress');
+  const { data: progress, loading, error } = useRemote<ReadingProgressEntry[]>('/reading-progress');
   const { data: plans, loading: plansLoading, error: plansError } = useRemote<SubscriptionPlan[]>('/plans');
   const { data: quizAttempts, loading: quizAttemptsLoading, error: quizAttemptsError } = useRemote<Array<{
     id: number;
@@ -3548,22 +3949,6 @@ export function AccountPage() {
   if (isLoading) return <SiteLayout><Container className="py-16"><LoadingState /></Container></SiteLayout>;
   if (!user) return <Navigate to="/login" replace />;
   if (isAdminAccount) return <main className="p-12 text-center">{t('Redirection vers le portail administrateur…', language)}</main>;
-
-  async function startPlanCheckout(planId: number) {
-    setPlanCheckoutId(planId);
-    setPlanCheckoutError(null);
-    try {
-      const response = await api.post<{ checkoutUrl: string }>('/payments/subscriptions/checkout', {
-        planId,
-        language,
-        ...(promoCode.trim() ? { promoCode: promoCode.trim() } : {})
-      });
-      window.location.assign(response.checkoutUrl);
-    } catch (caught) {
-      setPlanCheckoutError(caught instanceof Error ? caught.message : 'تعذر بدء الاشتراك.');
-      setPlanCheckoutId(null);
-    }
-  }
 
   async function updateSubscription(subscriptionId: number, action: 'cancel' | 'resume') {
     setUpdatingSubscriptionId(subscriptionId);
@@ -3709,31 +4094,13 @@ export function PricingPage() {
   const navigate = useLocalizedNavigate();
   const { user } = useStoryAuth();
   const { data: plans, loading, error } = useRemote<SubscriptionPlan[]>('/plans');
-  const [checkoutId, setCheckoutId] = useState<number | null>(null);
-  const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [promoCode, setPromoCode] = useState('');
-
-  async function startCheckout(planId: number) {
-    if (!user || user.role !== 'READER') {
-      navigate('/login');
-      return;
-    }
-    setCheckoutId(planId);
-    setCheckoutError(null);
-    try {
-      const response = await api.post<{ checkoutUrl: string }>('/payments/subscriptions/checkout', {
-        planId,
-        language,
-        ...(promoCode.trim() ? { promoCode: promoCode.trim() } : {})
-      });
-      window.location.assign(response.checkoutUrl);
-    } catch (caught) {
-      setCheckoutError(caught instanceof ApiError && caught.status === 409
-        ? t('لديك اشتراك نشط بالفعل. يمكنك إدارته من حسابك.', language)
-        : caught instanceof Error ? caught.message : 'تعذر بدء الاشتراك.');
-      setCheckoutId(null);
-    }
-  }
+  const { checkoutPlanId: checkoutId, checkoutError, startCheckout } = useSubscriptionCheckout({
+    language,
+    isReader: user?.role === 'READER',
+    promoCode,
+    onRequireLogin: () => navigate('/login')
+  });
 
   return <SiteLayout><main><Container className="py-12 sm:py-16">
     <p className="text-sm font-semibold tracking-widest text-brand-ink">الأسعار والباقات</p>
@@ -4175,15 +4542,117 @@ export function CheckoutResultPage() {
   </Container></main></SiteLayout>;
 }
 
-export function MembershipPage() {
+/**
+ * Plans offered in-place, over the page the reader was on. The paywall never
+ * sends a reader to a separate "you need a subscription" screen first.
+ */
+function SubscriptionPlansDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const language = useSiteLanguage();
   const { user } = useStoryAuth();
-  return <SiteLayout><main><Container className="max-w-3xl py-14 sm:py-20">
-    <span className="grid h-14 w-14 place-items-center rounded-2xl bg-brand-soft text-brand-ink"><Star size={25} /></span>
-    <h1 className="mt-6 text-3xl font-semibold leading-relaxed text-brand-ink">اقرأ الحكاية كاملة</h1>
-    <p className="mt-4 leading-8 text-ink-muted">بعض الأجزاء متاحة للمشتركين. يمكنك الاطلاع على الباقات المتاحة وإدارة حالة اشتراكك من حسابك.</p>
-    {user ? <Link to="/account" className="mt-7 inline-flex rounded-full bg-brand px-6 py-3 font-semibold text-brand-on">عرض حالة اشتراكي</Link> : <Link to="/register" className="mt-7 inline-flex rounded-full bg-brand px-6 py-3 font-semibold text-brand-on">إنشاء حساب</Link>}
-    <p className="mt-5 text-sm text-ink-muted">الأجزاء المجانية تبقى متاحة دائمًا وفق سياسة النشر.</p>
-  </Container></main></SiteLayout>;
+  const navigate = useLocalizedNavigate();
+  const { data: plans, loading, error } = useRemote<SubscriptionPlan[]>(open ? `/plans?lang=${language}` : '');
+  const { checkoutPlanId: checkoutId, checkoutError, startCheckout } = useSubscriptionCheckout({
+    language,
+    isReader: user?.role === 'READER',
+    onRequireLogin: () => navigate(`/login?next=${encodeURIComponent(window.location.pathname)}`)
+  });
+  const closeButton = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    closeButton.current?.focus();
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [open, onClose]);
+
+  if (!open) return null;
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-brand-ink/70 p-0 backdrop-blur-sm sm:items-center sm:p-6"
+      onMouseDown={onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="subscription-plans-title"
+        onMouseDown={(event) => event.stopPropagation()}
+        className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-t-3xl border border-line bg-surface p-6 shadow-lift sm:rounded-3xl sm:p-8"
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="ds-eyebrow">{t('الاشتراكات', language)}</p>
+            <h2 id="subscription-plans-title" className="mt-2 font-display text-2xl font-semibold text-ink">{t('اختر باقة القراءة', language)}</h2>
+            <p className="mt-2 text-sm leading-7 text-ink-muted">{t('هذا الجزء متاح للمشتركين. اختر باقة لتتابع القراءة فورًا.', language)}</p>
+          </div>
+          <button
+            ref={closeButton}
+            type="button"
+            onClick={onClose}
+            aria-label={t('إغلاق', language)}
+            className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-line text-ink-muted transition hover:text-ink"
+          >
+            <X size={18} aria-hidden="true" />
+          </button>
+        </div>
+
+        {loading && <div className="py-8"><LoadingState /></div>}
+        {error && <div className="mt-5"><ErrorState message={error} /></div>}
+        {!loading && !error && !plans?.length && (
+          <p className="mt-6 rounded-2xl bg-surface-soft p-4 text-sm leading-7 text-ink-muted">{t('لا توجد باقات متاحة حاليًا.', language)}</p>
+        )}
+        {!!plans?.length && (
+          <div className="mt-6 grid gap-3">
+            {plans.map((plan) => (
+              <article key={plan.id} className="rounded-2xl border border-line p-4 sm:p-5">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h3 className="font-semibold text-brand-ink">{plan.name}</h3>
+                    <p className="mt-1 text-xs text-ink-muted">{t(plan.isFamily ? 'باقة عائلية' : 'باقة فردية', language)}</p>
+                  </div>
+                  <span className="shrink-0 rounded-xl bg-brand-soft px-3 py-2 text-sm font-semibold text-brand-ink">{formatPrice(plan.price, plan.currency, language)} / {t(plan.interval === 'month' ? 'شهر' : 'سنة', language)}</span>
+                </div>
+                {!!plan.features?.length && (
+                  <ul className="mt-3 space-y-1.5 text-sm leading-6 text-ink-muted">
+                    {plan.features.map((feature, index) => (
+                      <li key={`${index}-${feature}`} className="flex gap-2"><Check size={15} className="mt-0.5 shrink-0 text-brand-ink" aria-hidden="true" />{feature}</li>
+                    ))}
+                  </ul>
+                )}
+                <button
+                  type="button"
+                  onClick={() => void startCheckout(plan.id)}
+                  disabled={checkoutId !== null}
+                  className="mt-4 w-full rounded-full bg-brand px-5 py-3 font-semibold text-brand-on transition hover:bg-brand-strong disabled:opacity-50"
+                >
+                  {t(checkoutId === plan.id ? 'جارٍ تحويلك للدفع…' : 'الاشتراك الآمن', language)}
+                </button>
+              </article>
+            ))}
+          </div>
+        )}
+        {checkoutError && <div className="mt-4"><ErrorState message={checkoutError} /></div>}
+
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4 text-sm">
+          <Link to="/pricing" className="font-semibold text-brand-ink underline underline-offset-4">{t('الأسعار والباقات', language)}</Link>
+          <button type="button" onClick={onClose} className="min-h-11 text-ink-muted hover:text-ink">{t('ليس الآن', language)}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// The paywall sends readers here: show the real plans and the secure checkout
+// instead of a page that only linked back to the account.
+export function MembershipPage() {
+  return <PricingPage />;
 }
 
 export function ReturnsPolicyRoute() {

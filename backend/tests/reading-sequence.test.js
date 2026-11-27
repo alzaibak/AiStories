@@ -14,7 +14,7 @@ const {
 } = require('../utils/storySequence');
 
 const { app } = require('../index');
-const { Collection, Story, StoryPart, Quiz, ReadingProgress, User, sequelize } = require('../models');
+const { Collection, Story, StoryPart, Quiz, ReadingProgress, Certificate, User, sequelize } = require('../models');
 const { hashPassword } = require('../utils/security');
 const { createSessionToken } = require('../utils/sessionToken');
 
@@ -62,10 +62,13 @@ test('un visiteur qui demande la partie 2 reçoit LOGIN_REQUIRED', async () => {
   assert.equal(issue.code, 'LOGIN_REQUIRED');
 });
 
-test('une partie déjà terminée reste lisible, même si la précédente a disparu', async () => {
+test('une partie déjà terminée ne contourne jamais le paywall', async () => {
   const story = fakeStory([fakePart(12, 2)]);
-  const issue = await partAccess({ story, part: story.parts[0], user: { id: 7, role: 'READER' }, completedIds: new Set([12]), accessible: false });
-  assert.equal(issue, null);
+  // Finished parts skip the reading-order rule, but a lapsed subscription locks them.
+  const locked = await partAccess({ story, part: story.parts[0], user: { id: 7, role: 'READER' }, completedIds: new Set([12]), accessible: false });
+  assert.equal(locked.code, 'SUBSCRIPTION_REQUIRED');
+  const open = await partAccess({ story, part: story.parts[0], user: { id: 7, role: 'READER' }, completedIds: new Set([12]), accessible: true });
+  assert.equal(open, null);
 });
 
 test('une partie à venir ne divulgue jamais de contenu, même pour un admin', async () => {
@@ -265,6 +268,9 @@ test('HTTP: après la partie 1, la partie 2 s’ouvre', async () => {
   const response = await jsonFetch(`/stories/${story.slug}/parts/2`, { token: readerToken });
   assert.equal(response.status, 200);
   assert.match(response.payload.content, /partie 2/i);
+  // Opening a part remembers it as the last part read.
+  const saved = await ReadingProgress.findOne({ where: { userId: reader.id, storyId: story.id } });
+  assert.equal(saved.lastPartId, parts[1].id);
 });
 
 test('HTTP: une partie à venir ne fuit aucun contenu', async () => {
@@ -301,6 +307,18 @@ test('HTTP: une histoire terminée redevient "en cours" quand une partie est pub
   const statuses = storyResponse.payload.parts.map((part) => [part.partNumber, part.status]);
   assert.deepEqual(statuses, [[1, 'completed'], [2, 'completed'], [3, 'completed'], [4, 'current']]);
   await upcoming.update({ status: 'coming_soon', content: '', endingHook: '' });
+});
+
+test('HTTP: rejouer la fin d’une histoire déjà terminée enregistre sans erreur', async () => {
+  const replay = await jsonFetch(`/stories/${story.slug}/parts/3/complete`, { token: readerToken, method: 'POST' });
+  assert.equal(replay.status, 200);
+  assert.equal(replay.payload.alreadyCompleted, true);
+  assert.equal(replay.payload.storyFinished, true);
+  assert.ok(replay.payload.completion, 'the end-of-story summary is replayed');
+  const certificates = await Certificate.count({ where: { userId: reader.id, storyId: story.id } });
+  assert.equal(certificates, 1);
+  const progress = await ReadingProgress.findOne({ where: { userId: reader.id, storyId: story.id } });
+  assert.equal(progress.completedParts.length, parts.length);
 });
 
 test('HTTP: les quiz d’une partie verrouillée sont refusés', async () => {

@@ -8,6 +8,7 @@ import { useStoryAuth } from '@/contexts/StoryAuthContext';
 import { useSiteTheme } from '@/contexts/SiteThemeContext';
 import { ApiError, api } from '@/lib/api';
 import { translateText, type SiteLanguage } from '@/lib/localization';
+import { useSubscriptionCheckout } from '@/hooks/useSubscriptionCheckout';
 import {
   BadgeCircle, BadgeCelebration, BadgeDetailModal, categoryLabel, tierLabel,
   type BadgeView
@@ -311,9 +312,13 @@ export function ProfilePage() {
   const [myReturnsError, setMyReturnsError] = useState<string | null>(null);
   const [plans, setPlans] = useState<PlanRecord[]>([]);
   const [plansLoading, setPlansLoading] = useState(false);
-  const [planCheckoutId, setPlanCheckoutId] = useState<number | null>(null);
-  const [planCheckoutError, setPlanCheckoutError] = useState<string | null>(null);
   const [promoCode, setPromoCode] = useState('');
+  const { checkoutPlanId, checkoutError, setCheckoutError, startCheckout } = useSubscriptionCheckout({
+    language,
+    isReader: user?.role === 'READER',
+    promoCode,
+    onRequireLogin: () => window.location.assign(`/${language}/login`)
+  });
   const [giftCode, setGiftCode] = useState('');
   const [giftCodeBusy, setGiftCodeBusy] = useState(false);
   const [giftCodeError, setGiftCodeError] = useState<string | null>(null);
@@ -385,7 +390,7 @@ export function ProfilePage() {
       setPlansLoading(true);
       api.get<PlanRecord[]>('/plans')
         .then((response) => setPlans(Array.isArray(response) ? response : []))
-        .catch((caught) => setPlanCheckoutError(caught instanceof Error ? caught.message : t('تعذر تحميل الباقات.')))
+        .catch((caught) => setCheckoutError(caught instanceof Error ? caught.message : t('تعذر تحميل الباقات.')))
         .finally(() => setPlansLoading(false));
     }
     setRecurringLoading(true);
@@ -620,24 +625,6 @@ export function ProfilePage() {
       setReturnError(caught instanceof Error ? caught.message : t('تعذر إرسال طلب الإرجاع.'));
     } finally {
       setReturnBusy(false);
-    }
-  }
-
-  async function startPlanCheckout(planId: number) {
-    setPlanCheckoutId(planId);
-    setPlanCheckoutError(null);
-    try {
-      const response = await api.post<{ checkoutUrl: string }>('/payments/subscriptions/checkout', {
-        planId,
-        language,
-        ...(promoCode.trim() ? { promoCode: promoCode.trim() } : {})
-      });
-      window.location.assign(response.checkoutUrl);
-    } catch (caught) {
-      setPlanCheckoutError(caught instanceof ApiError && caught.status === 409
-        ? t('لديك اشتراك نشط بالفعل. يمكنك إدارته من حسابك.')
-        : caught instanceof Error ? caught.message : t('تعذر بدء الاشتراك.'));
-      setPlanCheckoutId(null);
     }
   }
 
@@ -1408,16 +1395,16 @@ export function ProfilePage() {
                           </ul>
                           <button
                             type="button"
-                            onClick={() => void startPlanCheckout(plan.id)}
-                            disabled={planCheckoutId !== null || subscriptions.some((item) => item.accessActive)}
+                            onClick={() => void startCheckout(plan.id)}
+                            disabled={checkoutPlanId !== null || subscriptions.some((item) => item.accessActive)}
                             className="mt-4 w-full rounded-full bg-brand px-4 py-2 text-sm font-semibold text-brand-on disabled:opacity-50"
                           >
-                            {planCheckoutId === plan.id ? t('جارٍ تحويلك للدفع…') : t('الاشتراك الآمن')}
+                            {checkoutPlanId === plan.id ? t('جارٍ تحويلك للدفع…') : t('الاشتراك الآمن')}
                           </button>
                         </article>
                       ))}
                     </div>
-                    {planCheckoutError && <p role="alert" className="mt-3 rounded-xl border border-danger bg-danger-soft p-3 text-sm text-danger">{planCheckoutError}</p>}
+                    {checkoutError && <p role="alert" className="mt-3 rounded-xl border border-danger bg-danger-soft p-3 text-sm text-danger">{checkoutError}</p>}
                   </div>
 
                   <div className="rounded-2xl border border-line bg-surface p-5">

@@ -32,6 +32,7 @@ type AdminCollection = {
 type AdminBook = {
   id: number;
   title: string;
+  description?: string | null;
   slug: string;
   format: string;
   price: string | number;
@@ -587,7 +588,7 @@ export function AdminBooksPage() {
         <div className="overflow-x-auto"><table className="w-full min-w-[700px] text-start text-sm">
           <thead className="border-b border-slate-200 text-xs uppercase text-slate-500"><tr><th className="px-3 py-3">{t('العنوان', language)}</th><th className="px-3 py-3">{t('النوع', language)}</th><th className="px-3 py-3">{t('السعر', language)}</th><th className="px-3 py-3">{t('الحالة', language)}</th><th className="px-3 py-3">{t('الإجراءات', language)}</th></tr></thead>
           <tbody className="divide-y divide-slate-100">{visibleBooks.map((book) => <tr key={book.id}>
-            <td className="px-3 py-4"><p className="font-bold">{book.title}</p><p dir="ltr" className="mt-1 text-xs text-slate-500">{book.slug}</p></td>
+            <td className="px-3 py-4"><p className="font-bold">{book.title}</p>{book.description && <p className="mt-1 line-clamp-2 max-w-xs text-xs leading-5 text-slate-600">{book.description}</p>}<p dir="ltr" className="mt-1 text-xs text-slate-500">{book.slug}</p></td>
             <td className="px-3 py-4">{t(book.format === 'ebook' ? 'إلكتروني' : 'ورقي', language)}{book.format === 'ebook' && !book.fileStorageKey && !Object.values(book.bookFiles || {}).some((entry) => entry?.key) && <p className="mt-1 text-xs text-amber-800">{t('ملف PDF غير مرفق', language)}</p>}{book.format === 'ebook' && <p className="mt-1 text-xs text-slate-500">{(['ar', 'en', 'fr'] as const).filter((code) => book.bookFiles?.[code]?.key || (code === 'ar' && book.fileStorageKey)).map((code) => ({ ar: 'العربية', en: 'English', fr: 'Français' })[code]).join(' · ')}</p>}</td>
             <td className="px-3 py-4">{new Intl.NumberFormat(language, { style: 'currency', currency: book.currency }).format(Number(book.price))}</td>
             <td className="px-3 py-4"><span className={`rounded-full px-3 py-1 text-xs font-bold ${(book.status || (book.isPublished ? 'published' : 'draft')) === 'published' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-700'}`}>{(book.status || (book.isPublished ? 'published' : 'draft')) === 'archived' ? t('مؤرشفة', language) : (book.status || (book.isPublished ? 'published' : 'draft')) === 'published' ? t('منشورة', language) : t('مسودة', language)}</span></td>

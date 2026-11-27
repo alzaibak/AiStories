@@ -177,9 +177,10 @@ test('les invités ne lisent que la première partie gratuite d’une histoire p
     assert.equal(first.status, 200);
     assert.equal((await first.json()).content, 'Partie publique');
 
+    // A visitor asking for part 2 is asked for an account first.
     const second = await fetch(`${apiUrl}/api/v1/stories/test-story/parts/2`);
-    assert.equal(second.status, 403);
-    assert.equal((await second.json()).code, 'CONTENT_LOCKED');
+    assert.equal(second.status, 401);
+    assert.equal((await second.json()).code, 'LOGIN_REQUIRED');
   } finally {
     Story.findOne = originalFindOne;
   }

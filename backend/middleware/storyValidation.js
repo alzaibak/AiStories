@@ -321,8 +321,12 @@ const bookSchema = z.object({
   cover: optionalHttpUrl,
   coverAlt: optionalLocalizedValue(300).optional(),
   translations: translationsSchema(['title', 'description']),
-  format: z.enum(['print', 'ebook']),
+  // `format` is now derived from the availability mode; it stays accepted so
+  // older admin clients keep working.
+  availabilityMode: z.enum(['both', 'digital_only', 'print_only']).optional(),
+  format: z.enum(['print', 'ebook']).optional(),
   price: z.number().nonnegative(),
+  digitalPrice: z.number().nonnegative().nullable().optional(),
   currency: z.string().trim().length(3).default('EUR'),
   stockQuantity: z.number().int().nonnegative().nullable().optional(),
   isReturnable: z.boolean().optional(),
@@ -331,6 +335,9 @@ const bookSchema = z.object({
   previewFileKey: z.string().max(1024).nullable().optional(),
   weightGrams: z.number().int().nonnegative().nullable().optional(),
   isbn: z.string().trim().max(32).nullable().optional(),
+  shippingCountries: z.array(z.string().trim().regex(/^[A-Za-z]{2}$/)).max(80).optional(),
+  shippingFees: z.record(z.string().trim().regex(/^[A-Za-z]{2}$/), z.number().nonnegative()).optional(),
+  shippingFreeOver: z.number().nonnegative().nullable().optional(),
   isPublished: z.boolean().optional()
 });
 
@@ -408,11 +415,19 @@ const bookCheckoutSchema = z.object({
   items: z.array(z.object({
     bookId: z.number().int().positive(),
     quantity: z.number().int().min(1).max(20),
+    // Purchase format chosen by the reader (printed copy or e-book).
+    format: z.enum(['print', 'ebook']).optional(),
     // Ebook PDF version chosen by the reader (only that file is downloadable).
     language: z.enum(['ar', 'en', 'fr']).optional()
   }).strict()).min(1).max(10).superRefine((items, context) => {
-    if (new Set(items.map((item) => item.bookId)).size !== items.length) {
-      context.addIssue({ code: 'custom', message: 'Chaque livre ne peut apparaître qu’une seule fois.' });
+    // A book can be bought in several PDF languages (and once as a printed copy).
+    const keys = items.map((item) => [
+      item.bookId,
+      item.format || 'auto',
+      item.format === 'ebook' ? (item.language || 'default') : 'print'
+    ].join(':'));
+    if (new Set(keys).size !== keys.length) {
+      context.addIssue({ code: 'custom', message: 'Chaque version (livre, format, langue) ne peut apparaître qu’une seule fois.' });
     }
   }),
   shippingAddress: z.object({
